@@ -79,46 +79,39 @@
 
 	<script type="text/javascript">
 	let conversationHistory = [];
+        async function maj_btn() {
+	    let prompt_text = document.getElementById("textarea1").value;
+	    if (prompt_text.trim() === "") return;
+	    // USER INPUT
+	    document.getElementById("innertext").innerHTML += `<b>You:</b> ${prompt_text}<br><br>`;
+	
+	    document.getElementById("textarea1").value = "";
 
-	async function sendMessage() {
-	    let userInput = document.getElementById("user-input").value.trim();
-	    if (userInput === "") return;
-	
-	    let chatBox = document.getElementById("chat-box");
-	    
-	    conversationHistory.push({ role: "user", content: userInput });
-	
-	    // USERINPUT
-	    chatBox.innerHTML += `<p class="user">You: ${userInput}</p>`;
-	    document.getElementById("user-input").value = "";
-	
+	    // REQUEST TO OLLAMA
 	    try {
 	        let response = await fetch("http://localhost:11434/api/generate", {
 	            method: "POST",
 	            headers: { "Content-Type": "application/json" },
 	            body: JSON.stringify({
 	                model: "mistral",
-	                messages: conversationHistory,
+	                prompt: prompt_text,
 	                stream: false
 	            })
 	        });
 	
 	        let data = await response.json();
-	        let aiResponse = data.response || "No response from AI.";
+	        let ai_response = data.response || "No response from AI";
+
+		// History
+		conversationHistory.push({ role: "assistant", content: aiResponse });
 	
-	        //HISTORY
-	        conversationHistory.push({ role: "assistant", content: aiResponse });
-	
-	        //AI RESPONSE
-	        chatBox.innerHTML += `<p class="ai">AI: ${aiResponse}</p>`;
-	        chatBox.scrollTop = chatBox.scrollHeight;
-	
+            //AI RESP
+	        document.getElementById("innertext").innerHTML += `<b>AI:</b> ${ai_response}<br><br>`;
 	    } catch (error) {
-	        console.error("Error:", error);
-	        chatBox.innerHTML += `<p class="ai">AI: Error connecting to Ollama.</p>`;
+	        console.error("Error fetching from Ollama:", error);
+	        document.getElementById("innertext").innerHTML += `<b>AI:</b> Error: Could not connect to Ollama.<br>`;
 	    }
 	}
-
 	</script>
 
 </head>
@@ -134,7 +127,7 @@
     <div class="textresult"><p id="innertext"></p></div>>
     <textarea id="textarea1" placeholder="Explain clearly what you want." onkeyup="majbtn_pers()"></textarea>
     <div id="div3">
-        <input id="sendbtn" type="button" value="Send prompt" onclick="sendMessage()">
+        <input id="sendbtn" type="button" value="Send prompt" onclick="maj_btn()">
     </div> 
 </div>
 
