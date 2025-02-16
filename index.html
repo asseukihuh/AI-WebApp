@@ -13,6 +13,9 @@
             height: 40px;
             justify-content: center;
         }
+        #div3 {
+            text-align: center;
+        }
         #div1 {
             display: flex;
             background-color: rgb(255, 255, 255);
@@ -40,6 +43,7 @@
             max-height: 1000px;
             box-sizing: border-box;
             font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            user-select: none;
         }
         #textarea1 {
             margin-top: 10px;
@@ -49,12 +53,11 @@
             padding-bottom: 10px;
             max-height: 45px;
             width: 100%;
+            resize: none;
             box-sizing: border-box;
             font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
         }
-        #div3 {
-            display: flex;
-        }
+
         p{
             justify-content: end;
             margin: 10px;
@@ -66,7 +69,8 @@
         }
         #sendbtn {
             text-align: center;
-            float: right;
+            font-size: large;
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
         }
 	</style>
 
@@ -98,7 +102,9 @@
 <div id="div2">
     <div class="textresult"><p id="innertext"></p></div>
     <textarea id="textarea1" placeholder="Explain clearly what you want." onkeyup="majbtn_pers()"></textarea>
-    <input id="sendbtn" type="button" value="Send prompt" onclick="maj_btn()">
+    <div id="div3">
+        <input id="sendbtn" type="button" value="Send prompt" onclick="maj_btn()">
+    </div> 
 </div>
 
 </body>
