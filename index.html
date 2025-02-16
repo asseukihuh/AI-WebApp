@@ -102,7 +102,7 @@
 	        });
 	
 	        let data = await response.json();
-	        let ai_response = data.response || "No response from AI";
+	        let ai_response = data.message?.content || "No response from AI";
 
             //GET HISTORY AI
 
