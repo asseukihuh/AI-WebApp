@@ -75,13 +75,19 @@
 	</style>
 
 	<script type="text/javascript">
-        async function maj_btn() {
+        let history = [];
+
+        async function SendMessage() {
 	    let prompt_text = document.getElementById("textarea1").value;
 	    if (prompt_text.trim() === "") return;
 	    // USER INPUT
 	    document.getElementById("innertext").innerHTML += `<b>You:</b> ${prompt_text}<br>`;
 	
 	    document.getElementById("textarea1").value = "";
+
+        //GET HIST
+
+        history.push({ role: "user", content: prompt_text});
 
 	    // REQUEST TO OLLAMA
 	    try {
@@ -90,13 +96,15 @@
 	            headers: { "Content-Type": "application/json" },
 	            body: JSON.stringify({
 	                model: "mistral",
-	                prompt: prompt_text,
+	                prompt: history, // GET HISTORY + PROMPT INSTEAD OF ONLY PROMPT TO GET MEMORY
 	                stream: false
 	            })
 	        });
 	
 	        let data = await response.json();
 	        let ai_response = data.response || "No response from AI";
+
+            history.push({ role: "assistant", content: ai_response});
 	
             //AI RESP
 	        document.getElementById("innertext").innerHTML += `<b>AI:</b> ${ai_response}<br><br>`;
@@ -120,7 +128,7 @@
     <div class="textresult"><p id="innertext"></p></div>
     <textarea id="textarea1" placeholder="Explain clearly what you want." onkeyup="majbtn_pers()"></textarea>
     <div id="div3">
-        <input id="sendbtn" type="button" value="Send prompt" onclick="maj_btn()">
+        <input id="sendbtn" type="button" value="Send prompt" onclick="SendMessage()">
     </div> 
 </div>
 
