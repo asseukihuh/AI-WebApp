@@ -75,19 +75,37 @@
 	</style>
 
 	<script type="text/javascript">
-        var userinput = "You"
-        var responderinput = "Assistant"
-
-        function maj_btn()
-        {
-            var prompt_text = document.getElementById("textarea1").value;
-            if(prompt_text.trim() !== "") {
-                prompt_text = prompt_text.replace(/\n/g, "<br>");
-                document.getElementById("innertext").innerHTML += userinput + " : " + prompt_text + "<br><br>";
-                document.getElementById("textarea1").value = [];
-            }
-            
-        }
+        async function maj_btn() {
+	    let prompt_text = document.getElementById("textarea1").value;
+	    if (prompt_text.trim() === "") return; // Ignore empty input
+	
+	    // Display user input
+	    document.getElementById("innertext").innerHTML += `<b>You:</b> ${prompt_text}<br>`;
+	
+	    document.getElementById("textarea1").value = ""; // Clear input
+	
+	    // Send request to Ollama API
+	    try {
+	        let response = await fetch("http://localhost:11434/api/generate", {
+	            method: "POST",
+	            headers: { "Content-Type": "application/json" },
+	            body: JSON.stringify({
+	                model: "mistral", // Change model if needed
+	                prompt: prompt_text,
+	                stream: false
+	            })
+	        });
+	
+	        let data = await response.json();
+	        let ai_response = data.response || "No response from AI";
+	
+	        // Display AI response
+	        document.getElementById("innertext").innerHTML += `<b>AI:</b> ${ai_response}<br><br>`;
+	    } catch (error) {
+	        console.error("Error fetching from Ollama:", error);
+	        document.getElementById("innertext").innerHTML += `<b>AI:</b> Error: Could not connect to Ollama.<br>`;
+	    }
+	}
 	</script>
 
 </head>
