@@ -78,6 +78,7 @@
 	</style>
 
 	<script type="text/javascript">
+	let conversationHistory = [];
         async function maj_btn() {
 	    let prompt_text = document.getElementById("textarea1").value;
 	    if (prompt_text.trim() === "") return;
@@ -100,6 +101,9 @@
 	
 	        let data = await response.json();
 	        let ai_response = data.response || "No response from AI";
+
+		// History
+		conversationHistory.push({ role: "assistant", content: aiResponse });
 	
             //AI RESP
 	        document.getElementById("innertext").innerHTML += `<b>AI:</b> ${ai_response}<br><br>`;
