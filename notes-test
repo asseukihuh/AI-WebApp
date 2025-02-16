@@ -3,3 +3,8 @@ curl -X POST http://localhost:11434/api/chat -d '{
   "messages": [{"role": "user", "content": "Hello!"}]
 }' -H "Content-Type: application/json"
 
+curl -X POST http://localhost:11434/api/chat -d '{
+  "model": "mistral",
+  "messages": [{"role": "user", "content": "Hello!"}],
+  "stream": false
+}' -H "Content-Type: application/json"
