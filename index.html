@@ -79,39 +79,46 @@
 
 	<script type="text/javascript">
 	let conversationHistory = [];
-        async function maj_btn() {
-	    let prompt_text = document.getElementById("textarea1").value;
-	    if (prompt_text.trim() === "") return;
-	    // USER INPUT
-	    document.getElementById("innertext").innerHTML += `<b>You:</b> ${prompt_text}<br><br>`;
-	
-	    document.getElementById("textarea1").value = "";
 
-	    // REQUEST TO OLLAMA
+	async function sendMessage() {
+	    let userInput = document.getElementById("user-input").value.trim();
+	    if (userInput === "") return;
+	
+	    let chatBox = document.getElementById("chat-box");
+	    
+	    conversationHistory.push({ role: "user", content: userInput });
+	
+	    // USERINPUT
+	    chatBox.innerHTML += `<p class="user">You: ${userInput}</p>`;
+	    document.getElementById("user-input").value = "";
+	
 	    try {
 	        let response = await fetch("http://localhost:11434/api/generate", {
 	            method: "POST",
 	            headers: { "Content-Type": "application/json" },
 	            body: JSON.stringify({
 	                model: "mistral",
-	                prompt: prompt_text,
+	                messages: conversationHistory,
 	                stream: false
 	            })
 	        });
 	
 	        let data = await response.json();
-	        let ai_response = data.response || "No response from AI";
-
-		// History
-		conversationHistory.push({ role: "assistant", content: aiResponse });
+	        let aiResponse = data.response || "No response from AI.";
 	
-            //AI RESP
-	        document.getElementById("innertext").innerHTML += `<b>AI:</b> ${ai_response}<br><br>`;
+	        //HISTORY
+	        conversationHistory.push({ role: "assistant", content: aiResponse });
+	
+	        //AI RESPONSE
+	        chatBox.innerHTML += `<p class="ai">AI: ${aiResponse}</p>`;
+	        chatBox.scrollTop = chatBox.scrollHeight;
+	
 	    } catch (error) {
-	        console.error("Error fetching from Ollama:", error);
-	        document.getElementById("innertext").innerHTML += `<b>AI:</b> Error: Could not connect to Ollama.<br>`;
+	        console.error("Error:", error);
+	        chatBox.innerHTML += `<p class="ai">AI: Error connecting to Ollama.</p>`;
 	    }
 	}
+
 	</script>
 
 </head>
