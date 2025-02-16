@@ -85,7 +85,7 @@
 	
 	    document.getElementById("textarea1").value = "";
 
-        //GET HIST
+        //GET HISTORY USER
 
         history.push({ role: "user", content: prompt_text});
 
@@ -103,6 +103,8 @@
 	
 	        let data = await response.json();
 	        let ai_response = data.response || "No response from AI";
+
+            //GET HISTORY AI
 
             history.push({ role: "assistant", content: ai_response});
 	
