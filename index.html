@@ -98,7 +98,7 @@
 	            headers: { "Content-Type": "application/json" },
 	            body: JSON.stringify({
 	                model: "mistral",
-	                prompt: conversationHistory,
+	                message: conversationHistory,
 	                stream: false
 	            })
 	        });
