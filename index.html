@@ -96,7 +96,7 @@
 	            headers: { "Content-Type": "application/json" },
 	            body: JSON.stringify({
 	                model: "mistral",
-	                prompt: history, // GET HISTORY + PROMPT INSTEAD OF ONLY PROMPT TO GET MEMORY
+	                messages: history, // GET HISTORY + PROMPT INSTEAD OF ONLY PROMPT TO GET MEMORY
 	                stream: false
 	            })
 	        });
