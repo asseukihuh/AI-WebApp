@@ -91,7 +91,7 @@
 
 	    // REQUEST TO OLLAMA
 	    try {
-	        let response = await fetch("http://localhost:11434/api/generate", {
+	        let response = await fetch("http://localhost:11434/api/chat", {
 	            method: "POST",
 	            headers: { "Content-Type": "application/json" },
 	            body: JSON.stringify({
