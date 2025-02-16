@@ -44,6 +44,9 @@
             box-sizing: border-box;
             font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
             user-select: none;
+            overflow-y: auto;
+            overflow-wrap: break-word;
+            word-wrap: break-word;
         }
         #textarea1 {
             margin-top: 10px;
@@ -79,7 +82,7 @@
 	    let prompt_text = document.getElementById("textarea1").value;
 	    if (prompt_text.trim() === "") return;
 	    // USER INPUT
-	    document.getElementById("innertext").innerHTML += `<b>You:</b> ${prompt_text}<br>`;
+	    document.getElementById("innertext").innerHTML += `<b>You:</b> ${prompt_text}<br><br>`;
 	
 	    document.getElementById("textarea1").value = "";
 
@@ -117,7 +120,7 @@
     
 </div>
 <div id="div2">
-    <div class="textresult"><p id="innertext"></p></div>
+    <div class="textresult"><p id="innertext"></p></div>>
     <textarea id="textarea1" placeholder="Explain clearly what you want." onkeyup="majbtn_pers()"></textarea>
     <div id="div3">
         <input id="sendbtn" type="button" value="Send prompt" onclick="maj_btn()">
