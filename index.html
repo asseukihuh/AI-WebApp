@@ -66,15 +66,23 @@
 	</style>
 
 	<script type="text/javascript">
+        var userinput = "You"
+        var responderinput = "Assistant"
+
         function maj_btn()
         {
             var prompt_text = document.getElementById("textarea1").value;
-            document.getElementById("innertext").innerHTML += prompt_text;
-            document.getElementById("textarea1").value = [];
+            if(prompt_text.trim() !== "") {
+                prompt_text = prompt_text.replace(/\n/g, "<br>");
+                document.getElementById("innertext").innerHTML += userinput + " : " + prompt_text + "<br><br>";
+                document.getElementById("textarea1").value = [];
+            }
+            
         }
 	</script>
 
 </head>
+<body>
 <div id="div2">
     <h1>Disscuss with your local ai assistant</h1>
 </div>
@@ -87,8 +95,6 @@
     <textarea id="textarea1" onkeyup="majbtn_pers()"></textarea>
     <input id="sendbtn" type="button" value="Send prompt" onclick="maj_btn()">
 </div>
-
-<body>
 
 </body>
 </html>
