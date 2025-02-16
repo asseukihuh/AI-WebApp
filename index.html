@@ -44,9 +44,6 @@
             box-sizing: border-box;
             font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
             user-select: none;
-            overflow-y: auto;
-            overflow-wrap: break-word;
-            word-wrap: break-word;
         }
         #textarea1 {
             margin-top: 10px;
@@ -78,18 +75,13 @@
 	</style>
 
 	<script type="text/javascript">
-	let conversationHistory = [];
-        async function send_prompt() {
-	    let prompt_text = document.getElementById("textarea1").value.trim();
-	    if (prompt_text === "") return;
+        async function maj_btn() {
+	    let prompt_text = document.getElementById("textarea1").value;
+	    if (prompt_text.trim() === "") return;
 	    // USER INPUT
-	    document.getElementById("innertext").innerHTML += `<b>You:</b> ${prompt_text}<br><br>`;
+	    document.getElementById("innertext").innerHTML += `<b>You:</b> ${prompt_text}<br>`;
 	
 	    document.getElementById("textarea1").value = "";
-
-        //GET HISTORY
-
-        conversationHistory.push({ role: "user", content: prompt_text });
 
 	    // REQUEST TO OLLAMA
 	    try {
@@ -98,16 +90,13 @@
 	            headers: { "Content-Type": "application/json" },
 	            body: JSON.stringify({
 	                model: "mistral",
-	                message: conversationHistory,
+	                prompt: prompt_text,
 	                stream: false
 	            })
 	        });
 	
 	        let data = await response.json();
 	        let ai_response = data.response || "No response from AI";
-
-		// HISTORY
-		conversationHistory.push({ role: "assistant", content: ai_response });
 	
             //AI RESP
 	        document.getElementById("innertext").innerHTML += `<b>AI:</b> ${ai_response}<br><br>`;
@@ -129,9 +118,9 @@
 </div>
 <div id="div2">
     <div class="textresult"><p id="innertext"></p></div>
-    <textarea id="textarea1" placeholder="--> Explain clearly what you want." onkeyup="majbtn_pers()"></textarea>
+    <textarea id="textarea1" placeholder="Explain clearly what you want." onkeyup="majbtn_pers()"></textarea>
     <div id="div3">
-        <input id="sendbtn" type="button" value="Send prompt" onclick="send_prompt()">
+        <input id="sendbtn" type="button" value="Send prompt" onclick="maj_btn()">
     </div> 
 </div>
 
