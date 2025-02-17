@@ -1,4 +1,4 @@
 # Turn on your local ai-webapp ! 🤖
-## Recommended specs :
+<h1>Minimal specs :</h1>
 
 
