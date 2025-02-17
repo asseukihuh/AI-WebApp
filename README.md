@@ -51,9 +51,9 @@ python -m http.server 8000
 
 #### 6. Test your local ai-webapp
 
-Go to localhost:8000.
-Find the repository where index.html is located.
-And there is your local ai-webapp.
+Go to localhost:8000. <br>
+Find the repository where index.html is located. <br>
+And there is your local ai-webapp. <br>
 
 
 
