@@ -20,7 +20,7 @@ async function SendMessage() {
     //GET HISTORY USER
 
     history = [
-        { role: "system", content: "You are an AI assistant. Always respond in the language the user requests." },
+        { role: "system", content: "You are an ai assistant, try to send the best answer you can, for your first messages, try to answer short."},
         { role: "user", content: "Context from past messages: " + recentHistory },
         { role: "user", content: prompt_text }
     ];
@@ -42,7 +42,7 @@ async function SendMessage() {
 
         //GET HISTORY AI
 
-        history.push({ role: "assistant", content: ai_response});
+        //history.push({ role: "assistant", content: ai_response});
         
         //AI RESP
         ai_response = ai_response.replace(/\n/g, "<br>");
