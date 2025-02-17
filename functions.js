@@ -39,6 +39,7 @@ async function SendMessage() {
         history.push({ role: "assistant", content: ai_response});
         
         //AI RESP
+        ai_response = ai_response.replace(/\n/g, "<br>");
         document.getElementById("innertext").innerHTML += `<b>AI:</b> ${ai_response}<br><br>`;
 
     } catch (error) {
