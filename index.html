@@ -45,19 +45,14 @@
             max-height: 600px;
             box-sizing: border-box;
             font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
-            user-select: none;
             border-color: grey;
             border-radius: 10px;
             overflow-y: auto;
             overflow-wrap: break-word;
             transition: max-height 0.5 ease;
-            position: relative;
         }
-        .uppertextresult{
+        #uppertextresult{
             position: relative;
-            width: 100%;
-            height: 600px;
-            max-height: 600px;
         }
         ::-webkit-scrollbar{
             width: 10px;
@@ -113,14 +108,23 @@
         #go_bottom {
             height: 30px;
             width: 40px;
-            background-color: rgb(0, 0, 0);
+            background-color: rgba(255, 255, 255, 0.465);
             text-align: center;
             padding-top: 10px;
             border-radius: 8px;
-            border-color: grey;
+            border-color: rgba(128, 128, 128, 0.472);
             border-style: solid;
             border-width: 2px;
             font-size: large;
+            position: absolute;
+            bottom: 10px;
+            right: 10px;
+        }
+        a:link{
+            color: black;
+        }
+        a{
+            text-decoration: none;
         }
 	</style>
 
