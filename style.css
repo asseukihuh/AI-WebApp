@@ -115,3 +115,14 @@ a:link{
 a{
     text-decoration: none;
 }
+#model{
+    text-align: center;
+    margin-top: 10px;
+    width: 200px;
+    height: 30px;
+    border-radius: 5px;
+    background-color: white;
+}
+#modelform{
+    text-align: center;
+}

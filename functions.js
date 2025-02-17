@@ -5,6 +5,7 @@ let history = [];
 async function SendMessage() {
 
     const textcontainer = document.getElementById('textresult');
+    let modelname = document.getElementById('model').value;
 
     let prompt_text = document.getElementById("textarea1").value;
     if (prompt_text.trim() === "") return;
@@ -24,7 +25,7 @@ async function SendMessage() {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({
-                model: "mistral",
+                model: modelname, //"mistral"
                 messages: history, // GET HISTORY + PROMPT INSTEAD OF ONLY PROMPT TO GET MEMORY
                 stream: false
             })
