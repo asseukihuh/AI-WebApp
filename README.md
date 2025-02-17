@@ -67,9 +67,8 @@ And there is your local ai-webapp. <br>
 
 #### 1. Install ollama
    
-```
-curl -fsSL https://ollama.com/install.sh | sh
-```
+Install ollama via <a href="https://ollama.com/">.
+
 #### 2. Run ollama
    
 ```
