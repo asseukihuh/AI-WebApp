@@ -30,7 +30,13 @@ ollama serve
 
 3. Choose a model and make sure it runs
 
-You can find models at <a href='https://ollama.com/search'>ollama.com/search</a>
+You can find models at <a href='https://ollama.com/search'>ollama.com/search</a>.
+
+Once you found your model run it and test some prompts to make sure it runs.
+
+```
+ollama run <model name>
+```
 
 
 
