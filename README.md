@@ -2,7 +2,7 @@
 
 ## Summary
 
-<a href="#linux">Install on linux</a>
+<a href="#linux">Install on linux</a><br>
 <a href="#windows">Install on windows</a>
 
 
