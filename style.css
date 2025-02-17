@@ -9,10 +9,11 @@
     text-align: center;
 }
 #div1 {
-    display: flex;
+    display: inline;
     background-color: rgb(255, 255, 255);
     height: 40px;
     justify-content: center;
+    text-align: center;
 }
 #btn1, #btn2 {
     bottom: 0;
