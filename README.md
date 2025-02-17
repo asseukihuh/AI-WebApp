@@ -1,5 +1,9 @@
 # Turn on your local ai-webapp ! 🤖
 
+## Summary
+
+<a href="#linux">
+
 ### Minimal specs :
 Operating System: Linux, Mac or Windows <br>
 Memory (RAM): 8GB <br>
@@ -14,7 +18,7 @@ GPU: Dedicated GPU 6GB VRAM minimal (CUDA is the best) <br>
 
 ## Configuration :
 
-### Linux
+### <p id="linux">Linux</p>
 
 #### 1. Install ollama
    
