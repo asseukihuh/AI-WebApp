@@ -14,4 +14,11 @@ GPU: Dedicated GPU 6GB VRAM minimal (CUDA is the best) <br>
 
 ## Configuration :
 
+### Linux
+
+1. Install Ollama
+```
+curl -fsSL https://ollama.com/install.sh | sh
+```
+
 
