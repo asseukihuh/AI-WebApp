@@ -10,14 +10,20 @@ async function SendMessage() {
     let prompt_text = document.getElementById("textarea1").value;
     if (prompt_text.trim() === "") return;
     // USER INPUT
-        prompt_text = prompt_text.replace(/\n/g, "<br>");
-        document.getElementById("innertext").innerHTML += `<b>You:</b> ${prompt_text}<br><br>`;
+    prompt_text = prompt_text.replace(/\n/g, "<br>");
+    document.getElementById("innertext").innerHTML += `<b>You:</b> ${prompt_text}<br><br>`;
             
-        document.getElementById("textarea1").value = "";
+    document.getElementById("textarea1").value = "";
+
+    let recentHistory = history.slice(-3).map(h => h.content).join(" ");
 
     //GET HISTORY USER
 
-    history.push({ role: "user", content: prompt_text});
+    history = [
+        { role: "system", content: "You are an AI assistant. Always respond in the language the user requests." },
+        { role: "user", content: "Context from past messages: " + recentHistory },
+        { role: "user", content: prompt_text }
+    ];
 
     // REQUEST TO OLLAMA
     try {
@@ -33,7 +39,6 @@ async function SendMessage() {
         
         let data = await response.json();
         let ai_response = data.message?.content || "No response from AI";
-
 
         //GET HISTORY AI
 
