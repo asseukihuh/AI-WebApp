@@ -67,7 +67,7 @@ And there is your local ai-webapp. <br>
 
 #### 1. Install ollama
    
-Install ollama via <a href="https://ollama.com/">.
+Install ollama via <a href="https://ollama.com/">ollama.com</a>
 
 #### 2. Run ollama
    
@@ -99,7 +99,7 @@ python -m http.server 8000
 
 #### 6. Test your local ai-webapp
 
-Go to the adress localhost:8000 on your navigator. <br>
+Go to the adress localhost:8000 on your navigator. (you can chose the path where the localhost is via --directory "<path>") <br>
 
 Find the repository where index.html is located. <br>
 
