@@ -2,7 +2,7 @@
 
 ## Summary
 
-<a href="#linux">
+<a href="#linux">Install on linux</a>
 
 ### Minimal specs :
 Operating System: Linux, Mac or Windows <br>
