@@ -42,7 +42,7 @@
             border-width: 1px;
             width: 100%;
             height: 600px;
-            max-height: 1000px;
+            max-height: 600px;
             box-sizing: border-box;
             font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
             user-select: none;
@@ -51,6 +51,7 @@
             overflow-y: auto;
             overflow-wrap: break-word;
             transition: max-height 0.5 ease;
+            position: relative;
         }
         ::-webkit-scrollbar{
             width: 10px;
@@ -98,13 +99,31 @@
             width: 60px;
             height: 60px;
         }
+        #bottom {
+            float: left;
+            bottom: 0px;
+            position: relative;
+        }
+        #go_bottom {
+            height: 30px;
+            width: 40px;
+            background-color: rgba(255, 255, 255, 0.113);
+            text-align: center;
+            padding-top: 10px;
+            border-radius: 8px;
+            position: fixed;
+            bottom: 10px;
+            right: 10px;
+            border-color: grey;
+            border-style: solid;
+            border-width: 2px;
+            font-size: large;
+        }
 	</style>
 
 	<script type="text/javascript">
 
         const textcontainer = document.getElementById('textresult');
-
-        
 
         let history = [];
 
@@ -151,6 +170,11 @@
                 console.error("Error fetching from Ollama:", error);
                 document.getElementById("innertext").innerHTML += `<b>AI:</b> Error: Could not connect to Ollama.<br>`;
             }
+            function Scrolltobottom() {
+                const textcontainer = document.getElementById('textresult');
+                textcontainer.scrollTop = textcontainer.scrollHeight;
+            }
+
 	    }
 	</script>
 
@@ -163,10 +187,16 @@
     <p>Server specs : Xeon E5 2670v3 12C 24T, 16Gb RAM, GTX 1660 6gb</p>
     
 </div>
-<div class="textresult"><p id="innertext"></p></div>
-<div id="div2">
-    <textarea id="textarea1" placeholder="Explain clearly what you want."></textarea>
-    <input id="sendbtn" type="button" value=">" onclick="SendMessage()">
+<div id="div3">
+    <div class="textresult">
+        <p id="innertext"></p>
+        <div id="go_bottom"><a href="#bottom">˅</a></div>
+        <div id="bottom"></div>
+    </div>
+    <div id="div2">
+        <textarea id="textarea1" placeholder="Explain clearly what you want."></textarea>
+        <input id="sendbtn" type="button" value=">" onclick="SendMessage()">
+    </div>
 </div>
 
 </body>
