@@ -42,7 +42,7 @@ async function SendMessage() {
 
         //GET HISTORY AI
 
-        //history.push({ role: "assistant", content: ai_response});
+        history.push({ role: "assistant", content: ai_response});
         
         //AI RESP
         ai_response = ai_response.replace(/\n/g, "<br>");
