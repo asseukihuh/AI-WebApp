@@ -21,7 +21,7 @@ async function SendMessage() {
 
     history = [
         { role: "system", content: "You are an ai assistant, try to send the best answer you can, for your first messages, try to answer short."},
-        { role: "user", content: "Context from past messages: " + recentHistory },
+        { role: "system", content: "Context from past messages: " + recentHistory },
         { role: "user", content: prompt_text }
     ];
 
