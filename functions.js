@@ -1,10 +1,9 @@
 const textcontainer = document.getElementById('textresult');
 
 let history = [];
+let histINT = 5;
 
 async function SendMessage() {
-
-    history.push({ role: "system", content: "You are an ai assistant, try to follow exactly what user prompts to you and try to follow the context."})
 
     const textcontainer = document.getElementById('textresult');
     let modelname = document.getElementById('model').value;
@@ -19,6 +18,11 @@ async function SendMessage() {
     //GET HISTORY USER
 
     history.push({ role:"user", content: prompt_text });
+
+    //LIMITE L'HISTORIQUE A (histINT) INTERACTIONS
+
+    if (history.length > histINT) history = history.slice(-(histINT)); 
+    
 
     // REQUEST TO OLLAMA
     try {
