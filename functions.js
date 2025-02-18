@@ -4,7 +4,7 @@ let history = [];
 
 async function SendMessage() {
 
-    history.push({ role: "system", content: "following system prompts are for the context"})
+    history.push({ role: "system", content: "You are an ai assistant, try to follow exactly what user prompts to you and try to follow the context."})
 
     const textcontainer = document.getElementById('textresult');
     let modelname = document.getElementById('model').value;
@@ -14,12 +14,10 @@ async function SendMessage() {
     // USER INPUT
     prompt_text = prompt_text.replace(/\n/g, "<br>");
     document.getElementById("innertext").innerHTML += `<b>You:</b> ${prompt_text}<br><br>`;
-            
     document.getElementById("textarea1").value = "";
 
     //GET HISTORY USER
 
-    let last_prompt = prompt_text;
     history.push({ role:"user", content: prompt_text });
 
     // REQUEST TO OLLAMA
@@ -34,13 +32,11 @@ async function SendMessage() {
             })
         });
         
-        history.pop()
         let data = await response.json();
         let ai_response = data.message?.content || "No response from AI";
 
         //GET HISTORY AI
 
-        history.push({ role: "system", content: last_prompt});
         history.push({ role: "assistant", content: ai_response});
 
         //AI RESP
