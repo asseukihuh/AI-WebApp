@@ -1,10 +1,15 @@
 # Turn on your local ai-webapp ! 🤖
 
+#### ⚠️ This is currently for experimental purpose, it can do inappropriate things at times ⚠️
+
 ## Summary
 
+<a href="#specs">Computer specifications</a><br>
+<a href="#func">Functionnalities</a><br>
 <a href="#linux">Install on Linux</a><br>
 <a href="#windows">Install on Windows</a>
 
+## <p id="specs">Specs</p>
 
 ### Minimal specs :
 Operating System: Linux, Mac or Windows <br>
@@ -17,6 +22,12 @@ Operating System: Linux, Mac or Windows <br>
 Memory (RAM): 16GB <br>
 Processor: A relatively modern CPU (5 years, 8 cores) <br>
 GPU: Dedicated GPU 6GB VRAM minimal (CUDA is the best) <br>
+
+
+## <p id="func">Functionnalities</p>
+
+### - Respond to a prompt with a continuous context (may me innapropriate because of the model)
+### - Change model inside the webapp
 
 ## Configuration :
 
