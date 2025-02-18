@@ -4,6 +4,8 @@ let history = [];
 
 async function SendMessage() {
 
+    history.push({ role: "system", content: "following system prompts are for the context"})
+
     const textcontainer = document.getElementById('textresult');
     let modelname = document.getElementById('model').value;
 
@@ -15,15 +17,10 @@ async function SendMessage() {
             
     document.getElementById("textarea1").value = "";
 
-    let recentHistory = history.slice(-3).map(h => h.content).join(" ");
-
     //GET HISTORY USER
 
-    history = [
-        { role: "system", content: "You are an ai assistant, try to send the best answer you can, for your first messages, try to answer short."},
-        { role: "system", content: "Context from past messages: " + recentHistory },
-        { role: "user", content: prompt_text }
-    ];
+    let last_prompt = prompt_text;
+    history.push({ role:"user", content: prompt_text });
 
     // REQUEST TO OLLAMA
     try {
@@ -32,18 +29,20 @@ async function SendMessage() {
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({
                 model: modelname, //"mistral"
-                messages: history, // GET HISTORY + PROMPT INSTEAD OF ONLY PROMPT TO GET MEMORY
+                messages: history, // GET HISTORY AS SYSTEM + USER PROMPT
                 stream: false
             })
         });
         
+        history.pop()
         let data = await response.json();
         let ai_response = data.message?.content || "No response from AI";
 
         //GET HISTORY AI
 
+        history.push({ role: "system", content: last_prompt});
         history.push({ role: "assistant", content: ai_response});
-        
+
         //AI RESP
         ai_response = ai_response.replace(/\n/g, "<br>");
         document.getElementById("innertext").innerHTML += `<b>AI:</b> ${ai_response}<br><br>`;
