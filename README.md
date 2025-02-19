@@ -1,4 +1,4 @@
-# Turn on your local ai-webapp ! 🤖
+# Turn on your local ai-webapp using Ollama API ! 🤖
 
 #### ⚠️ This is currently for experimental purpose, it can do inappropriate things at times ⚠️
 
