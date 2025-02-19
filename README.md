@@ -26,8 +26,8 @@ GPU: Dedicated GPU 6GB VRAM minimal (CUDA is the best) <br>
 
 ## <p id="func">Functionnalities</p>
 
-### - Respond to a prompt with a continuous context (may me innapropriate because of the model)
-### - Change model inside the webapp
+ - Respond to a prompt with a continuous context (may me innapropriate because of the model)
+ - Change model inside the webapp
 
 ## Configuration :
 
