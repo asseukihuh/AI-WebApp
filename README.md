@@ -2,14 +2,14 @@
 
 #### ⚠️ This is currently for experimental purpose, it can do inappropriate things at times ⚠️
 
-## Summary
+## 📌 Summary
 
 <a href="#specs">Computer specifications</a><br>
 <a href="#func">Functionnalities</a><br>
 <a href="#linux">Install on Linux</a><br>
 <a href="#windows">Install on Windows</a>
 
-## <p id="specs">Specs</p>
+## <p id="specs"> 💻 Specs</p>
 
 ### Minimal specs :
 Operating System: Linux, Mac or Windows <br>
@@ -24,14 +24,14 @@ Processor: A relatively modern CPU (5 years, 8 cores) <br>
 GPU: Dedicated GPU 6GB VRAM minimal (CUDA is the best) <br>
 
 
-## <p id="func">Functionnalities</p>
+## <p id="func"> 📋 Functionnalities</p>
 
  - Respond to a prompt with a continuous context (may me innapropriate because of the model)
  - Change model inside the webapp
 
 ## Configuration :
 
-### <p id="linux">Linux</p>
+### <p id="linux"> 🐧 Linux</p>
 
 #### 1. Install ollama
    
@@ -74,7 +74,7 @@ Find the repository where index.html is located. <br>
 
 And there is your local ai-webapp. <br>
 
-### <p id="windows">Windows</p>
+### <p id="windows"> 🪟 Windows</p>
 
 #### 1. Install ollama
    
