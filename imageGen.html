@@ -7,39 +7,39 @@
 	<meta http-equiv="Content-Type" content="text/html; charset=UTF-8" />
 	<title>My ai webapp</title>
 
-    <link href="style.css" rel="stylesheet" />
-    <script src="functions.js"></script>
+    <link href="imageGen.css" rel="stylesheet" />
+    <script src="imageGen.js"></script>
 
 
 </head>
 <body>
 <div id="div3">
-    <h1>Disscuss with your local ai assistant</h1>
+    <h1>Titre</h1>
 </div>
 <div id = "div1" >
     <p>⚠️ Switching models in the conversation is not recommended !<br>Prefer to refresh the page and start a new conversation.</p>
 </div>
 <form id="modelform">
     <label for="model">Select your model :</label>
-    <select name="model" id="model" >
+    <select name="model" id="model">
         <option value="mistral:7b">mistral:7b</option>
         <option value="deepseek-r1:7b">deepseek-r1:7b</option>
         <option value="starling-lm:7b">starling-lm:7b</option>
     </select>
 </form>
 <div>
-    <div id="uppertextresult">
-    <div id="go_bottom"><a href="#bottom">˅</a></div>
-    <div class="textresult">
-        <p id="innertext"></p>
-        <div id="bottom"></div>
     </div>
+    <div>
+        <br>
+        <h2>Prompt to generate an image :</h2>
     </div>
     <div id="div2">
         <textarea id="textarea1" placeholder="Explain clearly what you want."></textarea>
         <input id="sendbtn" type="button" value=">" onclick="SendMessage()">
     </div>
+    <div id="divimage">
+        <div id="imageres"><p id="imagegen">IMAGE RESULT</p></div>
+    </div>
 </div>
-
 </body>
 </html>
