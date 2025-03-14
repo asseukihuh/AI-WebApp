@@ -27,6 +27,14 @@
         <option value="starling-lm:7b">starling-lm:7b</option>
     </select>
 </form>
+<form id="sizeform">
+    <label for="size">Select the size :</label>
+    <select name="size" id="size">
+        <option value="500px">500px</option>
+        <option value="1000px">1000px</option>
+        <option value="750px">750px</option>
+    </select>
+</form>
 <div>
     </div>
     <div>
@@ -37,9 +45,10 @@
         <textarea id="textarea1" placeholder="Explain clearly what you want."></textarea>
         <input id="sendbtn" type="button" value=">" onclick="SendMessage()">
     </div>
-    <div id="divimage">
-        <div id="imageres"><p id="imagegen">IMAGE RESULT</p></div>
-    </div>
 </div>
+<div id="divimage">
+    <div id="imageres"><p id="imagegen">IMAGE RESULT</p></div>
+</div>
+
 </body>
 </html>
