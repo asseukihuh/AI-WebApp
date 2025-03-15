@@ -11,7 +11,7 @@
 
 ## <p id="specs"> 💻 Specs</p>
 
-### Minimal specs :
+### Minimal specs : 
 Operating System: Linux, Mac or Windows <br>
 Memory (RAM): 8GB <br>
 Processor: A relatively modern CPU (5 years, 4 cores) <br>
