@@ -8,7 +8,7 @@
 <a href="#func">Functionnalities</a><br>
 <a href="#linux">Install on Linux</a><br>
 <a href="#windows">Install on Windows</a>
-
+ 
 ## <p id="specs"> 💻 Specs</p>
 
 ### Minimal specs : 
