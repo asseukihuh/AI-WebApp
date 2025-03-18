@@ -7,7 +7,7 @@
 <a href="#specs">Computer specifications</a><br>
 <a href="#func">Functionnalities</a><br>
 <a href="#linux">Install on Linux</a><br>
-<a href="#windows">Install on Windows</a>
+<a href="#windows">Install on Windows</a> 
  
 ## <p id="specs"> 💻 Specs</p>
 
