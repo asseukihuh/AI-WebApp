@@ -1,7 +1,7 @@
 const textcontainer = document.getElementById('textresult');
 
 let history = [];
-let histINT = 5;
+let histINT = 6;
 
 async function SendMessage() {
 
