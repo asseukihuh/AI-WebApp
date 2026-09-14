@@ -150,6 +150,8 @@ ai-webapp/
 │       └── imageGen.js    # Logic for experimental generation interface
 ├── docs/
 │   └── notes-test.txt # Reference curl commands and test notes for Ollama endpoints
+├── AGENTS.md          # AI agent guidelines and coding standards
+├── NOTES.md           # Project updates, changelog, and roadmap
 ├── README.md          # Project documentation and setup instructions
 └── LICENSE            # License information
 ```
