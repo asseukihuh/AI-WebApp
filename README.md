@@ -73,7 +73,7 @@ A lightweight, dependency-free web application to interact with local Large Lang
    ```
 
 6. **Open the web app**:
-   Navigate to `http://localhost:8000/chatbot.html` in your web browser.
+   Navigate to `http://localhost:8000/` (or `http://localhost:8000/chatbot.html`) in your web browser.
 
 ---
 
@@ -104,7 +104,7 @@ A lightweight, dependency-free web application to interact with local Large Lang
    ```
 
 6. **Open the web app**:
-   Navigate to `http://localhost:8000/chatbot.html` in your web browser.
+   Navigate to `http://localhost:8000/` (or `http://localhost:8000/chatbot.html`) in your web browser.
 
 ---
 
@@ -130,7 +130,7 @@ A lightweight, dependency-free web application to interact with local Large Lang
    ```bash
    python3 -m http.server 8000
    ```
-   Navigate to `http://localhost:8000/chatbot.html`.
+   Navigate to `http://localhost:8000/` (or `http://localhost:8000/chatbot.html`).
 
 ---
 
@@ -138,13 +138,18 @@ A lightweight, dependency-free web application to interact with local Large Lang
 
 ```
 ai-webapp/
+├── index.html         # Entry point (auto-redirects to chatbot)
 ├── chatbot.html       # Main chat web interface
-├── chatbot.css        # Styles for the chat interface
-├── chatbot.js         # Chat client logic, Ollama API calls, and history management
 ├── imageGen.html      # Experimental generation web interface
-├── imageGen.css       # Styles for experimental generation interface
-├── imageGen.js        # Logic for experimental generation interface
-├── notes-test         # Reference curl commands for testing Ollama endpoints
+├── src/
+│   ├── css/
+│   │   ├── chatbot.css    # Styles for chat interface
+│   │   └── imageGen.css   # Styles for image generation interface
+│   └── js/
+│       ├── chatbot.js     # Chat client logic, Ollama API, history management
+│       └── imageGen.js    # Logic for experimental generation interface
+├── docs/
+│   └── notes-test.txt # Reference curl commands and test notes for Ollama endpoints
 ├── README.md          # Project documentation and setup instructions
 └── LICENSE            # License information
 ```
