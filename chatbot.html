@@ -1,45 +1,53 @@
-<?xml version="1.0" encoding="UTF-8" ?>
-<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd">
-<html xmlns="http://www.w3.org/1999/xhtml">
-
-<!-- **** H E A D **** -->
+<!DOCTYPE html>
+<html lang="en">
 <head>
-	<meta http-equiv="Content-Type" content="text/html; charset=UTF-8" />
-	<title>My ai webapp</title> 
-
-    <link href="style.css" rel="stylesheet" />
-    <script src="functions.js"></script>
-
-
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>2i-LLM - AI Chatbot</title>
+    <link rel="stylesheet" href="chatbot.css">
+    <script defer src="chatbot.js"></script>
 </head>
 <body>
-<div id="div3">
-    <h1>2i-LLM</h1>
-</div>
-<div id = "div1" >
-    <p>⚠️ Switching models in the conversation is not recommended !<br>Prefer to refresh the page and start a new conversation.</p>
-</div>
-<form id="modelform">
-    <label for="model">Select your model :</label>
-    <select name="model" id="model" >
-        <option value="mistral:7b">mistral:7b</option>
-        <option value="deepseek-r1:7b">deepseek-r1:7b</option>
-        <option value="starling-lm:7b">starling-lm:7b</option>
-    </select>
-</form>
-<div>
-    <div id="uppertextresult">
-    <div id="go_bottom"><a href="#bottom">˅</a></div>
-    <div class="textresult">
-        <p id="innertext"></p>
-        <div id="bottom"></div>
-    </div>
-    </div>
-    <div id="div2">
-        <textarea id="textarea1" placeholder="Explain clearly what you want."></textarea>
-        <input id="sendbtn" type="button" value=">" onclick="SendMessage()">
-    </div>
-</div>
+    <div class="app-container">
+        <header class="app-header">
+            <h1>2i-LLM</h1>
+            <p class="warning-banner">
+                Switching models during a conversation is not recommended. Prefer to refresh the page to start a new conversation.
+            </p>
+            <div class="controls-bar">
+                <form id="model-form" class="model-form" onsubmit="return false;">
+                    <label for="model">Select model:</label>
+                    <select name="model" id="model">
+                        <option value="mistral:7b">mistral:7b</option>
+                        <option value="deepseek-r1:7b">deepseek-r1:7b</option>
+                        <option value="starling-lm:7b">starling-lm:7b</option>
+                    </select>
+                </form>
+                <div class="nav-links">
+                    <a href="imageGen.html" class="nav-link">Image Generation &rarr;</a>
+                </div>
+            </div>
+        </header>
 
+        <main class="chat-section">
+            <div class="chat-display-container">
+                <div id="chat-messages" class="chat-messages">
+                    <div id="messages-inner"></div>
+                    <div id="bottom-anchor"></div>
+                </div>
+                <button id="go-bottom-btn" class="go-bottom-btn" type="button" title="Scroll to bottom" aria-label="Scroll to bottom">&darr;</button>
+            </div>
+
+            <form id="message-form" class="message-input-form" onsubmit="return false;">
+                <textarea
+                    id="user-input"
+                    class="user-input"
+                    placeholder="Type your message here... (Press Enter to send, Shift+Enter for newline)"
+                    rows="2"
+                ></textarea>
+                <button id="send-btn" class="send-btn" type="submit" aria-label="Send message">Send</button>
+            </form>
+        </main>
+    </div>
 </body>
 </html>

@@ -1,55 +1,117 @@
-const textcontainer = document.getElementById('textresult');
+const OLLAMA_API_URL = "http://localhost:11434/api/chat";
+const MAX_HISTORY_LENGTH = 10;
 
-let history = [];
-let histINT = 3;
+let chatHistory = [];
 
-async function SendMessage() {
+const messagesInner = document.getElementById("messages-inner");
+const chatMessagesContainer = document.getElementById("chat-messages");
+const bottomAnchor = document.getElementById("bottom-anchor");
+const userInput = document.getElementById("user-input");
+const sendBtn = document.getElementById("send-btn");
+const modelSelect = document.getElementById("model");
+const goBottomBtn = document.getElementById("go-bottom-btn");
+const messageForm = document.getElementById("message-form");
 
-    const textcontainer = document.getElementById('textresult');
-    let modelname = document.getElementById('model').value;
+function escapeHtml(text) {
+    const div = document.createElement("div");
+    div.textContent = text;
+    return div.innerHTML;
+}
 
-    let prompt_text = document.getElementById("textarea1").value;
-    if (prompt_text.trim() === "") return;
-    // USER INPUT
-    prompt_text = prompt_text.replace(/\n/g, "<br>");
-    document.getElementById("innertext").innerHTML += `<b>You:</b> ${prompt_text}<br><br>`;
-    document.getElementById("textarea1").value = "";
+function scrollToBottom() {
+    if (bottomAnchor) {
+        bottomAnchor.scrollIntoView({ behavior: "smooth" });
+    }
+}
 
-    //GET HISTORY USER
+function appendMessage(sender, text, isError = false) {
+    if (!messagesInner) return;
 
-    history.push({ role:"user", content: prompt_text });
+    const messageWrapper = document.createElement("div");
+    messageWrapper.className = `message-row ${sender.toLowerCase()}-row`;
 
-    //LIMITE L'HISTORIQUE A (histINT) INTERACTIONS
+    const label = document.createElement("span");
+    label.className = `message-sender ${isError ? "error-sender" : ""}`;
+    label.textContent = `${sender}: `;
 
-    if (history.length > histINT) history = history.slice(-(histINT)); 
-    
+    const content = document.createElement("span");
+    content.className = `message-content ${isError ? "error-content" : ""}`;
+    content.innerHTML = escapeHtml(text).replace(/\n/g, "<br>");
 
-    // REQUEST TO OLLAMA
+    messageWrapper.appendChild(label);
+    messageWrapper.appendChild(content);
+    messagesInner.appendChild(messageWrapper);
+
+    scrollToBottom();
+}
+
+async function sendMessage() {
+    if (!userInput || !modelSelect) return;
+
+    const promptText = userInput.value.trim();
+    if (!promptText) return;
+
+    const selectedModel = modelSelect.value;
+
+    appendMessage("You", promptText);
+    userInput.value = "";
+    userInput.disabled = true;
+    if (sendBtn) sendBtn.disabled = true;
+
+    chatHistory.push({ role: "user", content: promptText });
+
+    if (chatHistory.length > MAX_HISTORY_LENGTH) {
+        chatHistory = chatHistory.slice(-MAX_HISTORY_LENGTH);
+    }
+
     try {
-        let response = await fetch("http://localhost:11434/api/chat", {
+        const response = await fetch(OLLAMA_API_URL, {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({
-                model: modelname, //"mistral"
-                messages: history, // GET HISTORY AS SYSTEM + USER PROMPT
+                model: selectedModel,
+                messages: chatHistory,
                 stream: false
             })
         });
-        
-        let data = await response.json();
-        let ai_response = data.message?.content || "No response from AI";
 
-        //GET HISTORY AI
+        if (!response.ok) {
+            throw new Error(`Server responded with status: ${response.status}`);
+        }
 
-        history.push({ role: "assistant", content: ai_response});
+        const data = await response.json();
+        const aiResponse = data.message?.content || "No response received from AI.";
 
-        //AI RESP
-        ai_response = ai_response.replace(/\n/g, "<br>");
-        document.getElementById("innertext").innerHTML += `<b>AI:</b> ${ai_response}<br><br>`;
-
+        chatHistory.push({ role: "assistant", content: aiResponse });
+        appendMessage("AI", aiResponse);
     } catch (error) {
-        console.error("Error fetching from Ollama:", error);
-        document.getElementById("innertext").innerHTML += `<b>AI:</b> Error: Could not connect to Ollama.<br>`;
+        console.error("Error communicating with Ollama:", error);
+        appendMessage("AI", "Error: Could not connect to Ollama. Make sure Ollama is running (`ollama serve`).", true);
+    } finally {
+        userInput.disabled = false;
+        if (sendBtn) sendBtn.disabled = false;
+        userInput.focus();
     }
+}
 
+if (messageForm) {
+    messageForm.addEventListener("submit", (event) => {
+        event.preventDefault();
+        sendMessage();
+    });
+}
+
+if (userInput) {
+    userInput.addEventListener("keydown", (event) => {
+        if (event.key === "Enter" && !event.shiftKey) {
+            event.preventDefault();
+            sendMessage();
+        }
+    });
+}
+
+if (goBottomBtn) {
+    goBottomBtn.addEventListener("click", () => {
+        scrollToBottom();
+    });
 }

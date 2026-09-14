@@ -1,55 +1,87 @@
-const textcontainer = document.getElementById('textresult');
+const OLLAMA_GENERATE_URL = "http://localhost:11434/api/generate";
 
-let history = [];
-let histINT = 5;
+const modelSelect = document.getElementById("model");
+const sizeSelect = document.getElementById("size");
+const promptInput = document.getElementById("prompt-input");
+const promptForm = document.getElementById("prompt-form");
+const generateBtn = document.getElementById("generate-btn");
+const imageContainer = document.getElementById("image-container");
+const imagePlaceholder = document.getElementById("image-placeholder");
+const statusMessage = document.getElementById("status-message");
 
-async function SendMessage() {
+function setStatus(text, isError = false) {
+    if (!statusMessage) return;
+    statusMessage.textContent = text;
+    statusMessage.className = `status-message ${isError ? "error" : "info"}`;
+}
 
-    const textcontainer = document.getElementById('textresult');
-    let modelname = document.getElementById('model').value;
+function updateContainerSize() {
+    if (!sizeSelect || !imageContainer) return;
+    const selectedSize = sizeSelect.value;
+    imageContainer.style.maxWidth = selectedSize;
+}
 
-    let prompt_text = document.getElementById("textarea1").value;
-    if (prompt_text.trim() === "") return;
-    // USER INPUT
-    prompt_text = prompt_text.replace(/\n/g, "<br>");
-    document.getElementById("innertext").innerHTML += `<b>You:</b> ${prompt_text}<br><br>`;
-    document.getElementById("textarea1").value = "";
+async function handleGenerate() {
+    if (!promptInput || !modelSelect) return;
 
-    //GET HISTORY USER
+    const promptText = promptInput.value.trim();
+    if (!promptText) return;
 
-    history.push({ role:"user", content: prompt_text });
+    const selectedModel = modelSelect.value;
 
-    //LIMITE L'HISTORIQUE A (histINT) INTERACTIONS
+    promptInput.disabled = true;
+    if (generateBtn) generateBtn.disabled = true;
+    setStatus(`Sending request to ${selectedModel}...`);
 
-    if (history.length > histINT) history = history.slice(-(histINT)); 
-    
-
-    // REQUEST TO OLLAMA
     try {
-        let response = await fetch("http://localhost:11434/api/chat", {
+        const response = await fetch(OLLAMA_GENERATE_URL, {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({
-                model: modelname, //"mistral"
-                messages: history, // GET HISTORY AS SYSTEM + USER PROMPT
+                model: selectedModel,
+                prompt: promptText,
                 stream: false
             })
         });
-        
-        let data = await response.json();
-        let ai_response = data.message?.content || "No response from AI";
 
-        //GET HISTORY AI
+        if (!response.ok) {
+            throw new Error(`Server returned status: ${response.status}`);
+        }
 
-        history.push({ role: "assistant", content: ai_response});
+        const data = await response.json();
+        const responseText = data.response || "No response received.";
 
-        //AI RESP
-        ai_response = ai_response.replace(/\n/g, "<br>");
-        document.getElementById("innertext").innerHTML += `<b>AI:</b> ${ai_response}<br><br>`;
-
+        if (imagePlaceholder) {
+            imagePlaceholder.textContent = responseText;
+        }
+        setStatus("Completed.");
     } catch (error) {
-        console.error("Error fetching from Ollama:", error);
-        document.getElementById("innertext").innerHTML += `<b>AI:</b> Error: Could not connect to Ollama.<br>`;
+        console.error("Error generating response:", error);
+        setStatus("Error: Could not connect to Ollama. Ensure the server is running (`ollama serve`).", true);
+    } finally {
+        promptInput.disabled = false;
+        if (generateBtn) generateBtn.disabled = false;
+        promptInput.focus();
     }
+}
 
+if (promptForm) {
+    promptForm.addEventListener("submit", (event) => {
+        event.preventDefault();
+        handleGenerate();
+    });
+}
+
+if (promptInput) {
+    promptInput.addEventListener("keydown", (event) => {
+        if (event.key === "Enter" && !event.shiftKey) {
+            event.preventDefault();
+            handleGenerate();
+        }
+    });
+}
+
+if (sizeSelect) {
+    sizeSelect.addEventListener("change", updateContainerSize);
+    updateContainerSize();
 }
