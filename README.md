@@ -1,121 +1,163 @@
-# Turn on your local ai-webapp using Ollama API ! 🤖 
+# Local AI Web App (Powered by Ollama API) 🤖
 
-#### ⚠️ This is currently for experimental purpose, it can do inappropriate things at times ⚠️
+A lightweight, dependency-free web application to interact with local Large Language Models using [Ollama](https://ollama.com/).
 
-## 📌 Summary
+---
 
-<a href="#specs">Computer specifications</a><br>
-<a href="#func">Functionnalities</a><br>
-<a href="#linux">Install on Linux</a><br>
-<a href="#windows">Install on Windows</a>  
- 
-## <p id="specs"> 💻 Specs</p>
+## 📌 Table of Contents
 
-### Minimal specs : 
-Operating System: Linux, Mac or Windows <br>
-Memory (RAM): 8GB <br>
-Processor: A relatively modern CPU (5 years, 4 cores) <br>
-GPU: Integrated GPU works but runs slow <br>
+- [Features](#-features)
+- [System Requirements](#-system-requirements)
+- [Getting Started](#-getting-started)
+  - [Linux](#linux)
+  - [Windows](#windows)
+  - [macOS](#macos)
+- [Project Architecture](#-project-architecture)
+- [License](#-license)
 
-### Recommended specs :
-Operating System: Linux, Mac or Windows <br> 
-Memory (RAM): 16GB <br>
-Processor: A relatively modern CPU (5 years, 8 cores) <br>
-GPU: Dedicated GPU 6GB VRAM minimal (CUDA is the best) <br>
+---
 
+## 📋 Features
 
-## <p id="func"> 📋 Functionnalities</p>
+- **Local LLM Chat Interface**: Chat with models directly from your browser without external API keys or cloud services.
+- **Context Preservation**: Maintains a conversational history window for continuous context.
+- **Model Switching**: Switch between locally installed Ollama models (e.g. `mistral:7b`, `deepseek-r1:7b`, `starling-lm:7b`).
+- **Responsive & Clean UI**: Accessible modern design with keyboard shortcuts (Enter to send, Shift+Enter for newline) and auto-scroll.
+- **Experimental Generation**: Dedicated interface for experimental generation features (`imageGen.html`).
 
- - Respond to a prompt with a continuous context (may me innapropriate because of the model)
- - Change model inside the webapp
+---
 
-## Configuration :
+## 💻 System Requirements
 
-### <p id="linux"> 🐧 Linux</p>
+### Minimal:
+- **Operating System**: Linux, macOS, or Windows
+- **Memory (RAM)**: 8 GB
+- **Processor**: Modern multi-core CPU (4+ cores)
+- **GPU**: Integrated GPU works, but inference may be slow
 
-#### 1. Install ollama
-   
+### Recommended:
+- **Memory (RAM)**: 16 GB+
+- **Processor**: Modern multi-core CPU (6+ cores)
+- **GPU**: Dedicated GPU with at least 6 GB VRAM (CUDA/Metal supported)
+
+---
+
+## 🚀 Getting Started
+
+### Linux
+
+1. **Install Ollama**:
+   ```bash
+   curl -fsSL https://ollama.com/install.sh | sh
+   ```
+
+2. **Start Ollama service**:
+   ```bash
+   ollama serve
+   ```
+
+3. **Pull and test a model**:
+   ```bash
+   ollama run mistral:7b
+   ```
+
+4. **Clone the repository**:
+   ```bash
+   git clone https://github.com/asseukihuh/ai-webapp.git
+   cd ai-webapp
+   ```
+
+5. **Start a local static server**:
+   ```bash
+   python3 -m http.server 8000
+   ```
+
+6. **Open the web app**:
+   Navigate to `http://localhost:8000/` (or `http://localhost:8000/chatbot.html`) in your web browser.
+
+---
+
+### Windows
+
+1. **Install Ollama**:
+   Download and install from [ollama.com/download](https://ollama.com/download).
+
+2. **Start Ollama**:
+   ```powershell
+   ollama serve
+   ```
+
+3. **Pull and test a model**:
+   ```powershell
+   ollama run mistral:7b
+   ```
+
+4. **Clone the repository**:
+   ```powershell
+   git clone https://github.com/asseukihuh/ai-webapp.git
+   cd ai-webapp
+   ```
+
+5. **Start a local static server**:
+   ```powershell
+   python -m http.server 8000
+   ```
+
+6. **Open the web app**:
+   Navigate to `http://localhost:8000/` (or `http://localhost:8000/chatbot.html`) in your web browser.
+
+---
+
+### macOS
+
+1. **Install Ollama**:
+   Download and install from [ollama.com/download](https://ollama.com/download) or install via Homebrew:
+   ```bash
+   brew install ollama
+   ```
+
+2. **Start Ollama**:
+   ```bash
+   ollama serve
+   ```
+
+3. **Pull and test a model**:
+   ```bash
+   ollama run mistral:7b
+   ```
+
+4. **Serve and Open**:
+   ```bash
+   python3 -m http.server 8000
+   ```
+   Navigate to `http://localhost:8000/` (or `http://localhost:8000/chatbot.html`).
+
+---
+
+## 📁 Project Architecture
+
 ```
-curl -fsSL https://ollama.com/install.sh | sh
-```
-#### 2. Run ollama
-   
-```
-ollama serve
-```
-
-#### 3. Choose a model and make sure it runs
-
-You can find models at <a href='https://ollama.com/search'>ollama.com/search</a>.
-
-Once you found your model run it and test some prompts to make sure it runs.
-
-```
-ollama run <model name>
-```
-
-#### 4. Clone this repository in your computer
-
-```
-git clone https://github.com/asseukihuh/ai-webapp
+ai-webapp/
+├── index.html         # Entry point (auto-redirects to chatbot)
+├── chatbot.html       # Main chat web interface
+├── imageGen.html      # Experimental generation web interface
+├── src/
+│   ├── css/
+│   │   ├── chatbot.css    # Styles for chat interface
+│   │   └── imageGen.css   # Styles for image generation interface
+│   └── js/
+│       ├── chatbot.js     # Chat client logic, Ollama API, history management
+│       └── imageGen.js    # Logic for experimental generation interface
+├── docs/
+│   └── notes-test.txt # Reference curl commands and test notes for Ollama endpoints
+├── AGENTS.md          # AI agent guidelines and coding standards
+├── NOTES.md           # Project updates, changelog, and roadmap
+├── README.md          # Project documentation and setup instructions
+└── LICENSE            # License information
 ```
 
-#### 5. Host a server in your computer
+---
 
-```
-python -m http.server 8000
-```
+## 📄 License
 
-#### 6. Test your local ai-webapp
-
-Go to the adress localhost:8000 on your navigator. <br>
-
-Find the repository where index.html is located. <br>
-
-And there is your local ai-webapp. <br>
-
-### <p id="windows"> 🪟 Windows</p>
-
-#### 1. Install ollama
-   
-Install ollama via <a href="https://ollama.com/">ollama.com</a>
-
-#### 2. Run ollama
-   
-```
-ollama serve
-```
-
-#### 3. Choose a model and make sure it runs
-
-You can find models at <a href='https://ollama.com/search'>ollama.com/search</a>.
-
-Once you found your model run it and test some prompts to make sure it runs.
-
-```
-ollama run <model name>
-```
-
-#### 4. Clone this repository in your computer
-
-```
-git clone https://github.com/asseukihuh/ai-webapp
-```
-
-#### 5. Host a server in your computer
-
-```
-python -m http.server 8000
-```
-
-#### 6. Test your local ai-webapp
-
-Go to the adress localhost:8000 on your navigator. (you can chose the path where the localhost is via --directory "<path>") <br>
-
-Find the repository where index.html is located. <br>
-
-And there is your local ai-webapp. <br>
-
-
-
-
+This project is licensed under the Apache-2.0 License. See the [LICENSE](LICENSE) file for details.

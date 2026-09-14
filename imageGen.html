@@ -1,54 +1,63 @@
-<?xml version="1.0" encoding="UTF-8" ?>
-<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd">
-<html xmlns="http://www.w3.org/1999/xhtml">
-
-<!-- **** H E A D **** -->
+<!DOCTYPE html>
+<html lang="en">
 <head>
-	<meta http-equiv="Content-Type" content="text/html; charset=UTF-8" />
-	<title>My ai webapp</title>
-
-    <link href="imageGen.css" rel="stylesheet" />
-    <script src="imageGen.js"></script>
-
-
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>2i-LLM - Image Generation</title>
+    <link rel="stylesheet" href="src/css/imageGen.css">
+    <script defer src="src/js/imageGen.js"></script>
 </head>
 <body>
-<div id="div3">
-    <h1>Titre</h1>
-</div>
-<div id = "div1" >
-    <p>⚠️ Switching models in the conversation is not recommended !<br>Prefer to refresh the page and start a new conversation.</p>
-</div>
-<form id="modelform">
-    <label for="model">Select your model :</label>
-    <select name="model" id="model">
-        <option value="mistral:7b">mistral:7b</option>
-        <option value="deepseek-r1:7b">deepseek-r1:7b</option>
-        <option value="starling-lm:7b">starling-lm:7b</option>
-    </select>
-</form>
-<form id="sizeform">
-    <label for="size">Select the size :</label>
-    <select name="size" id="size">
-        <option value="500px">500px</option>
-        <option value="1000px">1000px</option>
-        <option value="750px">750px</option>
-    </select>
-</form>
-<div>
-    </div>
-    <div>
-        <br>
-        <h2>Prompt to generate an image :</h2>
-    </div>
-    <div id="div2">
-        <textarea id="textarea1" placeholder="Explain clearly what you want."></textarea>
-        <input id="sendbtn" type="button" value=">" onclick="SendMessage()">
-    </div>
-</div>
-<div id="divimage">
-    <div id="imageres"><p id="imagegen">IMAGE RESULT</p></div>
-</div>
+    <div class="app-container">
+        <header class="app-header">
+            <h1>Image Generation (Experimental)</h1>
+            <p class="warning-banner">
+                Select your parameters and enter a prompt to generate or describe an image.
+            </p>
+            <div class="controls-bar">
+                <form id="model-form" class="control-form" onsubmit="return false;">
+                    <label for="model">Model:</label>
+                    <select name="model" id="model">
+                        <option value="mistral:7b">mistral:7b</option>
+                        <option value="deepseek-r1:7b">deepseek-r1:7b</option>
+                        <option value="starling-lm:7b">starling-lm:7b</option>
+                    </select>
+                </form>
+                <form id="size-form" class="control-form" onsubmit="return false;">
+                    <label for="size">Size:</label>
+                    <select name="size" id="size">
+                        <option value="500px">500px</option>
+                        <option value="750px">750px</option>
+                        <option value="1000px">1000px</option>
+                    </select>
+                </form>
+                <div class="nav-links">
+                    <a href="chatbot.html" class="nav-link">&larr; Back to Chat</a>
+                </div>
+            </div>
+        </header>
 
+        <main class="main-content">
+            <section class="prompt-section">
+                <h2>Prompt:</h2>
+                <form id="prompt-form" class="prompt-form" onsubmit="return false;">
+                    <textarea
+                        id="prompt-input"
+                        class="prompt-input"
+                        placeholder="Explain clearly what you want to generate..."
+                        rows="3"
+                    ></textarea>
+                    <button id="generate-btn" class="generate-btn" type="submit">Generate</button>
+                </form>
+            </section>
+
+            <section class="result-section">
+                <div id="image-container" class="image-container">
+                    <div id="image-placeholder" class="image-placeholder">Image preview will appear here</div>
+                    <div id="status-message" class="status-message"></div>
+                </div>
+            </section>
+        </main>
+    </div>
 </body>
 </html>
