@@ -200,8 +200,14 @@ async function generatePosterInPhotoCraft() {
             return;
         }
 
+        const fonts = data.fontsResolved;
+        const fontNote =
+            fonts?.headline && fonts?.body
+                ? ` Fonts: ${fonts.headline} / ${fonts.body}.`
+                : "";
         setPosterStatus(
-            data.userMessage || "Poster saved. Downloading and opening PhotoCraft…",
+            (data.userMessage || "Poster saved. Downloading and opening PhotoCraft…") +
+                fontNote,
             { success: true }
         );
 

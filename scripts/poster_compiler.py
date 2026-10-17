@@ -46,7 +46,8 @@ LINKEDIN_WIDTH = 1200
 LINKEDIN_HEIGHT = 627
 SAFE_PAD = 48
 TEXT_BLOCK_MAX_WIDTH = 900
-LOGO_MAX_WIDTH = 120
+LOGO_MAX_WIDTH = 140
+LOGO_KNOCKBACK_REL = "assets/commmaker/logo-knockback.svg"
 BATCH_FORMAT = "photocraft-command-batch-v1"
 
 _NEUTRAL_HEX = frozenset(
@@ -156,13 +157,73 @@ def _body_lines(
     return "\n".join(lines[:max_lines])
 
 
-def _pick_font(kit: dict[str, Any] | None) -> str:
-    fonts = (kit or {}).get("fonts") or []
+_GENERIC_FONT_NAMES = frozenset(
+    {
+        "inherit",
+        "sans-serif",
+        "serif",
+        "monospace",
+        "system-ui",
+        "ui-sans-serif",
+        "ui-serif",
+        "inter",
+    }
+)
+
+_DISPLAY_FONT_HINT = re.compile(
+    r"\b(display|condensed|slab|garamond|playfair|merriweather|"
+    r"cormorant|fraunces|bebas|oswald|anton)\b",
+    re.I,
+)
+
+
+def _kit_font_names(kit: dict[str, Any] | None) -> list[str]:
+    names: list[str] = []
+    for raw in (kit or {}).get("fonts") or []:
+        cleaned = str(raw).strip()
+        if cleaned and cleaned.lower() not in _GENERIC_FONT_NAMES and cleaned not in names:
+            names.append(cleaned)
+    for entry in (kit or {}).get("googleFonts") or []:
+        if isinstance(entry, dict):
+            family = str(entry.get("family") or "").strip()
+            if family and family.lower() not in _GENERIC_FONT_NAMES and family not in names:
+                names.append(family)
+    return names
+
+
+def _pick_headline_font(kit: dict[str, Any] | None) -> str:
+    fonts = _kit_font_names(kit)
+    if not fonts:
+        return "Inter"
+    if len(fonts) == 1:
+        return fonts[0]
     for name in fonts:
-        cleaned = str(name).strip()
-        if cleaned and cleaned.lower() not in ("inherit", "sans-serif", "serif"):
-            return cleaned
-    return "Inter"
+        if _DISPLAY_FONT_HINT.search(name):
+            return name
+    return fonts[0]
+
+
+def _pick_body_font(kit: dict[str, Any] | None, headline_font: str) -> str:
+    fonts = _kit_font_names(kit)
+    for name in fonts:
+        if name.casefold() != headline_font.casefold():
+            return name
+    return fonts[0] if fonts else "Inter"
+
+
+def _headline_font_style(
+    kit: dict[str, Any] | None,
+    headline_font: str,
+) -> str | None:
+    for entry in (kit or {}).get("googleFonts") or []:
+        if not isinstance(entry, dict):
+            continue
+        if str(entry.get("family") or "").casefold() != headline_font.casefold():
+            continue
+        weights = {str(w) for w in entry.get("weights") or []}
+        if weights & {"700", "800", "900"}:
+            return "bold"
+    return None
 
 
 def _truncate(text: str, limit: int) -> str:
@@ -277,19 +338,42 @@ def _hero_background_placement(
     return placement
 
 
+def _logo_center_y() -> float:
+    return SAFE_PAD + 40
+
+
+def _logo_center_x() -> float:
+    return LINKEDIN_WIDTH - SAFE_PAD - LOGO_MAX_WIDTH / 2
+
+
+def _logo_knockback_placement() -> dict[str, Any]:
+    return {
+        "path": LOGO_KNOCKBACK_REL,
+        "center": [_logo_center_x(), _logo_center_y()],
+        "scale": 100.0,
+        "smartObject": False,
+        "name": "Logo knockback",
+    }
+
+
 def _logo_foreground_placement(
     logo_relative_path: str,
     *,
     img_width: int | None = None,
+    on_busy_hero: bool = False,
 ) -> dict[str, Any]:
-    scale = logo_scale_percent(img_width or 0)
-    return {
+    scale = logo_scale_percent(img_width or 0, max_width=LOGO_MAX_WIDTH)
+    placement: dict[str, Any] = {
         "path": logo_relative_path.replace("\\", "/"),
-        "center": [LINKEDIN_WIDTH - SAFE_PAD - LOGO_MAX_WIDTH / 2, SAFE_PAD + 36],
+        "center": [_logo_center_x(), _logo_center_y()],
         "scale": round(scale, 2),
         "smartObject": True,
         "name": "Logo",
     }
+    if on_busy_hero:
+        placement["strokeColor"] = "#ffffff"
+        placement["strokeWidth"] = 2
+    return placement
 
 
 def _first_fact_sentence(session: dict[str, Any], skip: str) -> str:
@@ -314,6 +398,7 @@ def compile_poster_batch(
     hero_width: int | None = None,
     hero_height: int | None = None,
     logo_width: int | None = None,
+    fonts_resolved: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Build a PhotoCraft command batch for a LinkedIn 1200×627 poster."""
     kit = kit or session.get("kitSnapshot") or {}
@@ -350,7 +435,12 @@ def compile_poster_batch(
     accent = _pick_color(kit, 2, secondary)
     text_on_dark = "#ffffff"
     text_on_light = _contrast_text_color(primary)
-    font = _pick_font(kit)
+    resolved = fonts_resolved or {}
+    headline_font = str(resolved.get("headline") or _pick_headline_font(kit))
+    body_font = str(resolved.get("body") or _pick_body_font(kit, headline_font))
+    headline_style = resolved.get("headlineStyle") or _headline_font_style(
+        kit, headline_font
+    )
 
     has_hero = bool(hero_relative_path)
     bg_color = secondary if has_hero else primary
@@ -402,20 +492,18 @@ def compile_poster_batch(
     headline_bottom = subline_top - 12
     headline_top = headline_bottom - 108
     headline_size = 56 if not subline else 52
-    steps.append(
-        {
-            "command": "type.create",
-            "params": {
-                "name": "Headline",
-                "box": [SAFE_PAD, headline_top, text_right, headline_bottom],
-                "text": headline,
-                "font": font,
-                "size": headline_size,
-                "color": text_color,
-                "align": "left",
-            },
-        },
-    )
+    headline_params: dict[str, Any] = {
+        "name": "Headline",
+        "box": [SAFE_PAD, headline_top, text_right, headline_bottom],
+        "text": headline,
+        "font": headline_font,
+        "size": headline_size,
+        "color": text_color,
+        "align": "left",
+    }
+    if headline_style:
+        headline_params["fontStyle"] = headline_style
+    steps.append({"command": "type.create", "params": headline_params})
 
     if subline:
         steps.append(
@@ -425,7 +513,7 @@ def compile_poster_batch(
                     "name": "Subline",
                     "box": [SAFE_PAD, subline_top, text_right, subline_bottom],
                     "text": subline,
-                    "font": font,
+                    "font": body_font,
                     "size": 24,
                     "color": text_color,
                     "align": "left",
@@ -443,7 +531,7 @@ def compile_poster_batch(
                     "name": "Body",
                     "box": [SAFE_PAD, body_top, text_right, body_bottom],
                     "text": body,
-                    "font": font,
+                    "font": body_font,
                     "size": 20,
                     "color": text_color,
                     "align": "left",
@@ -459,7 +547,7 @@ def compile_poster_batch(
                 "name": "Footer",
                 "box": [SAFE_PAD, footer_top, text_right, LINKEDIN_HEIGHT - SAFE_PAD],
                 "text": site_name,
-                "font": font,
+                "font": body_font,
                 "size": 18,
                 "color": footer_color,
                 "align": "left",
@@ -479,10 +567,13 @@ def compile_poster_batch(
 
     foreground_placements: list[dict[str, Any]] = []
     if logo_relative_path:
+        if has_hero:
+            foreground_placements.append(_logo_knockback_placement())
         foreground_placements.append(
             _logo_foreground_placement(
                 logo_relative_path,
                 img_width=logo_width,
+                on_busy_hero=has_hero,
             )
         )
 
@@ -506,5 +597,9 @@ def compile_poster_batch(
             "primaryColor": primary,
             "accentColor": accent,
             "hasHero": has_hero,
+            "fonts": {
+                "headline": headline_font,
+                "body": body_font,
+            },
         },
     }
