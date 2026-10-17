@@ -660,6 +660,13 @@ _GENERIC_FAMILIES = frozenset(
 )
 
 
+def _dedupe_label(text: Any) -> str:
+    """Collapse 'Sign in Sign in' (visually hidden duplicate labels) to 'Sign in'."""
+    value = re.sub(r"\s+", " ", str(text or "")).strip()
+    m = re.fullmatch(r"(.+?)\s+\1", value)
+    return m.group(1) if m else value
+
+
 def _rank_var_name(name: str) -> int:
     n = name.lower()
     if any(k in n for k in ("brand", "primary", "accent", "cta")):
@@ -851,7 +858,7 @@ def build_signals(
         "h1": h1.get("text") or kit.get("headline") or "",
         "h2s": [h.get("text") for h in rendered.get("h2s") or [] if h.get("text")][:8],
         "paragraphs": (rendered.get("paragraphs") or [])[:6],
-        "ctas": [c.get("text") for c in rendered.get("ctas") or [] if c.get("text")][:10],
+        "ctas": [_dedupe_label(c.get("text")) for c in rendered.get("ctas") or [] if c.get("text")][:10],
         "navLinks": (rendered.get("navLinks") or [])[:12],
         "lang": rendered.get("lang") or "",
     }
@@ -876,7 +883,7 @@ def build_signals(
         "pixels": pixels[:8],
         "socialLinks": rendered.get("socialLinks") or [],
         "ctaLinks": [
-            {"text": c.get("text"), "href": c.get("href")}
+            {"text": _dedupe_label(c.get("text")), "href": c.get("href")}
             for c in rendered.get("ctas") or []
             if c.get("text") and c.get("href")
         ][:6],
@@ -1176,10 +1183,11 @@ def _clean_list(values: Any, limit: int, item_limit: int = 48) -> list[str]:
 
 def _snap_color(hex_value: Any, candidate_id: str, signals: dict[str, Any]) -> dict[str, Any] | None:
     by_id = {c["id"]: c for c in signals.get("colors") or []}
+    hex6 = normalize_hex(hex_value)
     if candidate_id and candidate_id in by_id:
         c = by_id[candidate_id]
-        return {"hex": c["hex"], "candidateId": c["id"], "source": "procedural", "verified": True}
-    hex6 = normalize_hex(hex_value)
+        if not hex6 or delta_e(hex6, c["hex"]) <= SNAP_DELTA_E:
+            return {"hex": c["hex"], "candidateId": c["id"], "source": "procedural", "verified": True}
     if not hex6:
         return None
     best, best_d = None, 999.0
@@ -1195,14 +1203,12 @@ def _snap_color(hex_value: Any, candidate_id: str, signals: dict[str, Any]) -> d
 def _match_font(family: Any, candidate_id: str, weights: Any, signals: dict[str, Any]) -> dict[str, Any]:
     fonts = signals.get("fonts") or []
     by_id = {f["id"]: f for f in fonts}
-    match = by_id.get(candidate_id) if candidate_id else None
-    if not match:
-        norm = _normalize_family(str(family or ""))
-        match = next((f for f in fonts if f["norm"] == norm), None)
-        if not match and norm:
-            match = next(
-                (f for f in fonts if norm in f["norm"] or f["norm"] in norm), None
-            )
+    norm = _normalize_family(str(family or ""))
+    match = next((f for f in fonts if f["norm"] == norm), None) if norm else None
+    if not match and candidate_id in by_id:
+        match = by_id[candidate_id]
+    if not match and norm:
+        match = next((f for f in fonts if norm in f["norm"] or f["norm"] in norm), None)
     ai_weights = sorted({int(w) for w in weights or [] if isinstance(w, (int, float)) and 100 <= int(w) <= 900})
     if match:
         known = match.get("weights") or []

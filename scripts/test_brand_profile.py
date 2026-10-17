@@ -182,6 +182,20 @@ class TestReconcile(unittest.TestCase):
         roles = {e["role"] for e in p["palette"]}
         self.assertTrue(set(bp.REQUIRED_PALETTE_ROLES) <= roles)
 
+    def test_hex_wins_when_candidate_id_disagrees(self) -> None:
+        signals = _stripe_signals()
+        light = next(c for c in signals["colors"] if c["hex"] == "#e5edf5")
+        raw = _load("stripe_ai_tool_input.json")
+        raw["palette"][1] = {"role": "primary", "hex": "#533afd", "candidateId": light["id"], "name": "Blurple", "usage": ""}
+        p = bp.reconcile_profile(raw, signals)
+        primary = next(e for e in p["palette"] if e["role"] == "primary")
+        self.assertEqual(primary["hex"], "#533afd")
+        self.assertTrue(primary["verified"])
+
+    def test_duplicate_cta_labels_collapse(self) -> None:
+        self.assertEqual(bp._dedupe_label("Sign in Sign in"), "Sign in")
+        self.assertEqual(bp._dedupe_label("Get started"), "Get started")
+
     def test_unknown_candidate_ids_are_safe(self) -> None:
         raw = _load("stripe_ai_tool_input.json")
         raw["logo"]["candidateId"] = "L99"
