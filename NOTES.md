@@ -6,6 +6,10 @@ Project update tracking, changelog, and roadmap for `ai-webapp`.
 
 ## 📝 Recent Updates
 
+### 2026-10-17 - Crisis poster follows the composition
+
+- The crisis compiler was still emitting a centred statement: homepage tagline as the subline, dark wordmark, flat purple, no CTA. A left-hand composition now uses the full-bleed field, a white wordmark on the dark stop, the profile or fact line instead of a generic locale tagline, and a CTA. Ideogram runs when a key is set, prompted from the captured imagery language.
+
 ### 2026-10-17 - Identity-true posters
 
 - Poster imagery comes from the captured palette, the real symbol mark, or a usable photo. Catalog shapes (bars, chevrons, dot grids) are not drawn.
