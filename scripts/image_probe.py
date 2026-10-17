@@ -158,3 +158,49 @@ def image_dimensions(path: str | Path) -> tuple[int, int] | None:
     if suffix == ".svg":
         return svg_dimensions_from_bytes(data) or raster_dimensions_from_bytes(data)
     return image_dimensions_from_bytes(data)
+
+
+_HERO_BUSY_URL_HINTS = re.compile(
+    r"(?:screenshot|product[-_]?shot|browser[-_]?mock|ui[-_]?preview|"
+    r"desktop[-_](?:dark|light)|mobile[-_](?:dark|light)|-dark\.webp|-light\.webp)",
+    re.I,
+)
+
+_OG_MARKETING_HINTS = re.compile(
+    r"(?:og[-_/]|opengraph|social|share|card|hero[-_]?static|not-x)",
+    re.I,
+)
+
+
+def hero_url_looks_busy(url: str) -> bool:
+    lower = (url or "").lower().split("?", 1)[0]
+    return bool(_HERO_BUSY_URL_HINTS.search(lower))
+
+
+def hero_dimensions_look_busy(width: int | None, height: int | None) -> bool:
+    if not width or not height or width <= 0 or height <= 0:
+        return False
+    aspect = width / height
+    if aspect >= 1.55 and width >= 1100 and height >= 650:
+        return True
+    if max(width, height) >= 2400 and aspect >= 1.25:
+        return True
+    return False
+
+
+def classify_hero_candidate(
+    url: str,
+    *,
+    width: int | None = None,
+    height: int | None = None,
+    source: str = "page",
+) -> tuple[bool, str]:
+    """Return (hero_busy, hero_image_kind)."""
+    lower = (url or "").lower()
+    if hero_url_looks_busy(url) or hero_dimensions_look_busy(width, height):
+        return True, "ui-screenshot"
+    if source in ("og", "twitter") or _OG_MARKETING_HINTS.search(lower):
+        return False, "og-marketing"
+    if width and height and width >= 800 and height >= 400:
+        return False, "marketing"
+    return False, "inline"

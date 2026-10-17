@@ -134,13 +134,29 @@ def _pick_color(
     return default
 
 
-def _contrast_text_color(bg_hex: str) -> str:
-    hex6 = bg_hex.lstrip("#")
+def _hex_luminance(hex_color: str) -> float:
+    hex6 = _normalize_hex(hex_color, "#000000").lstrip("#")
     if len(hex6) != 6:
-        return "#ffffff"
+        return 0.0
     r, g, b = (int(hex6[i : i + 2], 16) for i in (0, 2, 4))
-    luminance = (0.299 * r + 0.587 * g + 0.114 * b) / 255
-    return "#0f172a" if luminance > 0.6 else "#ffffff"
+    return (0.299 * r + 0.587 * g + 0.114 * b) / 255
+
+
+def _contrast_text_color(bg_hex: str) -> str:
+    return "#0f172a" if _hex_luminance(bg_hex) > 0.6 else "#ffffff"
+
+
+_BRIGHT_HERO_CORNER_LUMINANCE = 0.55
+_LOGO_MARK_DARK_LUMINANCE = 0.45
+
+_SVG_FILL_ATTR_RE = re.compile(
+    r"fill\s*=\s*([\"'])(#[0-9a-fA-F]{3,8}|[a-zA-Z]+)\1",
+    re.I,
+)
+_SVG_STYLE_FILL_RE = re.compile(
+    r"fill\s*:\s*(#[0-9a-fA-F]{3,8})",
+    re.I,
+)
 
 
 def _normalize_compare(text: str) -> str:
@@ -270,30 +286,156 @@ def _resolve_headline_hierarchy(
     session: dict[str, Any],
 ) -> tuple[str, str]:
     """Crisis headline (large) + optional subhead (smaller), without duplicating copy."""
+    kit = kit or {}
     brief = session.get("brief") or {}
+    site_raw = re.sub(r"\s+", " ", str(kit.get("siteName") or "")).strip()
     crisis = _truncate(
         session.get("suggestedHeadline")
         or brief.get("headline")
         or "",
         90,
     )
-    kit_head = _truncate((kit or {}).get("headline") or "", SUBLINE_CHAR_LIMIT)
+    kit_head = _truncate(kit.get("headline") or "", SUBLINE_CHAR_LIMIT)
     kit_tag = _truncate(
-        (kit or {}).get("tagline") or brief.get("tagline") or "",
+        kit.get("tagline") or brief.get("tagline") or "",
         SUBLINE_CHAR_LIMIT,
     )
 
     if not crisis:
         crisis = _truncate(kit_head or "Important update", 90)
 
+    crisis_norm = _normalize_compare(crisis)
+
+    def _distinct_from_headline(candidate: str) -> bool:
+        if not candidate:
+            return False
+        cand = _normalize_compare(candidate)
+        if cand == crisis_norm:
+            return False
+        if site_raw and cand == _normalize_compare(site_raw):
+            return False
+        if kit_head and cand == _normalize_compare(kit_head) and cand == crisis_norm:
+            return False
+        return True
+
     subhead = ""
-    if kit_tag and _normalize_compare(kit_tag) != _normalize_compare(crisis):
+    if kit_tag and _distinct_from_headline(kit_tag):
         subhead = kit_tag
-    elif kit_head and _normalize_compare(kit_head) != _normalize_compare(crisis):
+    elif kit_head and _distinct_from_headline(kit_head):
         subhead = kit_head
     subhead = _truncate(subhead, SUBLINE_CHAR_LIMIT)
 
     return crisis, subhead
+
+
+def _logo_mark_luminance(kit: dict[str, Any] | None) -> float:
+    palette = _palette_from_kit(kit)
+    if not palette:
+        return 0.2
+    return min(_hex_luminance(c) for c in palette[:4])
+
+
+def _estimated_hero_corner_luminance(kit: dict[str, Any] | None) -> float:
+    """Heuristic: marketing heroes (e.g. Stripe OG) are often bright top-right."""
+    palette = _palette_from_kit(kit)
+    if not palette:
+        return 0.72
+    samples = [_hex_luminance(c) for c in palette[:3]]
+    avg = sum(samples) / len(samples)
+    return max(0.55, min(0.92, avg + 0.22))
+
+
+def should_logo_on_dark(
+    kit: dict[str, Any] | None,
+    *,
+    has_hero: bool,
+    hero_busy: bool = False,
+) -> bool:
+    if not has_hero or hero_busy:
+        return False
+    corner = _estimated_hero_corner_luminance(kit)
+    mark = _logo_mark_luminance(kit)
+    return (
+        corner >= _BRIGHT_HERO_CORNER_LUMINANCE
+        and mark < _LOGO_MARK_DARK_LUMINANCE
+    )
+
+
+def recolor_logo_svg_for_light_hero(svg: str, light_fill: str = "#ffffff") -> str:
+    """Replace dark SVG path fills with a light fill for bright photo heroes."""
+
+    def _maybe_swap(color: str) -> str:
+        lower = (color or "").lower()
+        if lower in ("none", "transparent", "currentcolor"):
+            return color
+        if not lower.startswith("#"):
+            return color
+        if _hex_luminance(color) < _LOGO_MARK_DARK_LUMINANCE:
+            return light_fill
+        return color
+
+    def _attr_repl(match: re.Match[str]) -> str:
+        quote, raw = match.group(1), match.group(2)
+        swapped = _maybe_swap(raw)
+        if swapped == raw:
+            return match.group(0)
+        return f"fill={quote}{swapped}{quote}"
+
+    out = _SVG_FILL_ATTR_RE.sub(_attr_repl, svg)
+
+    def _style_repl(match: re.Match[str]) -> str:
+        raw = match.group(1)
+        swapped = _maybe_swap(raw)
+        if swapped == raw:
+            return match.group(0)
+        return f"fill:{swapped}"
+
+    return _SVG_STYLE_FILL_RE.sub(_style_repl, out)
+
+
+def _use_logo_knockback(
+    kit: dict[str, Any] | None,
+    *,
+    has_hero: bool,
+    hero_busy: bool,
+    logo_on_dark: bool,
+) -> bool:
+    if has_hero or hero_busy or logo_on_dark:
+        return False
+    primary = _pick_color(kit, 0, "#1a365d")
+    if _hex_luminance(primary) > 0.62 and _logo_mark_luminance(kit) < _LOGO_MARK_DARK_LUMINANCE:
+        return True
+    return False
+
+
+def _brand_gradient_steps(
+    primary: str,
+    secondary: str,
+    accent: str,
+) -> list[dict[str, Any]]:
+    """Simulate a 2–3 stop brand gradient without a native gradient layer."""
+    return [
+        {
+            "command": "layer.newFillLayer.solidColor",
+            "params": {"color": primary, "name": "Brand base"},
+        },
+        {
+            "command": "layer.newFillLayer.solidColor",
+            "params": {"color": secondary, "name": "Brand mid"},
+        },
+        {
+            "command": "layer.setProps",
+            "params": {"name": "Brand mid", "opacity": 0.48},
+        },
+        {
+            "command": "layer.newFillLayer.solidColor",
+            "params": {"color": accent, "name": "Brand accent"},
+        },
+        {
+            "command": "layer.setProps",
+            "params": {"name": "Brand accent", "opacity": 0.28},
+        },
+    ]
 
 
 def asset_cache_basename(url: str, prefix: str = "asset") -> str:
@@ -418,20 +560,15 @@ def _logo_foreground_placement(
     *,
     img_width: int | None = None,
     img_height: int | None = None,
-    on_busy_hero: bool = False,
 ) -> dict[str, Any]:
     layout = _logo_layout(img_width or 0, img_height or 0)
-    placement: dict[str, Any] = {
+    return {
         "path": logo_relative_path.replace("\\", "/"),
         "center": [layout["center_x"], layout["center_y"]],
         "scale": round(layout["logo_scale"], 2),
         "smartObject": True,
         "name": "Logo",
     }
-    if on_busy_hero:
-        placement["strokeColor"] = "#ffffff"
-        placement["strokeWidth"] = 2
-    return placement
 
 
 def _color_with_alpha(hex_color: str, alpha: float) -> list[float]:
@@ -494,6 +631,12 @@ def compile_poster_batch(
         body = "\n".join(body_lines).strip()
         body = _truncate(body, 200)
     site_name = _pick_site_name(kit)
+    if subline and _normalize_compare(subline) == _normalize_compare(site_name):
+        subline = ""
+
+    hero_busy = bool(kit.get("heroBusy"))
+    if hero_busy:
+        hero_relative_path = None
 
     if not hero_width or not hero_height:
         kit_w = (kit or {}).get("heroWidth")
@@ -517,6 +660,14 @@ def compile_poster_batch(
     )
 
     has_hero = bool(hero_relative_path)
+    logo_on_dark = should_logo_on_dark(kit, has_hero=has_hero, hero_busy=hero_busy)
+    use_knockback = _use_logo_knockback(
+        kit,
+        has_hero=has_hero,
+        hero_busy=hero_busy,
+        logo_on_dark=logo_on_dark,
+    )
+    scrim_opacity = 0.48 if kit.get("heroImageKind") == "ui-screenshot" else 0.42
     bg_color = secondary if has_hero else primary
 
     document = {
@@ -541,22 +692,11 @@ def compile_poster_batch(
         steps.append(
             {
                 "command": "layer.setProps",
-                "params": {"name": "Hero scrim", "opacity": 0.42},
+                "params": {"name": "Hero scrim", "opacity": scrim_opacity},
             }
         )
     else:
-        steps.append(
-            {
-                "command": "layer.newFillLayer.solidColor",
-                "params": {"color": accent, "name": "Accent panel"},
-            }
-        )
-        steps.append(
-            {
-                "command": "layer.setProps",
-                "params": {"name": "Accent panel", "opacity": 0.35},
-            }
-        )
+        steps.extend(_brand_gradient_steps(primary, secondary, accent))
 
     text_color = text_on_dark if has_hero else text_on_light
     text_right = SAFE_PAD + TEXT_BLOCK_MAX_WIDTH
@@ -650,7 +790,7 @@ def compile_poster_batch(
     logo_layout = _logo_layout(logo_width or 0, logo_height or 0)
     foreground_placements: list[dict[str, Any]] = []
     if logo_relative_path:
-        if has_hero:
+        if use_knockback:
             foreground_placements.append(
                 _logo_knockback_placement(
                     img_width=logo_width or 0,
@@ -662,7 +802,6 @@ def compile_poster_batch(
                 logo_relative_path,
                 img_width=logo_width,
                 img_height=logo_height,
-                on_busy_hero=has_hero,
             )
         )
 
@@ -686,6 +825,9 @@ def compile_poster_batch(
             "primaryColor": primary,
             "accentColor": accent,
             "hasHero": has_hero,
+            "heroBusy": hero_busy,
+            "logoOnDark": logo_on_dark,
+            "logoKnockback": use_knockback,
             "hasLogo": has_logo,
             "logoLayout": {
                 "targetWidthPx": int(round(logo_layout["target_width"])),
