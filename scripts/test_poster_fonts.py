@@ -15,12 +15,10 @@ from font_fetcher import parse_google_font_links, pick_body_font, pick_headline_
 from kit_scraper import scrape_kit_from_html  # noqa: E402
 from image_probe import svg_dimensions_from_text  # noqa: E402
 from poster_compiler import (  # noqa: E402
-    HEADLINE_SIZE_WITH_SUB,
-    LOGO_TARGET_WIDTH_MIN,
-    SUBLINE_SIZE,
     compile_poster_batch,
     count_logo_placements,
 )
+from poster_design import HEADLINE_MIN_SIZE, MARGIN_X, SUBLINE_SIZE, span_w  # noqa: E402
 
 
 def _type_fonts(batch: dict) -> dict[str, str]:
@@ -147,21 +145,21 @@ def test_logo_placements_with_hero() -> None:
     assert logo_place.get("name") == "Logo"
     meta = batch.get("meta") or {}
     assert meta.get("logoKnockback") is False
-    assert meta.get("logoOnDark") is True
+    assert (meta.get("contrast") or {}).get("logo", 0) >= 3.0
     layout = (batch.get("meta") or {}).get("logoLayout") or {}
-    tw = layout.get("targetWidthPx", 0)
-    assert LOGO_TARGET_WIDTH_MIN <= tw <= 320
-    assert tw >= 280
-    assert layout.get("logoScalePercent", 0) >= 40
+    assert layout.get("targetHeightPx") == 36
+    assert layout.get("targetWidthPx", 999) <= span_w(3)
+    assert abs(logo_place["center"][0] - layout["targetWidthPx"] / 2 - MARGIN_X) <= 1
     steps = batch.get("steps") or []
     type_steps = [s for s in steps if s.get("command") == "type.create"]
     headline = next(s for s in type_steps if s["params"]["name"] == "Headline")
     subline = next(s for s in type_steps if s["params"]["name"] == "Subline")
-    assert headline["params"]["size"] == HEADLINE_SIZE_WITH_SUB
+    assert headline["params"]["size"] >= HEADLINE_MIN_SIZE
+    assert headline["params"]["weight"] >= 700
     assert subline["params"]["size"] == SUBLINE_SIZE
-    assert len(subline["params"]["text"]) <= 72
-    scrim_names = [p.get("name") for p in batch.get("backgroundPlacements") or []]
-    assert "Type scrim" in scrim_names
+    assert headline["params"]["box"][0] == subline["params"]["box"][0] == MARGIN_X
+    assert not any(p.get("name") == "Type scrim" for p in batch.get("backgroundPlacements") or [])
+    assert any(s.get("command") == "gradient.fill.create" for s in steps)
 
 
 def main() -> int:

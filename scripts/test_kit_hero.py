@@ -156,12 +156,10 @@ def test_busy_hero_skips_image_uses_gradient() -> None:
     )
     assert not batch.get("backgroundPlacements")
     assert (batch.get("meta") or {}).get("hasHero") is False
-    step_names = [
-        (s.get("params") or {}).get("name")
-        for s in batch.get("steps") or []
-        if s.get("command") == "layer.newFillLayer.solidColor"
-    ]
-    assert "Brand base" in step_names
+    step_names = [(s.get("params") or {}).get("name") for s in batch.get("steps") or []]
+    assert "Brand gradient" in step_names
+    gradient = next(s for s in batch["steps"] if s.get("command") == "gradient.fill.create")
+    assert len(gradient["params"]["stops"]) == 3
 
 
 def test_svg_recolor_dark_paths() -> None:
