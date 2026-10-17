@@ -291,15 +291,39 @@ def _fonts_from_text(text: str, limit: int = 8) -> list[str]:
     return fonts
 
 
-def _img_area(img: dict[str, str]) -> int:
+def _parse_pixel_hint(value: str) -> int:
     try:
-        w = int(re.sub(r"\D", "", img.get("width") or "") or "0")
-        h = int(re.sub(r"\D", "", img.get("height") or "") or "0")
+        return int(re.sub(r"\D", "", value or "") or "0")
     except ValueError:
-        w = h = 0
+        return 0
+
+
+def _img_dimensions(img: dict[str, str]) -> tuple[int, int]:
+    return _parse_pixel_hint(img.get("width", "")), _parse_pixel_hint(img.get("height", ""))
+
+
+def _hero_candidate_large_enough(img: dict[str, str], min_px: int = 100) -> bool:
+    w, h = _img_dimensions(img)
     if w > 0 and h > 0:
+        return max(w, h) >= min_px
+    return True
+
+
+def _img_area(img: dict[str, str]) -> int:
+    w, h = _img_dimensions(img)
+    if w > 0 and h > 0:
+        if max(w, h) < 100:
+            return 0
         return w * h
     return 400 * 300
+
+
+def _meta_hero_dimensions(collector: _PageCollector) -> tuple[int | None, int | None]:
+    w = _parse_pixel_hint(collector.meta.get("og:image:width", ""))
+    h = _parse_pixel_hint(collector.meta.get("og:image:height", ""))
+    if w > 0 and h > 0:
+        return w, h
+    return None, None
 
 
 def _pick_hero_url(base_url: str, collector: _PageCollector) -> str | None:
@@ -315,10 +339,14 @@ def _pick_hero_url(base_url: str, collector: _PageCollector) -> str | None:
         src = img.get("src", "")
         if not src:
             continue
+        if not _hero_candidate_large_enough(img):
+            continue
         blob = " ".join((img.get("alt", ""), img.get("class", ""), src)).lower()
         if _LOGO_HINTS.search(blob) and img.get("in_header") == "1":
             continue
         area = _img_area(img)
+        if area <= 0:
+            continue
         if best is None or area > best[0]:
             normalized = _normalize_url(base_url, src)
             if normalized:
@@ -516,6 +544,10 @@ def scrape_kit_from_html(
     }
     if hero_url:
         kit["heroImageUrl"] = hero_url
+        hero_w, hero_h = _meta_hero_dimensions(collector)
+        if hero_w and hero_h:
+            kit["heroWidth"] = hero_w
+            kit["heroHeight"] = hero_h
     if logo_svg:
         kit["logoSvg"] = logo_svg
     if tagline:

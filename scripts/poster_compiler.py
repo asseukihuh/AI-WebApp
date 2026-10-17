@@ -21,7 +21,15 @@ Engine steps (``batch`` / ``command_batch``):
 
 Placements (headless ``doc.place`` only — not engine.execute file.placeEmbedded):
   path: str relative to automation read root
-  center: [x, y]?; scale: %?; fit: bool?; smartObject: bool?
+  center: [x, y]? — anchor point (canvas center for full-bleed hero)
+  scale: number? — placement size as % of native pixels (cover uses max(canvas/img)×100)
+  fit: bool? — when true, shrink large images to fit inside canvas (do not use for hero)
+  smartObject: bool?; name: str?
+  cover: bool? — CommMaker-only hint; ``photocraft_cli`` resolves to ``fit: false`` + ``scale``
+
+Hero **cover** (1200×627): ``fit: false``, ``center: [600, 313.5]``, ``scale`` so both
+dimensions meet or exceed the canvas (center crop). PhotoCraft does not letterbox when
+``fit`` is false and scale is large enough.
 
 ``backgroundPlacements`` are applied after ``doc.new`` and before the engine ``batch``
 so hero imagery sits under type layers. Foreground ``placements`` run after the batch.
@@ -36,6 +44,9 @@ from typing import Any
 
 LINKEDIN_WIDTH = 1200
 LINKEDIN_HEIGHT = 627
+SAFE_PAD = 48
+TEXT_BLOCK_MAX_WIDTH = 900
+LOGO_MAX_WIDTH = 120
 BATCH_FORMAT = "photocraft-command-batch-v1"
 
 _NEUTRAL_HEX = frozenset(
@@ -227,18 +238,112 @@ def hero_cache_basename(hero_url: str) -> str:
     return asset_cache_basename(hero_url, "hero")
 
 
+def cover_scale_percent(
+    img_width: int,
+    img_height: int,
+    canvas_width: int = LINKEDIN_WIDTH,
+    canvas_height: int = LINKEDIN_HEIGHT,
+) -> float:
+    """Scale % so the image covers the canvas (both sides meet or exceed)."""
+    if img_width <= 0 or img_height <= 0:
+        return 100.0
+    return max(canvas_width / img_width, canvas_height / img_height) * 100.0
+
+
+def logo_scale_percent(img_width: int, max_width: int = LOGO_MAX_WIDTH) -> float:
+    if img_width <= 0:
+        return 22.0
+    return min(100.0, max(8.0, (max_width / img_width) * 100.0))
+
+
+def _hero_background_placement(
+    hero_relative_path: str,
+    *,
+    img_width: int | None = None,
+    img_height: int | None = None,
+) -> dict[str, Any]:
+    placement: dict[str, Any] = {
+        "path": hero_relative_path.replace("\\", "/"),
+        "center": [LINKEDIN_WIDTH / 2, LINKEDIN_HEIGHT / 2],
+        "fit": False,
+        "smartObject": True,
+        "name": "Hero image",
+        "cover": True,
+    }
+    if img_width and img_height:
+        placement["scale"] = round(
+            cover_scale_percent(img_width, img_height), 2
+        )
+    return placement
+
+
+def _logo_foreground_placement(
+    logo_relative_path: str,
+    *,
+    img_width: int | None = None,
+) -> dict[str, Any]:
+    scale = logo_scale_percent(img_width or 0)
+    return {
+        "path": logo_relative_path.replace("\\", "/"),
+        "center": [LINKEDIN_WIDTH - SAFE_PAD - LOGO_MAX_WIDTH / 2, SAFE_PAD + 36],
+        "scale": round(scale, 2),
+        "smartObject": True,
+        "name": "Logo",
+    }
+
+
+def _first_fact_sentence(session: dict[str, Any], skip: str) -> str:
+    facts = (session.get("brief") or {}).get("facts") or ""
+    for line in facts.splitlines():
+        line = line.strip()
+        if not line:
+            continue
+        if _normalize_compare(line) == _normalize_compare(skip):
+            continue
+        sentence = re.split(r"(?<=[.!?])\s+", line, maxsplit=1)[0].strip()
+        return _truncate(sentence or line, 140)
+    return ""
+
+
 def compile_poster_batch(
     kit: dict[str, Any] | None,
     session: dict[str, Any],
     *,
     logo_relative_path: str | None = None,
     hero_relative_path: str | None = None,
+    hero_width: int | None = None,
+    hero_height: int | None = None,
+    logo_width: int | None = None,
 ) -> dict[str, Any]:
     """Build a PhotoCraft command batch for a LinkedIn 1200×627 poster."""
     kit = kit or session.get("kitSnapshot") or {}
-    headline, tagline = _resolve_headline_hierarchy(kit, session)
-    body = _truncate(_body_lines(session, skip_headline=headline), 200)
+    headline, kit_subline = _resolve_headline_hierarchy(kit, session)
+    fact_subline = _first_fact_sentence(session, headline)
+    subline = kit_subline
+    if not subline and fact_subline and _normalize_compare(fact_subline) != _normalize_compare(
+        headline
+    ):
+        subline = fact_subline
+    body = _truncate(
+        _body_lines(session, skip_headline=headline),
+        200,
+    )
+    if subline and body and _normalize_compare(body.splitlines()[0]) == _normalize_compare(
+        subline
+    ):
+        body_lines = body.splitlines()[1:]
+        body = "\n".join(body_lines).strip()
+        body = _truncate(body, 200)
     site_name = _pick_site_name(kit)
+
+    if not hero_width or not hero_height:
+        kit_w = (kit or {}).get("heroWidth")
+        kit_h = (kit or {}).get("heroHeight")
+        try:
+            hero_width = int(kit_w) if kit_w else hero_width
+            hero_height = int(kit_h) if kit_h else hero_height
+        except (TypeError, ValueError):
+            pass
 
     primary = _pick_color(kit, 0, "#1a365d")
     secondary = _pick_color(kit, 1, "#2c5282")
@@ -272,7 +377,7 @@ def compile_poster_batch(
         steps.append(
             {
                 "command": "layer.setProps",
-                "params": {"name": "Hero scrim", "opacity": 0.38},
+                "params": {"name": "Hero scrim", "opacity": 0.42},
             }
         )
     else:
@@ -290,33 +395,38 @@ def compile_poster_batch(
         )
 
     text_color = text_on_dark if has_hero else text_on_light
-    text_column_right = 640 if has_hero else 1056
-    headline_y = 96
+    text_right = SAFE_PAD + TEXT_BLOCK_MAX_WIDTH
+    footer_top = LINKEDIN_HEIGHT - SAFE_PAD - 28
+    subline_bottom = footer_top - 8
+    subline_top = subline_bottom - 56 if subline else subline_bottom
+    headline_bottom = subline_top - 12
+    headline_top = headline_bottom - 108
+    headline_size = 56 if not subline else 52
     steps.append(
         {
             "command": "type.create",
             "params": {
                 "name": "Headline",
-                "box": [64, headline_y, text_column_right, headline_y + 120],
+                "box": [SAFE_PAD, headline_top, text_right, headline_bottom],
                 "text": headline,
                 "font": font,
-                "size": 42 if tagline else 46,
+                "size": headline_size,
                 "color": text_color,
                 "align": "left",
             },
         },
     )
 
-    if tagline:
+    if subline:
         steps.append(
             {
                 "command": "type.create",
                 "params": {
-                    "name": "Tagline",
-                    "box": [64, headline_y + 118, text_column_right, headline_y + 200],
-                    "text": tagline,
+                    "name": "Subline",
+                    "box": [SAFE_PAD, subline_top, text_right, subline_bottom],
+                    "text": subline,
                     "font": font,
-                    "size": 22,
+                    "size": 24,
                     "color": text_color,
                     "align": "left",
                 },
@@ -324,13 +434,14 @@ def compile_poster_batch(
         )
 
     if body:
-        body_top = headline_y + (200 if tagline else 130)
+        body_bottom = headline_top - 8
+        body_top = max(SAFE_PAD, body_bottom - 100)
         steps.append(
             {
                 "command": "type.create",
                 "params": {
                     "name": "Body",
-                    "box": [64, body_top, text_column_right, 480],
+                    "box": [SAFE_PAD, body_top, text_right, body_bottom],
                     "text": body,
                     "font": font,
                     "size": 20,
@@ -340,16 +451,17 @@ def compile_poster_batch(
             }
         )
 
+    footer_color = "#cbd5e1" if has_hero else text_on_light
     steps.append(
         {
             "command": "type.create",
             "params": {
                 "name": "Footer",
-                "box": [64, 548, 1056, 610],
+                "box": [SAFE_PAD, footer_top, text_right, LINKEDIN_HEIGHT - SAFE_PAD],
                 "text": site_name,
                 "font": font,
                 "size": 18,
-                "color": text_on_dark if has_hero else text_on_light,
+                "color": footer_color,
                 "align": "left",
             },
         }
@@ -358,26 +470,20 @@ def compile_poster_batch(
     background_placements: list[dict[str, Any]] = []
     if hero_relative_path:
         background_placements.append(
-            {
-                "path": hero_relative_path.replace("\\", "/"),
-                "center": [LINKEDIN_WIDTH // 2, LINKEDIN_HEIGHT // 2],
-                "scale": 100,
-                "fit": True,
-                "smartObject": True,
-                "name": "Hero image",
-            }
+            _hero_background_placement(
+                hero_relative_path,
+                img_width=hero_width,
+                img_height=hero_height,
+            )
         )
 
     foreground_placements: list[dict[str, Any]] = []
     if logo_relative_path:
         foreground_placements.append(
-            {
-                "path": logo_relative_path.replace("\\", "/"),
-                "center": [108, 72],
-                "scale": 28,
-                "smartObject": True,
-                "name": "Logo",
-            }
+            _logo_foreground_placement(
+                logo_relative_path,
+                img_width=logo_width,
+            )
         )
 
     poster_id = uuid.uuid4().hex[:12]
@@ -395,7 +501,7 @@ def compile_poster_batch(
         "output": {"relativePath": f"generated/{filename}"},
         "meta": {
             "headline": headline,
-            "tagline": tagline,
+            "tagline": subline,
             "siteName": site_name,
             "primaryColor": primary,
             "accentColor": accent,
