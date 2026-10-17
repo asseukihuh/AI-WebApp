@@ -348,6 +348,17 @@ class CommMakerHandler(http.server.SimpleHTTPRequestHandler):
             ):
                 kit.pop("logoUrl", None)
             creative_brief = body.get("creativeBrief")
+            if isinstance(creative_brief, dict):
+                crisis_for_brief = {
+                    "crisisMessage": str(session.get("suggestedHeadline") or "").strip(),
+                    "crisisFacts": str((session.get("brief") or {}).get("facts") or ""),
+                    "tone": (session.get("brief") or {}).get("tone"),
+                }
+                creative_brief = coerce_ideogram_for_unsuitable_kit_hero(
+                    creative_brief,
+                    kit,
+                    crisis_for_brief,
+                )
             asset_errors: list[dict[str, str]] = []
             hero_busy = bool(kit.get("heroBusy"))
             hero_brand_mark = bool(kit.get("heroBrandMark"))
@@ -576,6 +587,11 @@ class CommMakerHandler(http.server.SimpleHTTPRequestHandler):
                     payload["resolutionNote"] = hero_meta["resolutionNote"]
             if ideogram_fallback_message:
                 payload["ideogramFallback"] = ideogram_fallback_message
+            if isinstance(creative_brief, dict):
+                payload["heroStrategy"] = creative_brief.get("heroStrategy")
+                if creative_brief.get("ideogramLayers"):
+                    payload["briefIdeogramLayers"] = creative_brief.get("ideogramLayers")
+            payload["ideogramUsed"] = hero_meta.get("heroSource") == "ideogram-4"
             if result.get("error"):
                 payload["cliError"] = result["error"]
             if result.get("cliError"):
