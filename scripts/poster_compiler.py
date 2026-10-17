@@ -55,6 +55,9 @@ LOGO_KNOCKBACK_PAD = 14
 LOGO_KNOCKBACK_BASE_WIDTH = 168
 LOGO_KNOCKBACK_BASE_HEIGHT = 88
 LOGO_KNOCKBACK_REL = "assets/commmaker/logo-knockback.svg"
+TYPE_SCRIM_REL = "assets/commmaker/bottom-type-scrim.svg"
+LOGO_ICON_TARGET_HEIGHT = 56
+LOGO_ICON_MAX_HEIGHT = 64
 HEADLINE_SIZE_SOLO = 56
 HEADLINE_SIZE_WITH_SUB = 52
 SUBLINE_SIZE = 24
@@ -361,6 +364,44 @@ def should_logo_on_dark(
     )
 
 
+def should_recolor_logo_light(
+    kit: dict[str, Any] | None,
+    *,
+    has_photo_hero: bool,
+    hero_busy: bool = False,
+    hero_brand_mark: bool = False,
+) -> bool:
+    """Use a light (#fff) logo mark on bright photo heroes or dark gradient backgrounds."""
+    if should_logo_on_dark(kit, has_hero=has_photo_hero, hero_busy=hero_busy):
+        return True
+    if hero_busy:
+        return False
+    if hero_brand_mark:
+        return True
+    if not has_photo_hero:
+        palette = _palette_from_kit(kit)
+        if palette:
+            bg_lum = min(_hex_luminance(c) for c in palette[:3])
+            if bg_lum < 0.42:
+                return True
+    return False
+
+
+def logo_svg_dimensions_oversized(width: int, height: int) -> bool:
+    """Inline SVGs sized like a poster card should not be placed as the logo mark."""
+    return width >= 900 and height >= 400
+
+
+def count_logo_placements(batch: dict[str, Any]) -> int:
+    """Count foreground logo asset placements (excludes knockback plate)."""
+    total = 0
+    for placement in batch.get("placements") or []:
+        name = str(placement.get("name") or "")
+        if name == "Logo":
+            total += 1
+    return total
+
+
 def recolor_logo_svg_for_light_hero(svg: str, light_fill: str = "#ffffff") -> str:
     """Replace dark SVG path fills with a light fill for bright photo heroes."""
 
@@ -406,6 +447,42 @@ def _use_logo_knockback(
     if _hex_luminance(primary) > 0.62 and _logo_mark_luminance(kit) < _LOGO_MARK_DARK_LUMINANCE:
         return True
     return False
+
+
+def _logo_is_icon_mark(img_width: int, img_height: int) -> bool:
+    if img_width <= 0 or img_height <= 0:
+        return False
+    aspect = img_width / img_height
+    if aspect < 0.65 or aspect > 1.45:
+        return False
+    return max(img_width, img_height) <= 320 and min(img_width, img_height) <= 200
+
+
+def _brand_mark_gradient_steps(
+    kit: dict[str, Any] | None,
+    primary: str,
+    secondary: str,
+    accent: str,
+) -> list[dict[str, Any]]:
+    brand = secondary
+    for candidate in (secondary, accent, primary):
+        if _hex_luminance(candidate) > 0.35 and not _is_neutral(candidate):
+            brand = candidate
+            break
+    return [
+        {
+            "command": "layer.newFillLayer.solidColor",
+            "params": {"color": "#000000", "name": "Brand base"},
+        },
+        {
+            "command": "layer.newFillLayer.solidColor",
+            "params": {"color": brand, "name": "Brand glow"},
+        },
+        {
+            "command": "layer.setProps",
+            "params": {"name": "Brand glow", "opacity": 0.72},
+        },
+    ]
 
 
 def _brand_gradient_steps(
@@ -499,13 +576,19 @@ def _logo_layout(
         target_h = max(1.0, target_w * (img_height / img_width))
     else:
         target_h = target_w * (LOGO_KNOCKBACK_BASE_HEIGHT / LOGO_KNOCKBACK_BASE_WIDTH)
-    if target_h > LOGO_MAX_HEIGHT:
+    if _logo_is_icon_mark(img_width, img_height):
+        target_h = min(target_h, float(LOGO_ICON_TARGET_HEIGHT))
+        if img_width > 0 and img_height > 0:
+            target_w = max(28.0, target_h * (img_width / img_height))
+    elif target_h > LOGO_MAX_HEIGHT:
         target_h = float(LOGO_MAX_HEIGHT)
         if img_width > 0 and img_height > 0:
             target_w = max(
                 LOGO_TARGET_WIDTH_MIN,
                 min(LOGO_TARGET_WIDTH_MAX, target_h * (img_width / img_height)),
             )
+    if _logo_is_icon_mark(img_width, img_height):
+        target_h = min(target_h, float(LOGO_ICON_MAX_HEIGHT))
     knock_w = target_w + 2 * LOGO_KNOCKBACK_PAD
     center_x = LINKEDIN_WIDTH - LOGO_MARGIN - target_w / 2
     center_y = LOGO_MARGIN + target_h / 2
@@ -516,6 +599,17 @@ def _logo_layout(
         "center_y": center_y,
         "logo_scale": logo_scale_percent(img_width, target_width=int(round(target_w))),
         "knockback_scale": (knock_w / LOGO_KNOCKBACK_BASE_WIDTH) * 100.0,
+    }
+
+
+def _type_scrim_placement() -> dict[str, Any]:
+    return {
+        "path": TYPE_SCRIM_REL,
+        "center": [LINKEDIN_WIDTH / 2, LINKEDIN_HEIGHT / 2],
+        "scale": 100.0,
+        "fit": True,
+        "smartObject": False,
+        "name": "Type scrim",
     }
 
 
@@ -635,7 +729,8 @@ def compile_poster_batch(
         subline = ""
 
     hero_busy = bool(kit.get("heroBusy"))
-    if hero_busy:
+    hero_brand_mark = bool(kit.get("heroBrandMark"))
+    if hero_busy or hero_brand_mark:
         hero_relative_path = None
 
     if not hero_width or not hero_height:
@@ -659,16 +754,21 @@ def compile_poster_batch(
         kit, headline_font
     )
 
-    has_hero = bool(hero_relative_path)
-    logo_on_dark = should_logo_on_dark(kit, has_hero=has_hero, hero_busy=hero_busy)
+    has_photo_hero = bool(hero_relative_path)
+    logo_on_dark = should_recolor_logo_light(
+        kit,
+        has_photo_hero=has_photo_hero,
+        hero_busy=hero_busy,
+        hero_brand_mark=hero_brand_mark,
+    )
     use_knockback = _use_logo_knockback(
         kit,
-        has_hero=has_hero,
-        hero_busy=hero_busy,
+        has_hero=has_photo_hero,
+        hero_busy=hero_busy or hero_brand_mark,
         logo_on_dark=logo_on_dark,
     )
     scrim_opacity = 0.48 if kit.get("heroImageKind") == "ui-screenshot" else 0.42
-    bg_color = secondary if has_hero else primary
+    bg_color = secondary if has_photo_hero else primary
 
     document = {
         "width": LINKEDIN_WIDTH,
@@ -682,7 +782,7 @@ def compile_poster_batch(
 
     steps: list[dict[str, Any]] = []
 
-    if has_hero:
+    if has_photo_hero:
         steps.append(
             {
                 "command": "layer.newFillLayer.solidColor",
@@ -695,10 +795,13 @@ def compile_poster_batch(
                 "params": {"name": "Hero scrim", "opacity": scrim_opacity},
             }
         )
+    elif hero_brand_mark:
+        steps.extend(_brand_mark_gradient_steps(kit, primary, secondary, accent))
     else:
         steps.extend(_brand_gradient_steps(primary, secondary, accent))
 
-    text_color = text_on_dark if has_hero else text_on_light
+    uses_dark_type = has_photo_hero or hero_brand_mark or _hex_luminance(primary) < 0.45
+    text_color = text_on_dark if uses_dark_type else text_on_light
     text_right = SAFE_PAD + TEXT_BLOCK_MAX_WIDTH
     has_logo = bool(logo_relative_path)
     show_footer = _show_footer(site_name, has_logo=has_logo)
@@ -756,7 +859,7 @@ def compile_poster_batch(
         )
 
     if show_footer:
-        footer_color = "#cbd5e1" if has_hero else text_on_light
+        footer_color = "#cbd5e1" if uses_dark_type else text_on_light
         steps.append(
             {
                 "command": "type.create",
@@ -786,6 +889,7 @@ def compile_poster_batch(
                 img_height=hero_height,
             )
         )
+        background_placements.append(_type_scrim_placement())
 
     logo_layout = _logo_layout(logo_width or 0, logo_height or 0)
     foreground_placements: list[dict[str, Any]] = []
@@ -824,8 +928,9 @@ def compile_poster_batch(
             "siteName": site_name,
             "primaryColor": primary,
             "accentColor": accent,
-            "hasHero": has_hero,
+            "hasHero": has_photo_hero,
             "heroBusy": hero_busy,
+            "heroBrandMark": hero_brand_mark,
             "logoOnDark": logo_on_dark,
             "logoKnockback": use_knockback,
             "hasLogo": has_logo,

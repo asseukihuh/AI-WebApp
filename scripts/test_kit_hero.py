@@ -12,10 +12,13 @@ if SCRIPTS not in sys.path:
 
 from image_probe import classify_hero_candidate  # noqa: E402
 from kit_scraper import scrape_kit_from_html  # noqa: E402
+from image_probe import hero_url_looks_brand_mark  # noqa: E402
 from poster_compiler import (  # noqa: E402
+    LOGO_ICON_MAX_HEIGHT,
     compile_poster_batch,
+    count_logo_placements,
     recolor_logo_svg_for_light_hero,
-    should_logo_on_dark,
+    should_recolor_logo_light,
 )
 
 VERCEL_META_SNIPPET = """
@@ -50,6 +53,42 @@ def test_vercel_fixture_prefers_clean_og() -> None:
     assert kit.get("heroImageUrl") == "https://cdn.example/og-home-not-x.png"
     assert kit.get("heroBusy") is False
     assert kit.get("heroImageKind") == "og-marketing"
+    assert kit.get("heroBrandMark") is True
+
+
+_VERCEL_LOGO_SVG = (
+    '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 76 65">'
+    '<path fill="#000000" d="M37.5 0L75 65H0z"/></svg>'
+)
+
+
+def test_vercel_poster_skips_og_uses_gradient_and_light_logo() -> None:
+    kit = scrape_kit_from_html(VERCEL_META_SNIPPET, "https://vercel.com/")
+    kit["logoSvg"] = _VERCEL_LOGO_SVG
+    kit["colors"] = ["#000000", "#50e3c2", "#ffffff"]
+    session = {
+        "suggestedHeadline": "Platform incident",
+        "brief": {"facts": "Elevated errors in EU."},
+    }
+    batch = compile_poster_batch(
+        kit,
+        session,
+        hero_relative_path="generated/assets/should-be-ignored.jpg",
+        hero_width=1200,
+        hero_height=1200,
+        logo_relative_path="generated/assets/vercel-logo.svg",
+        logo_width=76,
+        logo_height=65,
+    )
+    meta = batch.get("meta") or {}
+    assert meta.get("heroBrandMark") is True
+    assert meta.get("hasHero") is False
+    assert meta.get("logoOnDark") is True
+    assert count_logo_placements(batch) == 1
+    bg = batch.get("backgroundPlacements") or []
+    assert not any(p.get("name") == "Hero image" for p in bg)
+    layout = meta.get("logoLayout") or {}
+    assert layout.get("targetHeightPx", 99) <= LOGO_ICON_MAX_HEIGHT
 
 
 def test_busy_url_classified() -> None:
@@ -88,9 +127,19 @@ def test_stripe_poster_no_knockback_logo_on_dark() -> None:
     meta = batch.get("meta") or {}
     assert meta.get("logoOnDark") is True
     assert meta.get("logoKnockback") is False
+    assert count_logo_placements(batch) == 1
     names = [p.get("name") for p in batch.get("placements") or []]
     assert "Logo knockback" not in names
     assert names[-1] == "Logo"
+
+
+def test_og_home_url_classified_brand_mark() -> None:
+    assert hero_url_looks_brand_mark(
+        "https://cdn.example/og-home-not-x.png",
+        width=1200,
+        height=1200,
+        kind="og-marketing",
+    )
 
 
 def test_busy_hero_skips_image_uses_gradient() -> None:
@@ -124,6 +173,8 @@ def test_svg_recolor_dark_paths() -> None:
 def main() -> int:
     test_self_closing_meta_parsed()
     test_vercel_fixture_prefers_clean_og()
+    test_og_home_url_classified_brand_mark()
+    test_vercel_poster_skips_og_uses_gradient_and_light_logo()
     test_busy_url_classified()
     test_stripe_poster_no_knockback_logo_on_dark()
     test_busy_hero_skips_image_uses_gradient()

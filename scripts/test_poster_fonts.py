@@ -19,6 +19,7 @@ from poster_compiler import (  # noqa: E402
     LOGO_TARGET_WIDTH_MIN,
     SUBLINE_SIZE,
     compile_poster_batch,
+    count_logo_placements,
 )
 
 
@@ -140,6 +141,7 @@ def test_logo_placements_with_hero() -> None:
         logo_height=svg_dims[1],
     )
     placements = batch.get("placements") or []
+    assert count_logo_placements(batch) == 1
     assert len(placements) == 1
     logo_place = placements[0]
     assert logo_place.get("name") == "Logo"
@@ -158,6 +160,8 @@ def test_logo_placements_with_hero() -> None:
     assert headline["params"]["size"] == HEADLINE_SIZE_WITH_SUB
     assert subline["params"]["size"] == SUBLINE_SIZE
     assert len(subline["params"]["text"]) <= 72
+    scrim_names = [p.get("name") for p in batch.get("backgroundPlacements") or []]
+    assert "Type scrim" in scrim_names
 
 
 def main() -> int:

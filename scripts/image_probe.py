@@ -188,6 +188,36 @@ def hero_dimensions_look_busy(width: int | None, height: int | None) -> bool:
     return False
 
 
+_HERO_BRAND_MARK_HINTS = re.compile(
+    r"(?:og[-_]?home|not-x|brand[-_]?mark|logo[-_]?og|social[-_]?icon|triangle[-_]?og)",
+    re.I,
+)
+
+
+def hero_url_looks_brand_mark(
+    url: str,
+    *,
+    width: int | None = None,
+    height: int | None = None,
+    kind: str | None = None,
+) -> bool:
+    """OG/social stills that are sparse brand marks, not photo heroes."""
+    lower = (url or "").lower().split("?", 1)[0]
+    if _HERO_BRAND_MARK_HINTS.search(lower):
+        return True
+    if kind != "og-marketing" and not _OG_MARKETING_HINTS.search(lower):
+        return False
+    if not width or not height or width <= 0 or height <= 0:
+        return bool(_OG_MARKETING_HINTS.search(lower) and "og-home" in lower)
+    aspect = width / height
+    if 0.82 <= aspect <= 1.22 and 400 <= width <= 2800:
+        return True
+    if width <= 1400 and height <= 1400 and max(width, height) <= 1200 and aspect <= 1.35:
+        if _OG_MARKETING_HINTS.search(lower):
+            return True
+    return False
+
+
 def classify_hero_candidate(
     url: str,
     *,
