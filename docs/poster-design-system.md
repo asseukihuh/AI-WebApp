@@ -118,16 +118,17 @@ recompiled once. The template is never changed after the image is generated.
 
 ## 11. Optional `brandProfile` inputs
 
-`/api/creative-brief` and `/api/generate-poster` accept an optional `brandProfile` object. Every
-field is optional and nothing is required:
+`/api/creative-brief` and `/api/generate-poster` accept an optional `brandProfile` object; when the
+request has none they use the one onboarding saves on `kit.brandProfile` (`scripts/brand_profile.py`).
+Every field is optional and nothing is required:
 
 | Field | Used for |
 |-------|----------|
-| `palette` (role dict `{primary, dark, accent, background, …}` or list of hex / `{hex, role}`) | Brand / dark / accent roles: panel, scrim tint, CTA, eyebrow, Ideogram `color_palette` (profile colours first) |
+| `palette` (list of `{role, hex}` with roles `primary`, `secondary`, `accent`, `text`, `surface`, `background`; also a role dict or plain hex list) | Brand = `primary`, dark = `text` (only if dark enough), light = `background` (only if light enough), accent = `accent`. `secondary` is never used as text. Ideogram `color_palette` is ordered primary → accent → secondary → text → surface → background |
 | `aesthetic[]` | Ideogram `style_description.aesthetics` and the LLM brief prompt |
-| `imageryStyle` | Ideogram `art_style` and the LLM brief prompt |
-| `layoutTraits[]` | Template hint when the brief doesn't pick one (e.g. "split" → `split-text-left`) |
-| `typography` (`headline`, `body`, `headlineWeight`) | Font and weight preference |
+| `imageryStyle` (`{primaryMedium, motifs[], colorTreatment, …}` or a string) | Ideogram `art_style` as a short phrase (medium; motifs; colour treatment). Text-prone media (`product-ui`, `typographic`, `mixed`) are dropped |
+| `layoutTraits` (`{composition, density, …}` or a list of strings) | Template hint when the brief doesn't pick one, from `composition` (e.g. "split" → `split-text-left`, "centered" → `centered-statement`, "left-aligned" → `full-bleed-scrim`) |
+| `typography` (`display` or `headline`, `body`; `weights[]`) | Font preference; the heaviest display weight ≥ 600 picks bold / extrabold |
 | `toneOfVoice[]` | LLM brief and copy prompt |
 
 ## 12. Samples and verification
