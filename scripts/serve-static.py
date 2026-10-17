@@ -32,7 +32,11 @@ from kit_scraper import (  # noqa: E402
 )
 from image_probe import image_dimensions, raster_dimensions, svg_dimensions_from_text  # noqa: E402
 from font_fetcher import resolve_poster_fonts  # noqa: E402
-from creative_brief import build_creative_brief, effective_ideogram_layers  # noqa: E402
+from creative_brief import (  # noqa: E402
+    _normalize_api_key,
+    build_creative_brief,
+    effective_ideogram_layers,
+)
 from ideogram_client import generate_layer_image, ideogram_api_key  # noqa: E402
 from poster_compiler import (  # noqa: E402
     compile_poster_batch,
@@ -55,10 +59,44 @@ mimetypes.add_type("application/wasm", ".wasm")
 mimetypes.add_type("text/javascript", ".js")
 
 
+CREATIVE_BRIEF_STACK = "v24"
+
+
+def dev_status_payload() -> dict:
+    anthropic_key = _normalize_api_key(os.environ.get("ANTHROPIC_API_KEY"))
+    ideogram_key = (os.environ.get("IDEOGRAM_API_KEY") or "").strip().lstrip("\ufeff")
+    return {
+        "anthropicKeyLoaded": bool(anthropic_key),
+        "anthropicKeyLen": len(anthropic_key),
+        "ideogramKeyLoaded": bool(ideogram_key),
+        "creativeBriefStack": CREATIVE_BRIEF_STACK,
+    }
+
+
+def log_anthropic_key_on_startup() -> None:
+    key = _normalize_api_key(os.environ.get("ANTHROPIC_API_KEY"))
+    if not key:
+        return
+    prefix = key if len(key) <= 12 else f"{key[:12]}…"
+    sys.stderr.write(
+        f"CommMaker: ANTHROPIC_API_KEY loaded (len={len(key)}, prefix={prefix})\n"
+    )
+
+
 class CommMakerHandler(http.server.SimpleHTTPRequestHandler):
     def __init__(self, *args, coop_coep: bool = False, **kwargs):
         self.coop_coep = coop_coep
         super().__init__(*args, directory=ROOT, **kwargs)
+
+    def do_GET(self) -> None:
+        path = self.path.split("?", 1)[0]
+        if path == "/api/dev-status":
+            self._handle_dev_status()
+            return
+        super().do_GET()
+
+    def _handle_dev_status(self) -> None:
+        self._send_json(200, dev_status_payload())
 
     def do_POST(self) -> None:
         path = self.path.split("?", 1)[0]
@@ -582,6 +620,8 @@ def main() -> None:
     )
     args = parser.parse_args()
 
+    log_anthropic_key_on_startup()
+
     handler = functools.partial(CommMakerHandler, coop_coep=args.coop_coep)
     with http.server.ThreadingHTTPServer(("", args.port), handler) as httpd:
         print(f"Serving {ROOT} at http://localhost:{args.port}/")
@@ -590,6 +630,7 @@ def main() -> None:
         print("PhotoCraft embed: http://localhost:{}/photocraft/".format(args.port))
         print("Creative brief: POST http://localhost:{}/api/creative-brief".format(args.port))
         print("Poster API: POST http://localhost:{}/api/generate-poster".format(args.port))
+        print("Dev status: GET http://localhost:{}/api/dev-status".format(args.port))
         os.makedirs(GENERATED_DIR, exist_ok=True)
         httpd.serve_forever()
 
