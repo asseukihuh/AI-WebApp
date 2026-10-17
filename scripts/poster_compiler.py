@@ -689,7 +689,7 @@ def _brief_wants_photo_hero(creative_brief: dict[str, Any] | None) -> bool:
         return False
     if hero in ("gradient_from_palette", "solid", "none"):
         return False
-    return hero == "use_kit_photo" or layout == "photo-hero-type"
+    return hero in ("use_kit_photo", "ideogram_generate") or layout == "photo-hero-type"
 
 
 def _apply_creative_brief_to_compile(
@@ -726,7 +726,7 @@ def _apply_creative_brief_to_compile(
     elif layout == "gradient-brand":
         hero_brand_mark = False
         hero_relative_path = None
-    elif layout == "photo-hero-type" and hero == "use_kit_photo":
+    elif layout == "photo-hero-type" and hero in ("use_kit_photo", "ideogram_generate"):
         hero_brand_mark = False
 
     if hero == "solid":
@@ -766,6 +766,8 @@ def should_skip_hero_for_brief(
     if not creative_brief:
         return bool((kit or {}).get("heroBusy") or (kit or {}).get("heroBrandMark"))
     if not _brief_wants_photo_hero(creative_brief):
+        return True
+    if creative_brief.get("heroStrategy") == "ideogram_generate":
         return True
     kit = kit or {}
     return bool(kit.get("heroBusy") or kit.get("heroBrandMark"))

@@ -13,7 +13,13 @@ import urllib.request
 from typing import Any, Literal
 
 LayoutRecipe = Literal["photo-hero-type", "gradient-brand", "minimal-wordmark"]
-HeroStrategy = Literal["use_kit_photo", "gradient_from_palette", "solid", "none"]
+HeroStrategy = Literal[
+    "use_kit_photo",
+    "ideogram_generate",
+    "gradient_from_palette",
+    "solid",
+    "none",
+]
 LogoTreatment = Literal["wordmark-white", "wordmark-dark", "symbol-only"]
 Emphasis = Literal["calm", "urgent", "celebratory"]
 BriefSource = Literal["llm", "fallback"]
@@ -48,8 +54,15 @@ CREATIVE_BRIEF_JSON_SCHEMA: dict[str, Any] = {
         },
         "heroStrategy": {
             "type": "string",
-            "enum": ["use_kit_photo", "gradient_from_palette", "solid", "none"],
+            "enum": [
+                "use_kit_photo",
+                "ideogram_generate",
+                "gradient_from_palette",
+                "solid",
+                "none",
+            ],
         },
+        "heroImagePrompt": {"type": "string"},
         "logoTreatment": {
             "type": "string",
             "enum": ["wordmark-white", "wordmark-dark", "symbol-only"],
@@ -170,6 +183,8 @@ def _fallback_hero_and_layout(
 ) -> tuple[HeroStrategy, LayoutRecipe]:
     kit = kit or {}
     if kit.get("heroBusy") or kit.get("heroBrandMark"):
+        if (os.environ.get("IDEOGRAM_API_KEY") or "").strip():
+            return "ideogram_generate", "photo-hero-type"
         return "gradient_from_palette", "gradient-brand"
     if kit.get("heroImageUrl") and not kit.get("heroBrandMark"):
         return "use_kit_photo", "photo-hero-type"
@@ -183,7 +198,10 @@ def _fallback_logo_treatment(
     hero_strategy: HeroStrategy,
     layout: LayoutRecipe,
 ) -> LogoTreatment:
-    if layout == "photo-hero-type" and hero_strategy == "use_kit_photo":
+    if layout == "photo-hero-type" and hero_strategy in (
+        "use_kit_photo",
+        "ideogram_generate",
+    ):
         return "wordmark-white"
     if layout in ("gradient-brand", "minimal-wordmark"):
         return "wordmark-white"
@@ -217,6 +235,8 @@ def build_fallback_brief(
         "emphasis": emphasis,
         "rationale": rationale,
     }
+    if hero_strategy == "ideogram_generate":
+        brief["heroImagePrompt"] = _fallback_ideogram_prompt(kit, crisis)
     return _normalize_brief(brief)
 
 
@@ -245,7 +265,43 @@ def _normalize_brief(raw: dict[str, Any]) -> dict[str, Any]:
     cta = raw.get("cta")
     if cta and str(cta).strip():
         out["cta"] = _truncate(str(cta), 48)
+    hero_prompt = raw.get("heroImagePrompt")
+    if hero == "ideogram_generate":
+        if hero_prompt and str(hero_prompt).strip():
+            out["heroImagePrompt"] = _truncate(str(hero_prompt), 480)
+        else:
+            out["heroImagePrompt"] = _truncate(
+                str(raw.get("heroImagePrompt") or "Professional brand scene for LinkedIn update."),
+                480,
+            )
+    elif hero_prompt and str(hero_prompt).strip():
+        out["heroImagePrompt"] = _truncate(str(hero_prompt), 480)
     return out
+
+
+def _kit_color_phrase(kit: dict[str, Any] | None) -> str:
+    kit = kit or {}
+    colors = kit.get("accentColors") or kit.get("colors") or []
+    if not colors:
+        return "brand-appropriate colors"
+    return ", ".join(str(c) for c in colors[:4])
+
+
+def _fallback_ideogram_prompt(
+    kit: dict[str, Any] | None,
+    crisis: dict[str, Any],
+) -> str:
+    kit = kit or {}
+    site = kit.get("siteName") or "the organization"
+    colors = _kit_color_phrase(kit)
+    tone = (crisis.get("tone") or "factual").strip()
+    facts = str(crisis.get("crisisFacts") or crisis.get("facts") or "").strip()
+    context = _truncate(facts.splitlines()[0] if facts else "corporate update", 120)
+    return (
+        f"Editorial marketing photograph for {site}, calm {tone} corporate communications, "
+        f"abstract professional scene (no UI screenshots, no homepage mockups), "
+        f"palette accents {colors}, subtle depth, space for headline overlay, context: {context}"
+    )
 
 
 def _llm_prompt(
@@ -274,7 +330,10 @@ Confirmed crisis facts:
 {facts or "(none provided)"}
 
 Choose layoutRecipe, heroStrategy, and logoTreatment so the poster feels on-brand and readable at 1200×627.
-Avoid full-bleed competitor OG artwork when heroBrandMark is true; prefer gradient or minimal wordmark layouts.
+Avoid full-bleed competitor OG artwork when heroBrandMark is true or heroBusy is true.
+For LinkedIn crisis/update posts when the scraped kit hero is busy UI chrome or a brand-mark OG image, prefer heroStrategy ideogram_generate with layoutRecipe photo-hero-type.
+When heroStrategy is ideogram_generate, set heroImagePrompt to a vivid on-brand marketing scene (include siteName and kit color hex values). Never describe homepage screenshots, browser chrome, or literal OG triangles.
+When heroStrategy is not ideogram_generate, omit heroImagePrompt or leave it empty.
 Headline should state the update clearly; subhead supports with brand context or next step."""
 
 

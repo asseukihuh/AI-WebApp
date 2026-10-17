@@ -276,6 +276,15 @@ Before compile, Crisis calls **`POST /api/creative-brief`**: a frontier LLM choo
 | `OPENROUTER_HTTP_REFERER` | Optional OpenRouter attribution URL |
 | `OPENROUTER_APP_TITLE` | Optional OpenRouter app name (default `CommMaker`) |
 
+#### Ideogram 4 hero (optional)
+
+When the creative brief uses `heroStrategy: ideogram_generate`, CommMaker generates hero art via Ideogram 4.0 before poster compile. See [`docs/ideogram-hero.md`](docs/ideogram-hero.md).
+
+| Variable | Purpose |
+|----------|---------|
+| `IDEOGRAM_API_KEY` | [Ideogram API](https://developer.ideogram.ai/) key (`Api-Key` header) |
+| `COMMMAKER_IDEOGRAM_RENDERING` | Optional: `TURBO`, `DEFAULT`, or `QUALITY` (`rendering_speed` on generate) |
+
 | Model | Use case | Example env |
 |-------|----------|-------------|
 | `claude-sonnet-4-20250514` | **Default (Anthropic)** — best balance of quality, speed, structured briefs | `COMMMAKER_LLM_PROVIDER=anthropic` + `ANTHROPIC_API_KEY=…` |

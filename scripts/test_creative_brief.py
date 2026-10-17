@@ -24,6 +24,24 @@ from poster_compiler import compile_poster_batch  # noqa: E402
 
 
 class TestCreativeBriefFallback(unittest.TestCase):
+    @patch.dict(os.environ, {"IDEOGRAM_API_KEY": "test-key"})
+    def test_fallback_busy_hero_prefers_ideogram_when_key_set(self) -> None:
+        kit = {
+            "siteName": "Acme",
+            "heroBusy": True,
+            "heroImageUrl": "https://example.com/hero.jpg",
+            "tagline": "We build things",
+            "colors": ["#112233"],
+        }
+        crisis = {
+            "crisisMessage": "Planned maintenance tonight",
+            "crisisFacts": "API may be slow between 22:00–23:00 UTC.",
+            "tone": "calm",
+        }
+        brief = build_fallback_brief(kit, crisis)
+        self.assertEqual(brief["heroStrategy"], "ideogram_generate")
+        self.assertIn("Acme", brief.get("heroImagePrompt", ""))
+
     def test_fallback_busy_hero_uses_gradient(self) -> None:
         kit = {
             "siteName": "Acme",
