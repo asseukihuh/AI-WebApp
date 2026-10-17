@@ -620,13 +620,12 @@ def should_skip_hero_for_brief(
 ) -> bool:
     """Whether asset download should skip kit hero image for this brief."""
     if not creative_brief:
-        return bool((kit or {}).get("heroBusy") or (kit or {}).get("heroBrandMark"))
+        return design.kit_hero_unsuitable(kit)
     if not _brief_wants_photo_hero(creative_brief):
         return True
     if creative_brief.get("heroStrategy") == "ideogram_generate":
         return True
-    kit = kit or {}
-    return bool(kit.get("heroBusy") or kit.get("heroBrandMark"))
+    return design.kit_hero_unsuitable(kit)
 
 
 def _first_fact_sentence(session: dict[str, Any], skip: str) -> str:
@@ -909,7 +908,9 @@ def compile_poster_batch(
         creative_brief=creative_brief,
         hero_relative_path=hero_relative_path,
     )
-    if (hero_busy or hero_brand_mark) and not creative_brief:
+    if design.kit_hero_unsuitable(kit) and (
+        not creative_brief or creative_brief.get("heroStrategy") == "use_kit_photo"
+    ):
         hero_relative_path = None
 
     if not hero_width or not hero_height:

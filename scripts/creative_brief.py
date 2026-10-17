@@ -24,6 +24,7 @@ from poster_design import (
     clamp_words,
     default_template_for,
     headline_scale_for,
+    kit_hero_unsuitable,
     template_hint_from_profile,
 )
 
@@ -263,6 +264,8 @@ def kit_summary_for_prompt(kit: dict[str, Any] | None) -> str:
         f"heroBusy: {bool(kit.get('heroBusy'))}",
         f"heroBrandMark: {bool(kit.get('heroBrandMark'))}",
         f"hasHeroImage: {bool(kit.get('heroImageUrl'))}",
+        f"heroImageKind: {kit.get('heroImageKind') or '(unknown)'}",
+        f"kitHeroUsableAsBackground: {bool(kit.get('heroImageUrl')) and not kit_hero_unsuitable(kit)}",
         f"headlineFromSite: {kit.get('headline') or '(none)'}",
     ]
     return "\n".join(lines)
@@ -280,8 +283,12 @@ def _tone_to_emphasis(tone: str | None) -> Emphasis:
 
 
 def _first_fact_line(crisis: dict[str, Any]) -> str:
+    """Headline: the crisis message when it fits the headline limit, else the first fact."""
     facts = str(crisis.get("crisisFacts") or crisis.get("facts") or "").strip()
     message = str(crisis.get("crisisMessage") or crisis.get("message") or "").strip()
+    message_line = message.splitlines()[0].strip() if message else ""
+    if message_line and len(message_line.split()) <= MAX_WORDS["headline"]:
+        return _truncate(message_line, 90)
     blob = facts or message
     if not blob:
         return "Important update"
@@ -290,27 +297,26 @@ def _first_fact_line(crisis: dict[str, Any]) -> str:
 
 
 def _fallback_subhead(kit: dict[str, Any] | None, crisis: dict[str, Any]) -> str:
+    """Subhead: the first confirmed fact that isn't the headline; the kit tagline only as a last resort."""
     kit = kit or {}
-    tag = _truncate(str(kit.get("tagline") or ""), 72)
-    if tag:
-        return tag
+    headline = _first_fact_line(crisis).casefold()
     facts = str(crisis.get("crisisFacts") or crisis.get("facts") or "")
     for line in facts.splitlines():
         line = line.strip()
-        if line and len(line) > 12:
-            return _truncate(line, 72)
-    return ""
+        if line and len(line) > 12 and line.casefold() != headline:
+            return clamp_words(line, MAX_WORDS["subline"], MAX_CHARS["subline"])
+    return clamp_words(str(kit.get("tagline") or "").strip(), MAX_WORDS["subline"], MAX_CHARS["subline"])
 
 
 def _fallback_hero_and_layout(
     kit: dict[str, Any] | None,
 ) -> tuple[HeroStrategy, LayoutRecipe]:
     kit = kit or {}
-    if kit.get("heroBusy") or kit.get("heroBrandMark"):
+    if kit.get("heroImageUrl") and kit_hero_unsuitable(kit):
         if (os.environ.get("IDEOGRAM_API_KEY") or "").strip():
             return "ideogram_generate", "photo-hero-type"
         return "gradient_from_palette", "gradient-brand"
-    if kit.get("heroImageUrl") and not kit.get("heroBrandMark"):
+    if kit.get("heroImageUrl"):
         return "use_kit_photo", "photo-hero-type"
     if kit.get("logoUrl") or kit.get("logoSvg"):
         return "gradient_from_palette", "minimal-wordmark"
@@ -528,7 +534,7 @@ def coerce_ideogram_for_unsuitable_kit_hero(
     hero = brief.get("heroStrategy") or ""
     if hero == "ideogram_generate":
         return brief
-    unsuitable_kit = bool(kit.get("heroBusy") or kit.get("heroBrandMark"))
+    unsuitable_kit = bool(kit.get("heroImageUrl")) and kit_hero_unsuitable(kit)
     crisis_gradient = prefer_ideogram_for_crisis_post(crisis) and hero == "gradient_from_palette"
     if not unsuitable_kit and not crisis_gradient:
         return brief
@@ -665,7 +671,7 @@ Confirmed crisis facts:
 {_design_system_prompt()}
 
 Choose layoutRecipe, layoutTemplate, heroStrategy, and logoTreatment so the poster feels on-brand and readable at 1200×627.
-Avoid full-bleed competitor OG artwork when heroBrandMark is true or heroBusy is true.
+Only choose heroStrategy use_kit_photo when kitHeroUsableAsBackground is true; og:image social cards usually contain the logo and headline text.
 For LinkedIn crisis/update posts when the scraped kit hero is busy UI chrome or a brand-mark OG image, prefer heroStrategy ideogram_generate with layoutRecipe photo-hero-type.
 For crisis/update posts when a flat gradient would feel empty, prefer ideogram_generate with abstract brand gradients, soft textures, or calm editorial backgrounds (no people, no crowds, no unverified news imagery, no fake event photos). Use background-only ideogramLayers for texture-only heroes.
 When heroStrategy is ideogram_generate:

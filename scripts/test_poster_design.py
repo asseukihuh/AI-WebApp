@@ -322,6 +322,29 @@ class TestBriefDecisions(unittest.TestCase):
         self.assertTrue(brief["cta"])
         self.assertLessEqual(design.word_count(brief["subhead"]), design.MAX_WORDS["subline"])
 
+    def test_fallback_copy_uses_message_and_facts_not_tagline(self) -> None:
+        brief = build_fallback_brief(
+            _fixture("kit-stripe.json"),
+            {
+                "crisisMessage": "New pricing plan for students",
+                "crisisFacts": "Student founders get reduced fees for their first year.",
+                "tone": "celebratory",
+            },
+        )
+        self.assertEqual(brief["headline"], "New pricing plan for students")
+        self.assertEqual(brief["subhead"], "Student founders get reduced fees for their first year.")
+
+    def test_og_social_card_is_not_a_poster_background(self) -> None:
+        kit = _fixture("kit-stripe.json")
+        self.assertTrue(design.kit_hero_unsuitable(kit))
+        with patch.dict(os.environ, {"COMMMAKER_ALLOW_OG_HERO": "1"}):
+            self.assertFalse(design.kit_hero_unsuitable(kit))
+        with patch.dict(os.environ, {"IDEOGRAM_API_KEY": ""}):
+            brief = build_fallback_brief(kit, {"crisisMessage": "Update", "crisisFacts": ""})
+        self.assertNotEqual(brief["heroStrategy"], "use_kit_photo")
+        photo_kit = {**kit, "heroImageKind": "marketing"}
+        self.assertFalse(design.kit_hero_unsuitable(photo_kit))
+
     def test_art_director_patch_keeps_imagery_and_template(self) -> None:
         brief = _brief(heroImagePrompt="violet ribbons", ideogramLayers="background-only")
         patched = _apply_art_director_patch(

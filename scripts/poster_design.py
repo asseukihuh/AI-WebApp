@@ -6,6 +6,7 @@ rule audit used by ``poster_compiler``. Human-readable spec: ``docs/poster-desig
 
 from __future__ import annotations
 
+import os
 import re
 from dataclasses import dataclass, field
 from typing import Any, Callable, Iterable, Literal, Sequence
@@ -442,6 +443,22 @@ TEMPLATES: dict[str, LayoutTemplate] = {
         max_headline_lines=2,
     ),
 }
+
+
+def kit_hero_unsuitable(kit: dict[str, Any] | None) -> bool:
+    """Whether the scraped kit hero can't be a poster background.
+
+    Busy UI screenshots and sparse brand marks never work. ``og:image`` social cards
+    (``heroImageKind: og-marketing``) almost always carry the logo and headline text, which would
+    duplicate the poster's logo and copy; ``COMMMAKER_ALLOW_OG_HERO=1`` opts back in.
+    """
+    kit = kit or {}
+    if kit.get("heroBusy") or kit.get("heroBrandMark"):
+        return True
+    if kit.get("heroImageKind") == "og-marketing":
+        allow = (os.environ.get("COMMMAKER_ALLOW_OG_HERO") or "").strip().lower()
+        return allow not in ("1", "true", "yes", "on")
+    return False
 
 
 def get_template(name: str | None) -> LayoutTemplate:

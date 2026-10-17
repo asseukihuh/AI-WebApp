@@ -55,7 +55,12 @@ from poster_compiler import (  # noqa: E402
     normalize_logo_fill,
     should_skip_hero_for_brief,
 )
-from poster_design import TEMPLATES, brand_roles, resolve_template_name  # noqa: E402
+from poster_design import (  # noqa: E402
+    TEMPLATES,
+    brand_roles,
+    kit_hero_unsuitable,
+    resolve_template_name,
+)
 from photocraft_cli import run_poster_batch, _cli_missing_user_message  # noqa: E402
 
 MAX_HTML_BYTES = 2_000_000
@@ -292,7 +297,7 @@ class CommMakerHandler(http.server.SimpleHTTPRequestHandler):
     def _maybe_cache_hero(
         self, kit: dict, errors: list[dict[str, str]] | None = None
     ) -> str | None:
-        if kit and (kit.get("heroBusy") or kit.get("heroBrandMark")):
+        if kit and kit_hero_unsuitable(kit):
             return None
         return self._maybe_cache_remote_asset(
             kit.get("heroImageUrl") if kit else None,
@@ -475,9 +480,7 @@ class CommMakerHandler(http.server.SimpleHTTPRequestHandler):
                         accent_rel = None
                         generated_assets = []
                         patched = dict(creative_brief)
-                        if kit.get("heroImageUrl") and not (
-                            kit.get("heroBusy") or kit.get("heroBrandMark")
-                        ):
+                        if kit.get("heroImageUrl") and not kit_hero_unsuitable(kit):
                             patched["heroStrategy"] = "use_kit_photo"
                         else:
                             patched["heroStrategy"] = "gradient_from_palette"
@@ -488,9 +491,7 @@ class CommMakerHandler(http.server.SimpleHTTPRequestHandler):
                         "IDEOGRAM_API_KEY not set — using scraped kit hero or brand gradient."
                     )
                     patched = dict(creative_brief)
-                    if kit.get("heroImageUrl") and not (
-                        kit.get("heroBusy") or kit.get("heroBrandMark")
-                    ):
+                    if kit.get("heroImageUrl") and not kit_hero_unsuitable(kit):
                         patched["heroStrategy"] = "use_kit_photo"
                     else:
                         patched["heroStrategy"] = "gradient_from_palette"
