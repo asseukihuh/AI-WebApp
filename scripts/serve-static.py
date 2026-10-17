@@ -36,7 +36,8 @@ from poster_compiler import (  # noqa: E402
     compile_poster_batch,
     hero_cache_basename,
     logo_cache_basename,
-    should_logo_on_dark,
+    logo_svg_dimensions_oversized,
+    should_recolor_logo_light,
 )
 from photocraft_cli import run_poster_batch, _cli_missing_user_message  # noqa: E402
 
@@ -208,7 +209,7 @@ class CommMakerHandler(http.server.SimpleHTTPRequestHandler):
         kit: dict,
         errors: list[dict[str, str]] | None = None,
         *,
-        recolor_for_light_hero: bool = False,
+        recolor_light_mark: bool = False,
     ) -> str | None:
         if not kit:
             return None
@@ -217,7 +218,17 @@ class CommMakerHandler(http.server.SimpleHTTPRequestHandler):
             from poster_compiler import recolor_logo_svg_for_light_hero
 
             payload = logo_svg.strip()
-            if recolor_for_light_hero:
+            dims = svg_dimensions_from_text(payload)
+            if dims and logo_svg_dimensions_oversized(dims[0], dims[1]):
+                fallback = self._maybe_cache_remote_asset(
+                    kit.get("logoUrl"), logo_cache_basename, errors, role="logo"
+                )
+                if fallback:
+                    return fallback
+                return self._maybe_cache_remote_asset(
+                    kit.get("faviconUrl"), logo_cache_basename, errors, role="logo"
+                )
+            if recolor_light_mark:
                 payload = recolor_logo_svg_for_light_hero(payload)
             digest = hashlib.sha256(payload.encode("utf-8")).hexdigest()[:16]
             return self._write_cached_asset(
@@ -230,7 +241,7 @@ class CommMakerHandler(http.server.SimpleHTTPRequestHandler):
     def _maybe_cache_hero(
         self, kit: dict, errors: list[dict[str, str]] | None = None
     ) -> str | None:
-        if kit and kit.get("heroBusy"):
+        if kit and (kit.get("heroBusy") or kit.get("heroBrandMark")):
             return None
         return self._maybe_cache_remote_asset(
             kit.get("heroImageUrl") if kit else None,
@@ -250,18 +261,27 @@ class CommMakerHandler(http.server.SimpleHTTPRequestHandler):
                 raise ValueError("Request must include session (or brief) JSON")
             if not kit:
                 kit = session.get("kitSnapshot")
+            kit = dict(kit or {})
+            if isinstance(kit.get("logoSvg"), str) and kit["logoSvg"].strip().startswith(
+                "<svg"
+            ):
+                kit.pop("logoUrl", None)
             asset_errors: list[dict[str, str]] = []
-            hero_rel = self._maybe_cache_hero(kit or {}, asset_errors)
-            hero_busy = bool((kit or {}).get("heroBusy"))
-            logo_on_dark = should_logo_on_dark(
-                kit or {},
-                has_hero=bool(hero_rel),
+            hero_busy = bool(kit.get("heroBusy"))
+            hero_brand_mark = bool(kit.get("heroBrandMark"))
+            hero_rel = None
+            if not hero_busy and not hero_brand_mark:
+                hero_rel = self._maybe_cache_hero(kit, asset_errors)
+            logo_recolor_light = should_recolor_logo_light(
+                kit,
+                has_photo_hero=bool(hero_rel),
                 hero_busy=hero_busy,
+                hero_brand_mark=hero_brand_mark,
             )
             logo_rel = self._maybe_cache_logo(
-                kit or {},
+                kit,
                 asset_errors,
-                recolor_for_light_hero=logo_on_dark,
+                recolor_light_mark=logo_recolor_light,
             )
             hero_width: int | None = None
             hero_height: int | None = None

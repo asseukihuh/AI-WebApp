@@ -9,7 +9,7 @@ from typing import Any, Callable
 from urllib.parse import urljoin, urlparse
 from urllib.request import Request, urlopen
 
-from image_probe import classify_hero_candidate
+from image_probe import classify_hero_candidate, hero_url_looks_brand_mark
 
 MAX_STYLESHEETS = 6
 MAX_STYLESHEET_BYTES = 400_000
@@ -800,6 +800,15 @@ def scrape_kit_from_html(
             kit["heroBusy"] = hero_busy
         if hero_kind:
             kit["heroImageKind"] = hero_kind
+        hero_w = kit.get("heroWidth")
+        hero_h = kit.get("heroHeight")
+        if hero_url_looks_brand_mark(
+            hero_url,
+            width=int(hero_w) if hero_w else None,
+            height=int(hero_h) if hero_h else None,
+            kind=hero_kind,
+        ):
+            kit["heroBrandMark"] = True
     if logo_svg:
         kit["logoSvg"] = logo_svg
     if logo_source:
