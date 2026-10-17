@@ -46,8 +46,20 @@ LINKEDIN_WIDTH = 1200
 LINKEDIN_HEIGHT = 627
 SAFE_PAD = 48
 TEXT_BLOCK_MAX_WIDTH = 900
-LOGO_MAX_WIDTH = 140
+LOGO_MARGIN = 56
+LOGO_TARGET_WIDTH = 280
+LOGO_TARGET_WIDTH_MIN = 220
+LOGO_TARGET_WIDTH_MAX = 320
+LOGO_MAX_HEIGHT = 80
+LOGO_KNOCKBACK_PAD = 14
+LOGO_KNOCKBACK_BASE_WIDTH = 168
+LOGO_KNOCKBACK_BASE_HEIGHT = 88
 LOGO_KNOCKBACK_REL = "assets/commmaker/logo-knockback.svg"
+HEADLINE_SIZE_SOLO = 56
+HEADLINE_SIZE_WITH_SUB = 52
+SUBLINE_SIZE = 24
+SUBLINE_OPACITY = 0.9
+SUBLINE_CHAR_LIMIT = 72
 BATCH_FORMAT = "photocraft-command-batch-v1"
 
 _NEUTRAL_HEX = frozenset(
@@ -265,17 +277,21 @@ def _resolve_headline_hierarchy(
         or "",
         90,
     )
-    kit_head = _truncate((kit or {}).get("headline") or "", 90)
-    kit_tag = _truncate((kit or {}).get("tagline") or brief.get("tagline") or "", 120)
+    kit_head = _truncate((kit or {}).get("headline") or "", SUBLINE_CHAR_LIMIT)
+    kit_tag = _truncate(
+        (kit or {}).get("tagline") or brief.get("tagline") or "",
+        SUBLINE_CHAR_LIMIT,
+    )
 
     if not crisis:
-        crisis = kit_head or "Important update"
+        crisis = _truncate(kit_head or "Important update", 90)
 
     subhead = ""
     if kit_tag and _normalize_compare(kit_tag) != _normalize_compare(crisis):
         subhead = kit_tag
     elif kit_head and _normalize_compare(kit_head) != _normalize_compare(crisis):
         subhead = kit_head
+    subhead = _truncate(subhead, SUBLINE_CHAR_LIMIT)
 
     return crisis, subhead
 
@@ -311,10 +327,54 @@ def cover_scale_percent(
     return max(canvas_width / img_width, canvas_height / img_height) * 100.0
 
 
-def logo_scale_percent(img_width: int, max_width: int = LOGO_MAX_WIDTH) -> float:
+def _logo_target_width(img_width: int) -> int:
     if img_width <= 0:
-        return 22.0
-    return min(100.0, max(8.0, (max_width / img_width) * 100.0))
+        return LOGO_TARGET_WIDTH
+    if img_width >= LOGO_TARGET_WIDTH_MAX:
+        return LOGO_TARGET_WIDTH_MAX
+    if img_width <= LOGO_TARGET_WIDTH_MIN:
+        return LOGO_TARGET_WIDTH_MIN
+    return min(LOGO_TARGET_WIDTH_MAX, max(LOGO_TARGET_WIDTH_MIN, LOGO_TARGET_WIDTH))
+
+
+def logo_scale_percent(
+    img_width: int,
+    *,
+    target_width: int | None = None,
+) -> float:
+    target = target_width if target_width is not None else _logo_target_width(img_width)
+    if img_width <= 0:
+        return max(12.0, (target / 480.0) * 100.0)
+    return max(8.0, (target / img_width) * 100.0)
+
+
+def _logo_layout(
+    img_width: int = 0,
+    img_height: int = 0,
+) -> dict[str, float]:
+    target_w = _logo_target_width(img_width)
+    if img_width > 0 and img_height > 0:
+        target_h = max(1.0, target_w * (img_height / img_width))
+    else:
+        target_h = target_w * (LOGO_KNOCKBACK_BASE_HEIGHT / LOGO_KNOCKBACK_BASE_WIDTH)
+    if target_h > LOGO_MAX_HEIGHT:
+        target_h = float(LOGO_MAX_HEIGHT)
+        if img_width > 0 and img_height > 0:
+            target_w = max(
+                LOGO_TARGET_WIDTH_MIN,
+                min(LOGO_TARGET_WIDTH_MAX, target_h * (img_width / img_height)),
+            )
+    knock_w = target_w + 2 * LOGO_KNOCKBACK_PAD
+    center_x = LINKEDIN_WIDTH - LOGO_MARGIN - target_w / 2
+    center_y = LOGO_MARGIN + target_h / 2
+    return {
+        "target_width": target_w,
+        "target_height": target_h,
+        "center_x": center_x,
+        "center_y": center_y,
+        "logo_scale": logo_scale_percent(img_width, target_width=int(round(target_w))),
+        "knockback_scale": (knock_w / LOGO_KNOCKBACK_BASE_WIDTH) * 100.0,
+    }
 
 
 def _hero_background_placement(
@@ -338,19 +398,16 @@ def _hero_background_placement(
     return placement
 
 
-def _logo_center_y() -> float:
-    return SAFE_PAD + 40
-
-
-def _logo_center_x() -> float:
-    return LINKEDIN_WIDTH - SAFE_PAD - LOGO_MAX_WIDTH / 2
-
-
-def _logo_knockback_placement() -> dict[str, Any]:
+def _logo_knockback_placement(
+    *,
+    img_width: int = 0,
+    img_height: int = 0,
+) -> dict[str, Any]:
+    layout = _logo_layout(img_width, img_height)
     return {
         "path": LOGO_KNOCKBACK_REL,
-        "center": [_logo_center_x(), _logo_center_y()],
-        "scale": 100.0,
+        "center": [layout["center_x"], layout["center_y"]],
+        "scale": round(layout["knockback_scale"], 2),
         "smartObject": False,
         "name": "Logo knockback",
     }
@@ -360,13 +417,14 @@ def _logo_foreground_placement(
     logo_relative_path: str,
     *,
     img_width: int | None = None,
+    img_height: int | None = None,
     on_busy_hero: bool = False,
 ) -> dict[str, Any]:
-    scale = logo_scale_percent(img_width or 0, max_width=LOGO_MAX_WIDTH)
+    layout = _logo_layout(img_width or 0, img_height or 0)
     placement: dict[str, Any] = {
         "path": logo_relative_path.replace("\\", "/"),
-        "center": [_logo_center_x(), _logo_center_y()],
-        "scale": round(scale, 2),
+        "center": [layout["center_x"], layout["center_y"]],
+        "scale": round(layout["logo_scale"], 2),
         "smartObject": True,
         "name": "Logo",
     }
@@ -374,6 +432,21 @@ def _logo_foreground_placement(
         placement["strokeColor"] = "#ffffff"
         placement["strokeWidth"] = 2
     return placement
+
+
+def _color_with_alpha(hex_color: str, alpha: float) -> list[float]:
+    hex6 = _normalize_hex(hex_color, "#ffffff").lstrip("#")
+    r, g, b = (int(hex6[i : i + 2], 16) for i in (0, 2, 4))
+    return [r, g, b, alpha]
+
+
+def _show_footer(site_name: str, *, has_logo: bool) -> bool:
+    if not has_logo:
+        return True
+    cleaned = re.sub(r"\s+", " ", site_name or "").strip()
+    if not cleaned or cleaned.casefold() in {"learn more", "home", "accueil"}:
+        return False
+    return False
 
 
 def _first_fact_sentence(session: dict[str, Any], skip: str) -> str:
@@ -398,6 +471,7 @@ def compile_poster_batch(
     hero_width: int | None = None,
     hero_height: int | None = None,
     logo_width: int | None = None,
+    logo_height: int | None = None,
     fonts_resolved: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Build a PhotoCraft command batch for a LinkedIn 1200×627 poster."""
@@ -486,12 +560,14 @@ def compile_poster_batch(
 
     text_color = text_on_dark if has_hero else text_on_light
     text_right = SAFE_PAD + TEXT_BLOCK_MAX_WIDTH
+    has_logo = bool(logo_relative_path)
+    show_footer = _show_footer(site_name, has_logo=has_logo)
     footer_top = LINKEDIN_HEIGHT - SAFE_PAD - 28
-    subline_bottom = footer_top - 8
+    subline_bottom = footer_top - 8 if show_footer else LINKEDIN_HEIGHT - SAFE_PAD - 4
     subline_top = subline_bottom - 56 if subline else subline_bottom
     headline_bottom = subline_top - 12
     headline_top = headline_bottom - 108
-    headline_size = 56 if not subline else 52
+    headline_size = HEADLINE_SIZE_SOLO if not subline else HEADLINE_SIZE_WITH_SUB
     headline_params: dict[str, Any] = {
         "name": "Headline",
         "box": [SAFE_PAD, headline_top, text_right, headline_bottom],
@@ -514,8 +590,8 @@ def compile_poster_batch(
                     "box": [SAFE_PAD, subline_top, text_right, subline_bottom],
                     "text": subline,
                     "font": body_font,
-                    "size": 24,
-                    "color": text_color,
+                    "size": SUBLINE_SIZE,
+                    "color": _color_with_alpha(text_color, SUBLINE_OPACITY),
                     "align": "left",
                 },
             }
@@ -539,21 +615,27 @@ def compile_poster_batch(
             }
         )
 
-    footer_color = "#cbd5e1" if has_hero else text_on_light
-    steps.append(
-        {
-            "command": "type.create",
-            "params": {
-                "name": "Footer",
-                "box": [SAFE_PAD, footer_top, text_right, LINKEDIN_HEIGHT - SAFE_PAD],
-                "text": site_name,
-                "font": body_font,
-                "size": 18,
-                "color": footer_color,
-                "align": "left",
-            },
-        }
-    )
+    if show_footer:
+        footer_color = "#cbd5e1" if has_hero else text_on_light
+        steps.append(
+            {
+                "command": "type.create",
+                "params": {
+                    "name": "Footer",
+                    "box": [
+                        SAFE_PAD,
+                        footer_top,
+                        text_right,
+                        LINKEDIN_HEIGHT - SAFE_PAD,
+                    ],
+                    "text": site_name,
+                    "font": body_font,
+                    "size": 18,
+                    "color": footer_color,
+                    "align": "left",
+                },
+            }
+        )
 
     background_placements: list[dict[str, Any]] = []
     if hero_relative_path:
@@ -565,14 +647,21 @@ def compile_poster_batch(
             )
         )
 
+    logo_layout = _logo_layout(logo_width or 0, logo_height or 0)
     foreground_placements: list[dict[str, Any]] = []
     if logo_relative_path:
         if has_hero:
-            foreground_placements.append(_logo_knockback_placement())
+            foreground_placements.append(
+                _logo_knockback_placement(
+                    img_width=logo_width or 0,
+                    img_height=logo_height or 0,
+                )
+            )
         foreground_placements.append(
             _logo_foreground_placement(
                 logo_relative_path,
                 img_width=logo_width,
+                img_height=logo_height,
                 on_busy_hero=has_hero,
             )
         )
@@ -597,6 +686,17 @@ def compile_poster_batch(
             "primaryColor": primary,
             "accentColor": accent,
             "hasHero": has_hero,
+            "hasLogo": has_logo,
+            "logoLayout": {
+                "targetWidthPx": int(round(logo_layout["target_width"])),
+                "targetHeightPx": int(round(logo_layout["target_height"])),
+                "logoScalePercent": round(logo_layout["logo_scale"], 2),
+                "knockbackScalePercent": round(logo_layout["knockback_scale"], 2),
+            },
+            "typography": {
+                "headlineSize": headline_size,
+                "sublineSize": SUBLINE_SIZE if subline else None,
+            },
             "fonts": {
                 "headline": headline_font,
                 "body": body_font,

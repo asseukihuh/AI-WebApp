@@ -1,9 +1,17 @@
-"""Read width/height from common raster formats without extra dependencies."""
+"""Read width/height from common raster and SVG assets without extra dependencies."""
 
 from __future__ import annotations
 
+import re
 import struct
 from pathlib import Path
+
+_VIEWBOX_RE = re.compile(
+    r"viewBox\s*=\s*[\"']([\d.\s\-]+)[\"']",
+    re.I,
+)
+_WIDTH_RE = re.compile(r"\bwidth\s*=\s*[\"']([\d.]+)", re.I)
+_HEIGHT_RE = re.compile(r"\bheight\s*=\s*[\"']([\d.]+)", re.I)
 
 
 def _jpeg_size(data: bytes) -> tuple[int, int] | None:
@@ -81,3 +89,72 @@ def raster_dimensions(path: str | Path) -> tuple[int, int] | None:
     with file_path.open("rb") as handle:
         head = handle.read(512 * 1024)
     return raster_dimensions_from_bytes(head)
+
+
+def _parse_svg_length(raw: str) -> float | None:
+    text = (raw or "").strip()
+    if not text or text.endswith("%"):
+        return None
+    for suffix in ("px", "pt", "mm", "cm", "in"):
+        if text.endswith(suffix):
+            text = text[: -len(suffix)]
+            break
+    try:
+        value = float(text)
+    except ValueError:
+        return None
+    return value if value > 0 else None
+
+
+def svg_dimensions_from_text(text: str) -> tuple[int, int] | None:
+    snippet = (text or "")[:65536]
+    if "<svg" not in snippet.lower():
+        return None
+    width = height = None
+    w_match = _WIDTH_RE.search(snippet)
+    h_match = _HEIGHT_RE.search(snippet)
+    if w_match:
+        width = _parse_svg_length(w_match.group(1))
+    if h_match:
+        height = _parse_svg_length(h_match.group(1))
+    if width and height:
+        return int(round(width)), int(round(height))
+    vb = _VIEWBOX_RE.search(snippet)
+    if vb:
+        parts = vb.group(1).replace(",", " ").split()
+        if len(parts) >= 4:
+            try:
+                vb_w = float(parts[2])
+                vb_h = float(parts[3])
+            except ValueError:
+                vb_w = vb_h = 0.0
+            if vb_w > 0 and vb_h > 0:
+                return int(round(vb_w)), int(round(vb_h))
+    return None
+
+
+def svg_dimensions_from_bytes(data: bytes) -> tuple[int, int] | None:
+    try:
+        text = data.decode("utf-8", errors="ignore")
+    except (UnicodeDecodeError, AttributeError):
+        return None
+    return svg_dimensions_from_text(text)
+
+
+def image_dimensions_from_bytes(data: bytes) -> tuple[int, int] | None:
+    size = raster_dimensions_from_bytes(data)
+    if size:
+        return size
+    return svg_dimensions_from_bytes(data)
+
+
+def image_dimensions(path: str | Path) -> tuple[int, int] | None:
+    file_path = Path(path)
+    if not file_path.is_file():
+        return None
+    suffix = file_path.suffix.lower()
+    with file_path.open("rb") as handle:
+        data = handle.read(512 * 1024)
+    if suffix == ".svg":
+        return svg_dimensions_from_bytes(data) or raster_dimensions_from_bytes(data)
+    return image_dimensions_from_bytes(data)
