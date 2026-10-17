@@ -168,6 +168,23 @@ packaging/web/package.sh          # release-style zip layout under target/
 
 See [packaging/web/README.md](https://github.com/asseukihuh/photocraft/blob/main/packaging/web/README.md) on the fork for hosting, iframe embedding, and Docker.
 
+### Pomelli-style kit import (parity goals)
+
+CommMaker’s website onboarding aims for **[Pomelli](https://labs.google.com/pomelli)**-class kits: colors, type, logo, hero imagery, and headline copy derived from a URL.
+
+| Capability | CommMaker MVP (this repo) | Honest gaps vs Pomelli |
+|------------|---------------------------|-------------------------|
+| Colors / fonts from page + CSS | Linked stylesheets, CSS variables, theme meta | No computed-style render; may miss colors only in JS bundles |
+| Logo | Favicon, header `<img>`, inline header SVG | No ML “pick the wordmark”; SVGs outside header/nav ignored |
+| Hero / marketing image | `og:image`, Twitter card, largest above-fold `<img>` | No full-bleed crop intelligence or stock-photo filtering |
+| Headline / tagline | `og:title`, first `h1`, meta description | No multi-locale or A/B headline merging |
+| Poster output | LinkedIn 1200×627 with hero layer, overlay, logo corner | Not a full generative “campaign set”; single template |
+| Editor | PhotoCraft component layers (editable) | No one-click “apply kit to all formats” yet |
+
+Kit JSON may include optional fields: `heroImageUrl`, `logoSvg`, `tagline`, `headline`, `accentColors[]` (older clients ignore them).
+
+Test URLs: see Project docs `docs/kit-scrape-test-sites.md` in the CommMaker agent store, or scrape the sites listed there directly.
+
 ### CommMaker MVP flows
 
 Use the dev server (required for website kit scrape API):

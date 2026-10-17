@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import argparse
 import functools
+import hashlib
 import http.server
 import json
 import mimetypes
@@ -17,14 +18,23 @@ import os
 import sys
 import urllib.error
 import urllib.request
+from typing import Callable
 
 ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
 SCRIPTS = os.path.dirname(os.path.abspath(__file__))
 if SCRIPTS not in sys.path:
     sys.path.insert(0, SCRIPTS)
 
-from kit_scraper import scrape_kit_from_html, validate_fetch_url  # noqa: E402
-from poster_compiler import compile_poster_batch, logo_cache_basename  # noqa: E402
+from kit_scraper import (  # noqa: E402
+    MAX_STYLESHEET_BYTES,
+    scrape_kit_from_page,
+    validate_fetch_url,
+)
+from poster_compiler import (  # noqa: E402
+    compile_poster_batch,
+    hero_cache_basename,
+    logo_cache_basename,
+)
 from photocraft_cli import run_poster_batch, _cli_missing_user_message  # noqa: E402
 
 MAX_HTML_BYTES = 2_000_000
@@ -89,7 +99,23 @@ class CommMakerHandler(http.server.SimpleHTTPRequestHandler):
             body = self._read_json_body()
             url = validate_fetch_url(str(body.get("url", "")))
             html = self._fetch_html(url)
-            kit = scrape_kit_from_html(html, url)
+
+            def _css_fetcher(css_url: str) -> bytes:
+                req = urllib.request.Request(
+                    css_url,
+                    headers={
+                        "User-Agent": "CommMaker-KitScraper/0.2 (+https://github.com/asseukihuh/AI-WebApp)",
+                        "Accept": "text/css,*/*",
+                    },
+                    method="GET",
+                )
+                with urllib.request.urlopen(req, timeout=FETCH_TIMEOUT_SEC) as resp:
+                    data = resp.read(MAX_STYLESHEET_BYTES + 1)
+                if len(data) > MAX_STYLESHEET_BYTES:
+                    data = data[:MAX_STYLESHEET_BYTES]
+                return data
+
+            kit = scrape_kit_from_page(html, url, fetcher=_css_fetcher)
             self._send_json(200, {"kit": kit})
         except ValueError as exc:
             self._send_json(400, {"error": str(exc)})
@@ -117,26 +143,52 @@ class CommMakerHandler(http.server.SimpleHTTPRequestHandler):
             raise ValueError("Logo image too large")
         return data
 
-    def _maybe_cache_logo(self, kit: dict) -> str | None:
-        logo_url = kit.get("logoUrl") if kit else None
-        if not logo_url or not isinstance(logo_url, str):
+    def _write_cached_asset(self, basename: str, data: bytes) -> str:
+        os.makedirs(ASSETS_DIR, exist_ok=True)
+        rel_path = f"generated/assets/{basename}"
+        abs_path = os.path.join(ROOT, rel_path)
+        if not os.path.isfile(abs_path):
+            with open(abs_path, "wb") as handle:
+                handle.write(data)
+        return rel_path
+
+    def _maybe_cache_remote_asset(
+        self, url: str | None, basename_fn: Callable[[str], str]
+    ) -> str | None:
+        if not url or not isinstance(url, str):
             return None
         try:
-            logo_url = validate_fetch_url(logo_url)
+            url = validate_fetch_url(url)
         except ValueError:
             return None
-        os.makedirs(ASSETS_DIR, exist_ok=True)
-        basename = logo_cache_basename(logo_url)
+        basename = basename_fn(url)
         rel_path = f"generated/assets/{basename}"
         abs_path = os.path.join(ROOT, rel_path)
         if not os.path.isfile(abs_path):
             try:
-                data = self._fetch_binary(logo_url)
+                data = self._fetch_binary(url)
             except (urllib.error.HTTPError, urllib.error.URLError, ValueError):
                 return None
-            with open(abs_path, "wb") as handle:
-                handle.write(data)
+            self._write_cached_asset(basename, data)
         return rel_path
+
+    def _maybe_cache_logo(self, kit: dict) -> str | None:
+        if not kit:
+            return None
+        logo_svg = kit.get("logoSvg")
+        if isinstance(logo_svg, str) and logo_svg.strip().startswith("<svg"):
+            digest = hashlib.sha256(logo_svg.encode("utf-8")).hexdigest()[:16]
+            return self._write_cached_asset(
+                f"logo-{digest}.svg", logo_svg.encode("utf-8")
+            )
+        return self._maybe_cache_remote_asset(
+            kit.get("logoUrl"), logo_cache_basename
+        )
+
+    def _maybe_cache_hero(self, kit: dict) -> str | None:
+        return self._maybe_cache_remote_asset(
+            kit.get("heroImageUrl") if kit else None, hero_cache_basename
+        )
 
     def _handle_generate_poster(self) -> None:
         try:
@@ -150,7 +202,13 @@ class CommMakerHandler(http.server.SimpleHTTPRequestHandler):
             if not kit:
                 kit = session.get("kitSnapshot")
             logo_rel = self._maybe_cache_logo(kit or {})
-            batch = compile_poster_batch(kit, session, logo_relative_path=logo_rel)
+            hero_rel = self._maybe_cache_hero(kit or {})
+            batch = compile_poster_batch(
+                kit,
+                session,
+                logo_relative_path=logo_rel,
+                hero_relative_path=hero_rel,
+            )
             os.makedirs(GENERATED_DIR, exist_ok=True)
             try:
                 result = run_poster_batch(ROOT, batch)
