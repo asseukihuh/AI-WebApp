@@ -254,6 +254,25 @@ def run_poster_batch(
             "openUrl": f"/{out_rel}",
         }
 
+    placement_errors: list[dict[str, Any]] = []
+
+    def _check_placement_path(placement: dict[str, Any], role: str) -> None:
+        rel = str(placement.get("path") or "").replace("\\", "/")
+        if not rel:
+            placement_errors.append(
+                {"role": role, "path": rel, "error": "Missing placement path"}
+            )
+            return
+        abs_path = os.path.join(repo_root, rel)
+        if not os.path.isfile(abs_path):
+            placement_errors.append(
+                {
+                    "role": role,
+                    "path": rel,
+                    "error": f"Asset not found on disk: {rel}",
+                }
+            )
+
     lines = [
         {
             "id": 1,
@@ -263,6 +282,7 @@ def run_poster_batch(
     ]
     place_id = 2
     for placement in batch.get("backgroundPlacements") or []:
+        _check_placement_path(placement, "background")
         lines.append(
             {
                 "id": place_id,
@@ -283,6 +303,7 @@ def run_poster_batch(
     )
     place_id += 1
     for placement in batch.get("placements") or []:
+        _check_placement_path(placement, "foreground")
         lines.append(
             {
                 "id": place_id,
@@ -326,6 +347,21 @@ def run_poster_batch(
         except json.JSONDecodeError:
             replies.append({"ok": False, "parseError": raw})
 
+    place_reply_ids = {
+        line["id"]
+        for line in lines
+        if line.get("method") == "doc.place"
+    }
+    for reply in replies:
+        if reply.get("id") in place_reply_ids and not reply.get("ok"):
+            placement_errors.append(
+                {
+                    "id": reply.get("id"),
+                    "error": reply.get("error") or reply.get("parseError") or "doc.place failed",
+                    "reply": reply,
+                }
+            )
+
     save_reply = next((r for r in reversed(replies) if r.get("id") == place_id), None)
     ok = proc.returncode == 0 and save_reply and save_reply.get("ok")
 
@@ -338,6 +374,7 @@ def run_poster_batch(
         "openUrl": f"/{out_rel}",
         "serveExitCode": proc.returncode,
         "serveReplies": replies,
+        "placementErrors": placement_errors,
     }
     if ok:
         result["userMessage"] = "Poster saved successfully."
