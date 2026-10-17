@@ -362,6 +362,9 @@ def fallback_layout_template(
     brand_profile: dict[str, Any] | None = None,
 ) -> str:
     has_image = hero_strategy in ("use_kit_photo", "ideogram_generate")
+    ck = (kit or {}).get("communicationKit") if isinstance(kit, dict) else None
+    if isinstance(ck, dict) and ck.get("thinSite") and not has_image:
+        return "device-stage"
     hint = template_hint_from_profile(brand_profile)
     if hint and (has_image or hint == "centered-statement"):
         return hint
@@ -637,6 +640,8 @@ def _design_system_prompt() -> str:
 layoutTemplate options:
 {templates}
 - full-bleed-scrim / split-text-left / text-panel need an image (use_kit_photo or ideogram_generate); centered-statement works on brand gradients.
+- device-stage is for a thin communication kit: colour block, one focal graphic device, no photograph required.
+- Linearity: one focal point, a short hook (≤ 8 words), scale contrast, asymmetry, layered depth, colour blocking, deliberate whitespace, type that survives a phone thumbnail, logo at clear-space size.
 - Copy limits: eyebrow ≤ {MAX_WORDS["eyebrow"]} words (short label, e.g. "New plan"), headline ≤ {MAX_WORDS["headline"]} words (ideal 4–8, one idea), subhead ≤ {MAX_WORDS["subline"]} words and one sentence, cta ≤ {MAX_WORDS["cta"]} words (verb first, e.g. "See pricing"). No hashtags, no URLs.
 - headlineScale: xl for ≤ 4 words, lg for 5–7, md for 8–10. headlineWeight: extrabold for xl/lg, bold for md.
 - ctaStyle: pill (default), outline (when the brand is minimal/monochrome), none (only for somber crisis notices).
@@ -657,6 +662,15 @@ def _llm_prompt(
     # kit_summary_for_prompt already renders kit.brandProfile (brand_profile_prompt_lines).
     profile = "" if brand_profile == kit_profile else brand_profile_summary_for_prompt(brand_profile)
     profile_block = f"\nBrand profile (AI vision analysis; prefer over scraped signals):\n{profile}\n" if profile else ""
+    ck = (kit or {}).get("communicationKit") if isinstance(kit, dict) else None
+    ck_block = ""
+    if isinstance(ck, dict) and ck.get("devices"):
+        kinds = ", ".join(str(d.get("kind") or "") for d in ck["devices"][:4] if isinstance(d, dict))
+        motif = ck.get("layoutMotif") or {}
+        ck_block = (
+            f"\nDesigned communication kit: sector {ck.get('sector')}, devices {kinds}, "
+            f"blocking {motif.get('blocking')}. Use this palette and these devices; do not invent another.\n"
+        )
     return f"""You are a senior brand marketing strategist and art director drafting a LinkedIn crisis/update poster brief.
 
 Output JSON only matching the schema. Copy must be factual, non-sensational, and appropriate for corporate communications.
@@ -666,7 +680,7 @@ Tone from user: {tone}
 
 Communication kit (scraped brand signals):
 {kit_summary_for_prompt(kit)}
-{profile_block}
+{profile_block}{ck_block}
 Crisis message (primary):
 {message or "(use facts below)"}
 

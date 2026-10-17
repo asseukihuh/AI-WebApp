@@ -8,6 +8,7 @@ import {
     KIT_STORAGE_KEY,
 } from "./commmaker-common.js";
 import { renderBrandProfile } from "./brand-profile.js";
+import { renderCommunicationKit } from "./communication-kit.js";
 
 const form = document.getElementById("scrape-form");
 const urlInput = document.getElementById("site-url");
@@ -15,6 +16,7 @@ const submitBtn = document.getElementById("scrape-submit");
 const statusEl = document.getElementById("scrape-status");
 const previewEl = document.getElementById("kit-preview");
 const profileEl = document.getElementById("brand-profile");
+const kitEl = document.getElementById("communication-kit");
 const deepToggle = document.getElementById("deep-analysis");
 const refreshToggle = document.getElementById("refresh-analysis");
 const saveBtn = document.getElementById("save-kit-btn");
@@ -265,6 +267,11 @@ form?.addEventListener("submit", async (event) => {
                         pendingKit.brandProfile = profile;
                     },
                 });
+                renderCommunicationKit(kitEl, pendingKit, {
+                    onChange: (communicationKit) => {
+                        pendingKit.communicationKit = communicationKit;
+                    },
+                });
                 renderPreview(pendingKit);
                 setStatus(profileStatus(result));
                 return;
@@ -276,6 +283,9 @@ form?.addEventListener("submit", async (event) => {
         if (profileEl) {
             profileEl.hidden = true;
         }
+        if (kitEl) {
+            kitEl.hidden = true;
+        }
         renderPreview(pendingKit);
         setStatus("Preview ready. Save to continue the flow.");
     } catch (err) {
@@ -283,6 +293,9 @@ form?.addEventListener("submit", async (event) => {
         previewEl.hidden = true;
         if (profileEl) {
             profileEl.hidden = true;
+        }
+        if (kitEl) {
+            kitEl.hidden = true;
         }
         pendingKit = null;
         if (saveBtn) {

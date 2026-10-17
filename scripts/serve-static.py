@@ -52,6 +52,7 @@ from brand_profile import (  # noqa: E402
     augment_ideogram_prompt,
     playwright_available,
 )
+from communication_kit import ensure_communication_kit  # noqa: E402
 from poster_compiler import (  # noqa: E402
     compile_poster_batch,
     hero_cache_basename,
@@ -76,6 +77,7 @@ FETCH_TIMEOUT_SEC = 20
 GENERATED_DIR = os.path.join(ROOT, "generated")
 ASSETS_DIR = os.path.join(GENERATED_DIR, "assets")
 BRAND_PROFILE_DIR = os.path.join(GENERATED_DIR, "brand-profiles")
+COMMUNICATION_KIT_DIR = os.path.join(GENERATED_DIR, "communication-kits")
 
 mimetypes.add_type("application/wasm", ".wasm")
 mimetypes.add_type("text/javascript", ".js")
@@ -207,6 +209,15 @@ class CommMakerHandler(http.server.SimpleHTTPRequestHandler):
                 use_capture=body.get("capture", True) is not False,
                 repo_root=ROOT,
             )
+            kit = ensure_communication_kit(
+                result.get("kit"),
+                cache_dir=COMMUNICATION_KIT_DIR,
+                brand_profile=result.get("brandProfile"),
+                allow_llm=True,
+                refresh=bool(body.get("refresh")),
+            )
+            result["kit"] = kit
+            result["communicationKit"] = kit.get("communicationKit")
             self._send_json(200, result)
         except ValueError as exc:
             self._send_json(400, {"error": str(exc)})
@@ -419,6 +430,12 @@ class CommMakerHandler(http.server.SimpleHTTPRequestHandler):
                 kit = session.get("kitSnapshot")
             kit = apply_brand_profile_to_kit(kit)
             brand_profile = _request_brand_profile(body, kit)
+            kit = ensure_communication_kit(
+                kit,
+                cache_dir=COMMUNICATION_KIT_DIR,
+                brand_profile=brand_profile,
+                allow_llm=not bool(kit.get("communicationKit")),
+            )
             if isinstance(kit.get("logoSvg"), str) and kit["logoSvg"].strip().startswith(
                 "<svg"
             ):
@@ -448,6 +465,9 @@ class CommMakerHandler(http.server.SimpleHTTPRequestHandler):
                 prompt = augment_ideogram_prompt(
                     str(creative_brief.get("heroImagePrompt") or ""), kit, role="background"
                 )
+                direction = str(((kit.get("communicationKit") or {}).get("imagery") or {}).get("direction") or "")
+                if direction:
+                    prompt = f"{prompt}. {direction}"
                 layers_mode = effective_ideogram_layers(creative_brief)
                 accent_prompt = augment_ideogram_prompt(
                     str(creative_brief.get("accentImagePrompt") or ""), kit, role="accent"
@@ -458,6 +478,7 @@ class CommMakerHandler(http.server.SimpleHTTPRequestHandler):
                     has_image=True,
                     monochrome=roles.monochrome,
                     brand_profile=brand_profile,
+                    communication_kit=kit.get("communicationKit") if isinstance(kit, dict) else None,
                 )
                 creative_brief = {**creative_brief, "layoutTemplate": template_name}
                 ideogram_style = {

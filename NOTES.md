@@ -6,6 +6,13 @@ Project update tracking, changelog, and roadmap for `ai-webapp`.
 
 ## 📝 Recent Updates
 
+### 2026-10-17 - Communication kit
+
+- Thin sites (BDS IG2I and the like) get a designed kit: colour proportions, type pairing, and a few graphic devices drawn from the logo and the sector.
+- `COMMMAKER_BRAND_MODEL` defaults to `claude-opus-5-5` for that pass, cached per domain. Poster briefs stay on `claude-sonnet-5-5`.
+- Posters place the devices as PhotoCraft vectors and score the Linearity rules (one focal point, hook, scale, asymmetry, depth, colour block, whitespace, thumbnail type, logo size).
+- Onboard edits the kit before a poster is generated.
+
 ### 2026-09-14 - Architecture & Codebase Refactoring
 
 - **Directory Restructuring**:
