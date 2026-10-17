@@ -7,20 +7,45 @@ import os
 import platform
 import shutil
 import subprocess
+import sys
 import tarfile
 import tempfile
 import urllib.request
+import zipfile
 from typing import Any
 
 PHOTOCRAFT_VERSION = "0.9.0"
 PHOTOCRAFT_RELEASE_TAG = f"v{PHOTOCRAFT_VERSION}"
+DOWNLOAD_BASE = (
+    f"https://github.com/storytold/photocraft/releases/download/{PHOTOCRAFT_RELEASE_TAG}"
+)
+
 PHOTOCRAFT_TARBALL = {
     "x86_64": f"photocraft-{PHOTOCRAFT_VERSION}-linux-x86_64.tar.gz",
+    "amd64": f"photocraft-{PHOTOCRAFT_VERSION}-linux-x86_64.tar.gz",
     "aarch64": f"photocraft-{PHOTOCRAFT_VERSION}-linux-aarch64.tar.gz",
     "arm64": f"photocraft-{PHOTOCRAFT_VERSION}-linux-aarch64.tar.gz",
 }
-DOWNLOAD_BASE = (
-    f"https://github.com/storytold/photocraft/releases/download/{PHOTOCRAFT_RELEASE_TAG}"
+
+MACOS_CLI_ZIP = f"photocraft-cli-{PHOTOCRAFT_VERSION}-macos-universal.zip"
+MACOS_CLI_DIR = f"photocraft-cli-{PHOTOCRAFT_VERSION}-macos-universal"
+
+WINDOWS_PORTABLE = {
+    "amd64": f"photocraft-{PHOTOCRAFT_VERSION}-windows-x64-portable.zip",
+    "x86_64": f"photocraft-{PHOTOCRAFT_VERSION}-windows-x64-portable.zip",
+    "arm64": f"photocraft-{PHOTOCRAFT_VERSION}-windows-arm64-portable.zip",
+    "aarch64": f"photocraft-{PHOTOCRAFT_VERSION}-windows-arm64-portable.zip",
+}
+
+WINDOWS_PORTABLE_DIR = {
+    "amd64": f"photocraft-{PHOTOCRAFT_VERSION}-windows-x64-portable",
+    "x86_64": f"photocraft-{PHOTOCRAFT_VERSION}-windows-x64-portable",
+    "arm64": f"photocraft-{PHOTOCRAFT_VERSION}-windows-arm64-portable",
+    "aarch64": f"photocraft-{PHOTOCRAFT_VERSION}-windows-arm64-portable",
+}
+
+USER_AGENT = (
+    "CommMaker-PhotoCraft-CLI/0.2 (+https://github.com/asseukihuh/AI-WebApp)"
 )
 
 
@@ -28,18 +53,57 @@ def _machine() -> str:
     return platform.machine().lower()
 
 
-def vendor_cli_path(repo_root: str) -> str:
+def _linux_archive_machine() -> str:
     machine = _machine()
-    name = "photocraft-cli"
-    if os.name == "nt":
-        return os.path.join(repo_root, "vendor", "photocraft-cli", f"{name}.exe")
+    if machine in ("arm64", "aarch64"):
+        return "aarch64"
+    if machine in ("amd64", "x86_64"):
+        return "x86_64"
+    return machine
+
+
+def _download(url: str, dest_path: str) -> None:
+    req = urllib.request.Request(
+        url,
+        headers={
+            "User-Agent": USER_AGENT,
+            "Accept": "application/octet-stream",
+        },
+    )
+    with urllib.request.urlopen(req, timeout=180) as resp:
+        data = resp.read()
+    with open(dest_path, "wb") as handle:
+        handle.write(data)
+
+
+def vendor_cli_path(repo_root: str) -> str:
+    system = platform.system()
+    if os.name == "nt" or system == "Windows":
+        machine = _machine()
+        folder = WINDOWS_PORTABLE_DIR.get(machine, WINDOWS_PORTABLE_DIR["amd64"])
+        return os.path.join(
+            repo_root,
+            "vendor",
+            "photocraft-cli",
+            folder,
+            "photocraft-cli.exe",
+        )
+    if system == "Darwin":
+        return os.path.join(
+            repo_root,
+            "vendor",
+            "photocraft-cli",
+            MACOS_CLI_DIR,
+            "photocraft-cli",
+        )
+    machine = _linux_archive_machine()
     return os.path.join(
         repo_root,
         "vendor",
         "photocraft-cli",
         f"photocraft-{PHOTOCRAFT_VERSION}-linux-{machine}",
         "bin",
-        name,
+        "photocraft-cli",
     )
 
 
@@ -53,45 +117,107 @@ def find_cli(repo_root: str) -> str | None:
     return None
 
 
+def _cli_missing_user_message(repo_root: str) -> str:
+    system = platform.system()
+    if system == "Darwin":
+        return (
+            "PhotoCraft CLI was not found. On first poster generation CommMaker downloads "
+            f"{MACOS_CLI_ZIP} from storytold/photocraft {PHOTOCRAFT_RELEASE_TAG} into "
+            f"{os.path.join(repo_root, 'vendor', 'photocraft-cli')}. "
+            "If download failed, extract the zip manually or install photocraft-cli on PATH."
+        )
+    if os.name == "nt" or system == "Windows":
+        return (
+            "PhotoCraft CLI was not found. CommMaker can download the Windows portable zip "
+            f"from storytold/photocraft {PHOTOCRAFT_RELEASE_TAG}, or add photocraft-cli.exe to PATH."
+        )
+    return (
+        "PhotoCraft CLI was not found. On Linux, CommMaker downloads the release tarball on first "
+        f"use ({PHOTOCRAFT_RELEASE_TAG}), or add photocraft-cli to PATH."
+    )
+
+
 def ensure_linux_cli(repo_root: str) -> str | None:
+    """Backward-compatible alias for :func:`ensure_cli` on Linux only."""
+    if platform.system() != "Linux":
+        return None
+    return ensure_cli(repo_root)
+
+
+def ensure_cli(repo_root: str) -> str | None:
     existing = find_cli(repo_root)
     if existing:
         return existing
-    if os.name != "posix" or platform.system() != "Linux":
-        return None
 
-    machine = _machine()
-    tarball = PHOTOCRAFT_TARBALL.get(machine)
-    if not tarball:
-        return None
-
+    system = platform.system()
     dest_root = os.path.join(repo_root, "vendor", "photocraft-cli")
     cli = vendor_cli_path(repo_root)
     if os.path.isfile(cli):
+        if os.name != "nt":
+            os.chmod(cli, 0o755)
         return cli
 
     os.makedirs(dest_root, exist_ok=True)
-    url = f"{DOWNLOAD_BASE}/{tarball}"
+
     with tempfile.TemporaryDirectory() as tmp:
-        archive_path = os.path.join(tmp, tarball)
-        req = urllib.request.Request(
-            url,
-            headers={
-                "User-Agent": "CommMaker-PhotoCraft-CLI/0.1 (+https://github.com/asseukihuh/AI-WebApp)",
-                "Accept": "application/octet-stream",
-            },
-        )
-        with urllib.request.urlopen(req, timeout=120) as resp:
-            data = resp.read()
-        with open(archive_path, "wb") as handle:
-            handle.write(data)
-        with tarfile.open(archive_path, "r:gz") as tar:
-            tar.extractall(path=dest_root)
+        if system == "Linux":
+            machine = _linux_archive_machine()
+            tarball = PHOTOCRAFT_TARBALL.get(machine) or PHOTOCRAFT_TARBALL.get(_machine())
+            if not tarball:
+                return None
+            archive_path = os.path.join(tmp, tarball)
+            _download(f"{DOWNLOAD_BASE}/{tarball}", archive_path)
+            with tarfile.open(archive_path, "r:gz") as tar:
+                tar.extractall(path=dest_root)
+        elif system == "Darwin":
+            archive_path = os.path.join(tmp, MACOS_CLI_ZIP)
+            _download(f"{DOWNLOAD_BASE}/{MACOS_CLI_ZIP}", archive_path)
+            with zipfile.ZipFile(archive_path) as zf:
+                zf.extractall(path=dest_root)
+        elif os.name == "nt" or system == "Windows":
+            machine = _machine()
+            zip_name = WINDOWS_PORTABLE.get(machine) or WINDOWS_PORTABLE["amd64"]
+            archive_path = os.path.join(tmp, zip_name)
+            _download(f"{DOWNLOAD_BASE}/{zip_name}", archive_path)
+            with zipfile.ZipFile(archive_path) as zf:
+                zf.extractall(path=dest_root)
+        else:
+            return None
 
     if os.path.isfile(cli):
-        os.chmod(cli, 0o755)
+        if os.name != "nt":
+            os.chmod(cli, 0o755)
         return cli
     return None
+
+
+def cli_self_test(repo_root: str) -> dict[str, Any]:
+    """Verify photocraft-cli responds to a minimal serve session (for smoke tests)."""
+    cli = ensure_cli(repo_root)
+    if not cli:
+        return {
+            "ok": False,
+            "platform": platform.system(),
+            "machine": _machine(),
+            "error": "CLI not available",
+            "userMessage": _cli_missing_user_message(repo_root),
+        }
+    proc = subprocess.run(
+        [cli, "--version"],
+        capture_output=True,
+        text=True,
+        timeout=30,
+    )
+    version_ok = proc.returncode == 0
+    return {
+        "ok": version_ok,
+        "cliPath": cli,
+        "platform": platform.system(),
+        "machine": _machine(),
+        "versionStdout": (proc.stdout or "").strip(),
+        "versionStderr": (proc.stderr or "").strip(),
+        "exitCode": proc.returncode,
+    }
 
 
 def run_poster_batch(
@@ -106,31 +232,23 @@ def run_poster_batch(
     os.makedirs(os.path.dirname(out_abs), exist_ok=True)
 
     cli = cli_path or find_cli(repo_root)
+    download_error: str | None = None
     if not cli:
         try:
-            cli = ensure_linux_cli(repo_root)
+            cli = ensure_cli(repo_root)
         except Exception as exc:  # noqa: BLE001 — surface download errors
-            return {
-                "ok": False,
-                "cliAvailable": False,
-                "error": (
-                    f"photocraft-cli not found and download failed: {exc}. "
-                    f"Install from storytold/photocraft release {PHOTOCRAFT_RELEASE_TAG} "
-                    "or add photocraft-cli to PATH."
-                ),
-                "commandBatch": batch,
-                "documentPath": f"/{out_rel}",
-                "openUrl": f"/{out_rel}",
-            }
+            download_error = str(exc)
 
     if not cli:
+        base_error = download_error or (
+            f"photocraft-cli not found (expected storytold/photocraft {PHOTOCRAFT_RELEASE_TAG})."
+        )
         return {
             "ok": False,
             "cliAvailable": False,
-            "error": (
-                "photocraft-cli not found in PATH and automatic Linux download failed "
-                f"(expected release {PHOTOCRAFT_RELEASE_TAG} tarball from storytold/photocraft)."
-            ),
+            "error": base_error,
+            "cliError": base_error,
+            "userMessage": _cli_missing_user_message(repo_root),
             "commandBatch": batch,
             "documentPath": f"/{out_rel}",
             "openUrl": f"/{out_rel}",
@@ -209,10 +327,32 @@ def run_poster_batch(
         "serveExitCode": proc.returncode,
         "serveReplies": replies,
     }
-    if not ok:
-        result["error"] = (
+    if ok:
+        result["userMessage"] = "Poster saved successfully."
+    else:
+        err = (
             proc.stderr.strip()
             or (save_reply or {}).get("error")
             or "PhotoCraft CLI did not save the document"
         )
+        result["error"] = err
+        result["cliError"] = err
+        result["userMessage"] = (
+            "PhotoCraft CLI ran but could not save your poster. "
+            "See cliError in this response or server logs for details."
+        )
     return result
+
+
+def main() -> None:
+    repo_root = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
+    if len(sys.argv) > 1 and sys.argv[1] == "--self-test":
+        report = cli_self_test(repo_root)
+        print(json.dumps(report, indent=2))
+        sys.exit(0 if report.get("ok") else 1)
+    print("Usage: python3 scripts/photocraft_cli.py --self-test", file=sys.stderr)
+    sys.exit(2)
+
+
+if __name__ == "__main__":
+    main()

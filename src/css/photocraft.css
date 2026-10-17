@@ -40,28 +40,64 @@
     text-decoration: underline;
 }
 
-.poster-open-callout {
+.poster-ready-banner {
+    position: sticky;
+    top: 0;
+    z-index: 20;
     margin: 0.75rem 0 0;
-    padding: 0.75rem 1rem;
-    background: #1e3a2f;
-    border: 1px solid #2d6a4f;
-    border-radius: 6px;
+    padding: 0;
+    border-radius: 8px;
+    background: #14532d;
+    border: 1px solid #22c55e;
+    box-shadow: 0 4px 24px rgba(0, 0, 0, 0.35);
 }
 
-.poster-callout-title {
+.poster-ready-banner--error {
+    background: #450a0a;
+    border-color: #f87171;
+}
+
+.poster-ready-banner__inner {
+    padding: 1rem 1.15rem;
+}
+
+.poster-ready-banner__title {
     margin: 0 0 0.35rem;
-    font-weight: 600;
+    font-size: 1.05rem;
+    font-weight: 700;
     color: #bbf7d0;
 }
 
-.poster-open-link {
-    color: #6ee7b7;
-    font-weight: 600;
-    text-decoration: none;
+.poster-ready-banner--error .poster-ready-banner__title {
+    color: #fecaca;
 }
 
-.poster-open-link:hover {
-    text-decoration: underline;
+.poster-ready-banner__body {
+    margin: 0 0 0.5rem;
+    font-size: 0.9rem;
+    color: #d1fae5;
+}
+
+.poster-ready-banner--error .poster-ready-banner__body {
+    color: #fee2e2;
+}
+
+.poster-ready-banner__steps {
+    margin: 0 0 0.75rem 1.1rem;
+    padding: 0;
+    font-size: 0.88rem;
+    color: #a7f3d0;
+}
+
+.poster-ready-banner__download {
+    display: inline-block;
+    background: #22c55e;
+    border-color: #16a34a;
+    color: #052e16;
+}
+
+.poster-ready-banner__download:hover {
+    filter: brightness(1.05);
 }
 
 .photocraft-notice {

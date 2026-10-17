@@ -118,8 +118,23 @@ button.btn-primary {
     border-color: #0d9488;
 }
 
+.poster-status {
+    margin-top: 0.75rem;
+    padding: 0.65rem 0.85rem;
+    border-radius: 6px;
+    font-weight: 500;
+}
+
 .poster-status.is-error {
-    color: #b91c1c;
+    color: #7f1d1d;
+    background: #fee2e2;
+    border: 1px solid #fca5a5;
+}
+
+.poster-status.is-success {
+    color: #065f46;
+    background: #d1fae5;
+    border: 1px solid #6ee7b7;
 }
 
 button,
