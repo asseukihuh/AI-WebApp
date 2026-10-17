@@ -279,6 +279,21 @@ class TestCreativeBriefFallback(unittest.TestCase):
         self.assertEqual(schema.get("additionalProperties"), False)
         props = schema.get("properties") or {}
         self.assertEqual(set(schema.get("required") or []), set(props.keys()))
+        self.assertIn("composition", props)
+        self.assertEqual(props["composition"].get("additionalProperties"), False)
+
+    def test_screenshot_is_vision_input_not_an_ideogram_file(self) -> None:
+        body = _anthropic_messages_body(
+            {},
+            {"crisisFacts": "x"},
+            "linkedin-1200x627",
+            model="claude-sonnet-5-5",
+            reference_images=[{"label": "desktop", "mediaType": "image/png", "data": "aaaa"}],
+        )
+        content = body["messages"][0]["content"]
+        self.assertIsInstance(content, list)
+        self.assertTrue(any(block.get("type") == "image" for block in content))
+        self.assertIn("cannot receive them", body["system"])
 
     def test_creative_brief_schema_strict_object_nodes(self) -> None:
         for schema in (CREATIVE_BRIEF_JSON_SCHEMA, _anthropic_tool_schema()):

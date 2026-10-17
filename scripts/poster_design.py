@@ -51,7 +51,11 @@ MAX_TOTAL_WORDS = 30
 TEXT_CONTRAST_MIN = 4.5
 GRAPHIC_CONTRAST_MIN = 3.0
 HIERARCHY_RATIO_MIN = 2.1
-MIN_WHITESPACE_RATIO = 0.35
+# Text and the logo may use most of a poster when a real image or identity gradient fills the field.
+# A flat single-colour ground is not "imagery"; that case fails visual-mass instead.
+MIN_WHITESPACE_RATIO = 0.18
+MIN_VISUAL_SHARE = 0.25
+MIN_DEVICE_CONTRAST = 2.2
 SCRIM_MAX_ALPHA = 0.85
 SCRIM_FADE_PX = 200
 
@@ -348,6 +352,42 @@ def _brand_roles_from_kit(kit: dict[str, Any] | None, profile_colors: list[str])
         monochrome=monochrome,
         palette=tuple(palette[:6]),
     )
+
+
+def _hexes_differ(a: str, b: str) -> bool:
+    ra, ga, ba = hex_to_rgb(a)
+    rb, gb, bb = hex_to_rgb(b)
+    return max(abs(ra - rb), abs(ga - gb), abs(ba - bb)) >= 48
+
+
+def identity_gradient_stops(
+    brand_profile: dict[str, Any] | None,
+    roles: BrandRoles,
+) -> list[tuple[float, str]] | None:
+    """Diagonal field from the captured palette when it actually has more than one hue.
+
+    A single purple ramped toward white is not the brand's imagery. Stripe's profile
+    contributes blurple and the orange ribbon; those two stops are the field.
+    """
+    ordered: list[str] = []
+    for role in ("primary", "accent", "secondary"):
+        hex6 = profile_palette_roles(brand_profile).get(role) or ""
+        if not hex6:
+            continue
+        rgb = hex_to_rgb(hex6)
+        if chroma(rgb) < 0.18 or relative_luminance(rgb) > 0.92:
+            continue
+        if any(not _hexes_differ(hex6, seen) for seen in ordered):
+            continue
+        ordered.append(hex6)
+        if len(ordered) == 2:
+            break
+    if len(ordered) < 2 and _hexes_differ(roles.brand, roles.accent) and chroma(hex_to_rgb(roles.accent)) >= 0.18:
+        ordered = [roles.brand, roles.accent]
+    if len(ordered) < 2:
+        return None
+    start, end = ordered[0], ordered[1]
+    return [(0.0, start), (0.48, mix_hex(start, end, 0.45)), (1.0, end)]
 
 
 def brand_gradient_stops(roles: BrandRoles) -> list[tuple[float, str]]:
@@ -978,6 +1018,8 @@ def audit_plan(
     scrim_alpha: float | None = None,
     logo_count: int = 1,
     devices: list[dict[str, Any]] | None = None,
+    visual_share: float | None = None,
+    cta_required: bool | None = None,
 ) -> dict[str, Any]:
     """Score a layout against the design-system rules (0–100) with per-rule detail."""
     checks: list[dict[str, Any]] = []
@@ -1026,7 +1068,10 @@ def audit_plan(
         not over and total <= MAX_TOTAL_WORDS,
         f"words {words} total {total}" + (f"; over: {', '.join(over)}" if over else ""),
     )
-    add("cta", "cta" in els, "CTA chip present" if "cta" in els else "no CTA")
+    if cta_required is False:
+        add("cta", True, "brief did not ask for a call to action")
+    else:
+        add("cta", "cta" in els, "CTA chip present" if "cta" in els else "no CTA")
 
     if contrast:
         low = {k: round(v, 2) for k, v in contrast.items() if v < (GRAPHIC_CONTRAST_MIN if k in ("logo", "ctaChip") else TEXT_CONTRAST_MIN)}
@@ -1040,8 +1085,15 @@ def audit_plan(
         if key in boxes:
             covered += boxes[key][2] * boxes[key][3]
     free = 1 - covered / (CANVAS_W * CANVAS_H)
-    add("whitespace", free >= MIN_WHITESPACE_RATIO, f"{free:.0%} free (min {MIN_WHITESPACE_RATIO:.0%})")
+    add("whitespace", free >= MIN_WHITESPACE_RATIO, f"{free:.0%} free of type (min {MIN_WHITESPACE_RATIO:.0%})")
     add("single-logo", logo_count <= 1, f"{logo_count} logo placement(s)")
+    if visual_share is not None:
+        add(
+            "visual-mass",
+            visual_share >= MIN_VISUAL_SHARE,
+            f"{visual_share:.0%} of the canvas is brand imagery (min {MIN_VISUAL_SHARE:.0%})",
+            3,
+        )
 
     # Linearity poster tips, as checks a layout can pass or fail.
     text_sizes = [

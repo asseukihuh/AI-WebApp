@@ -93,23 +93,35 @@ class TestThinSites(unittest.TestCase):
         self.assertTrue(kitlib.is_thin_site(kit))
         self.assertEqual(kitlib.chromatic_colors(kit["colors"]), ["#00733a", "#005a2d"])
 
-    def test_each_sector_gets_its_own_devices(self) -> None:
-        bds = {d["kind"] for d in kitlib.design_fallback(_bds())["devices"]}
-        stripe = {d["kind"] for d in kitlib.design_fallback(_fixture("kit-stripe.json"))["devices"]}
-        vercel = {d["kind"] for d in kitlib.design_fallback(_fixture("kit-vercel.json"))["devices"]}
-        self.assertIn("climbing-holds", bds)
-        self.assertIn("mark-crop", bds)
-        self.assertIn("swoosh", stripe)
-        self.assertIn("stripe", stripe)
-        self.assertTrue("grid-dots" in vercel or "mark-crop" in vercel)
-        self.assertNotEqual(bds, stripe)
-        self.assertNotEqual(stripe, vercel)
-        self.assertNotEqual(bds, vercel)
-        for kinds in (bds, stripe, vercel):
-            self.assertGreaterEqual(len(kinds), 3)
+    def test_catalog_kinds_are_not_stamped_on_a_brand(self) -> None:
+        from creative_brief import default_composition
+
+        for kit in (_bds(), _fixture("kit-stripe.json"), _fixture("kit-vercel.json")):
+            kinds = {d["kind"] for d in kitlib.design_fallback(kit)["devices"]}
+            self.assertFalse(kinds & {"stripe", "ribbon", "grid-dots", "chevron", "confetti", "climbing-holds"})
+        stripe = default_composition(_fixture("kit-stripe.json"), _fixture("brand-profile-stripe.json"))
+        sources = {item["source"] for item in stripe["visuals"]}
+        self.assertEqual(sources, {"palette-gradient"})
+        self.assertEqual(stripe["field"], "ideogram")
+        self.assertNotIn("ribbon", json.dumps(stripe))
+        bds = default_composition(_bds(), None)
+        self.assertEqual({item["source"] for item in bds["visuals"]}, {"logo-geometry"})
 
     def test_fallback_svg_and_bezier_path(self) -> None:
         designed = kitlib.design_fallback(_bds())
+        designed["devices"] = [
+            {
+                "id": "d1",
+                "kind": "swoosh",
+                "role": "focal",
+                "colorRole": "primary",
+                "scale": 1,
+                "rotation": 0,
+                "anchor": "center-right",
+                "opacity": 1,
+                "count": 1,
+            }
+        ]
         svg = kitlib.device_svg(designed["devices"][0], designed, logo_svg=_bds()["logoSvg"])
         self.assertTrue(svg.startswith("<svg"))
         self.assertIn("fill=", svg)
@@ -122,7 +134,6 @@ class TestThinSites(unittest.TestCase):
                 for step in steps
             )
         )
-        self.assertTrue(all(step["params"].get("kind") != "polygon" or "rect" in step["params"] for step in steps))
         self.assertTrue(all("additionalProperties" not in step for step in steps))
 
 
@@ -145,7 +156,7 @@ class TestCacheAndCost(unittest.TestCase):
             self.assertEqual(first["model"], "claude-opus-5-5")
             self.assertFalse(first["cached"])
             self.assertGreater(first["costUsd"], 0)
-            self.assertTrue(first["communicationKit"]["devices"][0]["svg"].startswith("<svg"))
+            self.assertEqual(first["communicationKit"]["devices"], [])
             second = kitlib.analyze_communication_kit(_bds(), cache_dir=cache, allow_llm=True, llm_fn=llm)
             self.assertTrue(second["cached"])
             self.assertEqual(second["communicationKit"]["sector"], first["communicationKit"]["sector"])
@@ -190,8 +201,9 @@ class TestPosterUsesKit(unittest.TestCase):
         meta = batch["meta"]
         self.assertEqual(meta["layoutTemplate"], "device-stage")
         names = [step["params"].get("name") for step in batch["steps"]]
-        self.assertTrue(any(str(name).startswith("Device ") for name in names), names)
         self.assertIn("Colour block", names)
+        self.assertTrue(any(item.get("name") == "Mark geometry" for item in batch["placements"]))
+        self.assertFalse(any("climbing" in str(name) or str(name).endswith("stripe") for name in names))
         self.assertEqual(meta["designAudit"]["failed"], [])
         self.assertGreaterEqual(meta["designAudit"]["score"], 90)
         self.assertGreaterEqual(meta["logoLayout"]["targetHeightPx"], 48)
@@ -202,6 +214,55 @@ class TestPosterUsesKit(unittest.TestCase):
         plan = design.plan_layout("full-bleed-scrim", headline="Big hook here", subline="A short detail line.", cta="Read more", logo_size=(20, 12))
         audit = design.audit_plan(plan, contrast={"headline": 7, "subline": 7, "logo": 5})
         self.assertIn("logo-size", audit["failed"])
+
+    def test_flat_field_fails_visual_mass_and_stripe_gradient_does_not(self) -> None:
+        from creative_brief import default_composition
+
+        empty = design.audit_plan(
+            design.plan_layout(
+                "centered-statement",
+                headline="New student plan",
+                subline="Now available: review the details on our site.",
+                cta="See the plan",
+                logo_size=(86, 36),
+            ),
+            contrast={"headline": 7, "subline": 7, "logo": 5},
+            visual_share=0.04,
+            cta_required=True,
+        )
+        self.assertIn("visual-mass", empty["failed"])
+        stripe = compile_poster_batch(
+            _fixture("kit-stripe.json"),
+            {"suggestedHeadline": "New student plan", "brief": {"headline": "New student plan", "facts": "Reduced fees."}},
+            creative_brief={
+                **default_composition(_fixture("kit-stripe.json"), _fixture("brand-profile-stripe.json")),
+                "headline": "New student plan",
+                "subhead": "Reduced fees for student founders.",
+                "cta": "See pricing",
+                "eyebrow": "New",
+                "layoutRecipe": "gradient-brand",
+                "heroStrategy": "gradient_from_palette",
+                "logoTreatment": "wordmark-dark",
+                "emphasis": "celebratory",
+                "layoutTemplate": "full-bleed-scrim",
+                "headlineScale": "lg",
+                "headlineWeight": "extrabold",
+                "ctaStyle": "pill",
+                "rationale": "test",
+                "composition": default_composition(_fixture("kit-stripe.json"), _fixture("brand-profile-stripe.json")),
+            },
+            brand_profile=_fixture("brand-profile-stripe.json"),
+            logo_relative_path="generated/assets/logo.svg",
+            logo_variants={"original": "generated/assets/logo.svg", "dark": "generated/assets/logo-dark.svg"},
+            logo_width=60,
+            logo_height=25,
+        )
+        names = [step["params"].get("name") for step in stripe["steps"]]
+        self.assertTrue(stripe["meta"]["identityField"])
+        self.assertGreaterEqual(stripe["meta"]["visualShare"], 0.25)
+        self.assertNotIn("visual-mass", stripe["meta"]["designAudit"]["failed"])
+        self.assertFalse(any("Device " in str(name) for name in names))
+        self.assertFalse(any(item.get("name") == "Mark geometry" for item in stripe["placements"]))
 
 
 if __name__ == "__main__":

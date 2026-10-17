@@ -6,6 +6,12 @@ Project update tracking, changelog, and roadmap for `ai-webapp`.
 
 ## 📝 Recent Updates
 
+### 2026-10-17 - Identity-true posters
+
+- Poster imagery comes from the captured palette, the real symbol mark, or a usable photo. Catalog shapes (bars, chevrons, dot grids) are not drawn.
+- The creative brief carries a composition plan: text region, which captured visual is focal, colour-block cut, whether Ideogram should paint the field, and whether there is a CTA. Offer and proof lines have to come from the facts or the site.
+- Ideogram 4 generate has no image-reference input. Screenshots are vision context for the brief; the generate call gets the text-free prompt and the palette. Remix is not used, because it would keep page text.
+
 ### 2026-10-17 - Communication kit
 
 - Thin sites (BDS IG2I and the like) get a designed kit: colour proportions, type pairing, and a few graphic devices drawn from the logo and the sector.

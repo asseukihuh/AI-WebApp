@@ -49,6 +49,9 @@ Ideogram 4.0 only accepts [preset resolutions](https://developer.ideogram.ai/api
 ## APIs
 
 - **Generate:** `POST https://api.ideogram.ai/v2/image/generate/ideogram-4`
+- **Not used:** `POST /v2/image/remix/ideogram-4` accepts one image, but the prompt is an edit and the source is kept, so a page screenshot would come back with its text and logos.
+
+Ideogram 4 generate has **no** style-reference, character-reference, or image field. Website screenshots are attached to the creative-brief call as vision input so the model can describe the captured gradient language, motifs and palette. The generate request then sends that text-free prompt plus `color_palette`. `magic_prompt` stays off.
 - **Cutout (accent):** `POST https://api.ideogram.ai/v2/image/remove-background/ideogram-1` (multipart `image` field)
 
 Header: `Api-Key: $IDEOGRAM_API_KEY`

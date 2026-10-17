@@ -216,6 +216,9 @@ class CommMakerHandler(http.server.SimpleHTTPRequestHandler):
                 allow_llm=True,
                 refresh=bool(body.get("refresh")),
             )
+            shots = (result.get("capture") or {}).get("screenshots") or {}
+            if shots:
+                kit["screenshotPaths"] = shots
             result["kit"] = kit
             result["communicationKit"] = kit.get("communicationKit")
             self._send_json(200, result)

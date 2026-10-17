@@ -24,9 +24,11 @@ from poster_design import (
     clamp_words,
     default_template_for,
     headline_scale_for,
+    identity_gradient_stops,
     kit_hero_unsuitable,
     template_hint_from_profile,
 )
+from ideogram_client import ideogram_conditioning
 
 LayoutRecipe = Literal["photo-hero-type", "gradient-brand", "minimal-wordmark"]
 HeroStrategy = Literal[
@@ -59,6 +61,49 @@ OPENROUTER_API_BASE = os.environ.get(
     "OPENROUTER_API_BASE", "https://openrouter.ai/api/v1"
 ).rstrip("/")
 LLM_TIMEOUT_SEC = 60
+
+VISUAL_SOURCES = ("palette-gradient", "logo-geometry", "kit-photo")
+TEXT_REGIONS = ("left", "bottom-left", "center")
+COLOUR_BLOCKS = ("none", "left-panel", "diagonal-crop")
+FIELD_FILLS = ("ideogram", "palette-gradient", "kit-photo")
+
+
+def _composition_schema() -> dict[str, Any]:
+    visual = {
+        "type": "object",
+        "additionalProperties": False,
+        "properties": {
+            "source": {"type": "string", "enum": list(VISUAL_SOURCES)},
+            "role": {"type": "string", "enum": ["focal", "support"]},
+            "scale": {"type": "number"},
+            "anchor": {"type": "string", "enum": ["full", "left", "right", "center"]},
+            "evidence": {"type": "string"},
+        },
+        "required": ["source", "role", "scale", "anchor", "evidence"],
+    }
+    return {
+        "type": "object",
+        "additionalProperties": False,
+        "properties": {
+            "textRegion": {"type": "string", "enum": list(TEXT_REGIONS)},
+            "visuals": {"type": "array", "items": visual},
+            "colourBlock": {"type": "string", "enum": list(COLOUR_BLOCKS)},
+            "field": {"type": "string", "enum": list(FIELD_FILLS)},
+            "showCta": {"type": "boolean"},
+            "offer": {"type": "string"},
+            "proof": {"type": "string"},
+        },
+        "required": [
+            "textRegion",
+            "visuals",
+            "colourBlock",
+            "field",
+            "showCta",
+            "offer",
+            "proof",
+        ],
+    }
+
 
 CREATIVE_BRIEF_JSON_SCHEMA: dict[str, Any] = {
     "type": "object",
@@ -101,6 +146,7 @@ CREATIVE_BRIEF_JSON_SCHEMA: dict[str, Any] = {
         "eyebrow": {"type": "string"},
         "ctaStyle": {"type": "string", "enum": list(CTA_STYLES)},
         "rationale": {"type": "string"},
+        "composition": _composition_schema(),
     },
     "required": [
         "headline",
@@ -119,6 +165,7 @@ CREATIVE_BRIEF_JSON_SCHEMA: dict[str, Any] = {
         "eyebrow",
         "ctaStyle",
         "rationale",
+        "composition",
     ],
 }
 
@@ -135,6 +182,7 @@ ART_DIRECTOR_JSON_SCHEMA: dict[str, Any] = {
         "headlineScale": {"type": "string", "enum": list(HEADLINE_SCALES)},
         "headlineWeight": {"type": "string", "enum": list(HEADLINE_WEIGHTS)},
         "ctaStyle": {"type": "string", "enum": list(CTA_STYLES)},
+        "composition": _composition_schema(),
     },
     "required": [
         "score",
@@ -146,6 +194,7 @@ ART_DIRECTOR_JSON_SCHEMA: dict[str, Any] = {
         "headlineScale",
         "headlineWeight",
         "ctaStyle",
+        "composition",
     ],
 }
 
@@ -376,6 +425,171 @@ def fallback_layout_template(
     )
 
 
+def has_imagery_direction(kit: dict[str, Any] | None, brand_profile: dict[str, Any] | None) -> bool:
+    """True when the brand profile describes a visual language worth painting.
+
+    The kit's own boilerplate direction does not count: that text is generated, not captured.
+    """
+    profile = brand_profile if isinstance(brand_profile, dict) else {}
+    if not profile and isinstance(kit, dict) and isinstance(kit.get("brandProfile"), dict):
+        profile = kit["brandProfile"]
+    style = profile.get("imageryStyle")
+    if isinstance(style, dict) and any(style.get(key) for key in ("ideogramPrompt", "colorTreatment", "motifs")):
+        return True
+    if isinstance(style, str) and style.strip():
+        return True
+    return any(str(tag).strip() for tag in (profile.get("aesthetic") or []))
+
+
+def _logo_is_symbol(kit: dict[str, Any] | None) -> bool:
+    svg = str((kit or {}).get("logoSvg") or "")
+    if "<svg" not in svg.lower():
+        return False
+    import re
+
+    match = re.search(r'viewBox\s*=\s*"\s*[\d.]+\s+[\d.]+\s+([\d.]+)\s+([\d.]+)"', svg, re.I)
+    if not match:
+        return True
+    width, height = float(match.group(1)), float(match.group(2))
+    if height <= 0:
+        return True
+    return width / height < 2.2
+
+
+def _captured_evidence(kit: dict[str, Any] | None, brand_profile: dict[str, Any] | None) -> str:
+    profile = brand_profile if isinstance(brand_profile, dict) else {}
+    parts: list[str] = []
+    aesthetic = [str(tag).strip() for tag in (profile.get("aesthetic") or []) if str(tag).strip()]
+    if aesthetic:
+        parts.append(", ".join(aesthetic[:3]))
+    style = profile.get("imageryStyle")
+    if isinstance(style, dict) and style.get("colorTreatment"):
+        parts.append(str(style["colorTreatment"])[:80])
+    elif isinstance(style, str) and style.strip():
+        parts.append(style.strip()[:80])
+    if not parts and isinstance(kit, dict) and kit.get("tagline"):
+        parts.append("site copy only; no separate imagery language")
+    return "; ".join(parts)[:160] or "Captured site"
+
+
+def default_composition(
+    kit: dict[str, Any] | None,
+    brand_profile: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    """Poster plan from what was actually captured. No decorative shape catalog."""
+    kit = kit or {}
+    profile = brand_profile if isinstance(brand_profile, dict) else None
+    if profile is None and isinstance(kit.get("brandProfile"), dict):
+        profile = kit["brandProfile"]
+    roles = brand_roles(kit, profile)
+    evidence = _captured_evidence(kit, profile)
+    visuals: list[dict[str, Any]] = []
+    multi_hue = identity_gradient_stops(profile, roles) is not None
+    imagery = has_imagery_direction(kit, profile)
+    usable_photo = bool(kit.get("heroImageUrl")) and not kit_hero_unsuitable(kit)
+    if usable_photo:
+        visuals.append(
+            {
+                "source": "kit-photo",
+                "role": "focal",
+                "scale": 1,
+                "anchor": "full",
+                "evidence": "Usable photograph scraped from the site",
+            }
+        )
+        field = "kit-photo"
+        text_region = "left"
+        block = "none"
+    elif multi_hue or imagery:
+        visuals.append(
+            {
+                "source": "palette-gradient",
+                "role": "focal",
+                "scale": 1,
+                "anchor": "full",
+                "evidence": evidence,
+            }
+        )
+        field = "ideogram" if imagery else "palette-gradient"
+        text_region = "left"
+        block = "none"
+    elif _logo_is_symbol(kit):
+        visuals.append(
+            {
+                "source": "logo-geometry",
+                "role": "focal",
+                "scale": 1.2,
+                "anchor": "right",
+                "evidence": "Symbol mark in the scraped logo",
+            }
+        )
+        field = "palette-gradient"
+        text_region = "left"
+        block = "diagonal-crop"
+    else:
+        field = "palette-gradient"
+        text_region = "left"
+        block = "none"
+    return {
+        "textRegion": text_region,
+        "visuals": visuals,
+        "colourBlock": block,
+        "field": field,
+        "showCta": True,
+        "offer": "",
+        "proof": "",
+    }
+
+
+def clean_composition(raw: Any) -> dict[str, Any] | None:
+    if not isinstance(raw, dict):
+        return None
+    visuals = []
+    for entry in raw.get("visuals") or []:
+        if not isinstance(entry, dict):
+            continue
+        source = entry.get("source")
+        if source not in VISUAL_SOURCES:
+            continue
+        role = entry.get("role") if entry.get("role") in ("focal", "support") else "support"
+        anchor = entry.get("anchor") if entry.get("anchor") in ("full", "left", "right", "center") else "full"
+        try:
+            scale = float(entry.get("scale"))
+        except (TypeError, ValueError):
+            scale = 1.0
+        scale = max(0.4, min(1.6, scale))
+        visuals.append(
+            {
+                "source": source,
+                "role": role,
+                "scale": scale,
+                "anchor": anchor,
+                "evidence": str(entry.get("evidence") or "")[:160],
+            }
+        )
+    focals = [item for item in visuals if item["role"] == "focal"]
+    if len(focals) > 1:
+        seen = False
+        for item in visuals:
+            if item["role"] != "focal":
+                continue
+            if seen:
+                item["role"] = "support"
+            seen = True
+    text_region = raw.get("textRegion") if raw.get("textRegion") in TEXT_REGIONS else "left"
+    block = raw.get("colourBlock") if raw.get("colourBlock") in COLOUR_BLOCKS else "none"
+    field = raw.get("field") if raw.get("field") in FIELD_FILLS else "palette-gradient"
+    return {
+        "textRegion": text_region,
+        "visuals": visuals[:4],
+        "colourBlock": block,
+        "field": field,
+        "showCta": bool(raw.get("showCta")),
+        "offer": str(raw.get("offer") or "")[:80],
+        "proof": str(raw.get("proof") or "")[:120],
+    }
+
+
 def build_fallback_brief(
     kit: dict[str, Any] | None,
     crisis: dict[str, Any],
@@ -413,6 +627,7 @@ def build_fallback_brief(
         "eyebrow": _FALLBACK_EYEBROW[emphasis],
         "ctaStyle": "pill",
         "rationale": rationale,
+        "composition": default_composition(kit, brand_profile),
     }
     if hero_strategy == "ideogram_generate":
         brief["heroImagePrompt"] = _fallback_ideogram_prompt(kit, crisis)
@@ -420,7 +635,15 @@ def build_fallback_brief(
         if brief["ideogramLayers"] == "background-plus-accent":
             brief["accentImagePrompt"] = _fallback_accent_prompt(kit, crisis)
     brief = _normalize_brief(brief)
-    return coerce_ideogram_for_unsuitable_kit_hero(brief, kit, crisis)
+    brief = coerce_ideogram_for_unsuitable_kit_hero(brief, kit, crisis)
+    if (brief.get("composition") or {}).get("field") == "ideogram" and _ideogram_api_key_set():
+        brief["heroStrategy"] = "ideogram_generate"
+        brief["layoutRecipe"] = "photo-hero-type"
+        brief["layoutTemplate"] = "full-bleed-scrim"
+        brief["ideogramLayers"] = "background-only"
+        if not str(brief.get("heroImagePrompt") or "").strip():
+            brief["heroImagePrompt"] = _imagery_prompt(kit, brand_profile)
+    return brief
 
 
 def _normalize_brief(raw: dict[str, Any]) -> dict[str, Any]:
@@ -463,6 +686,11 @@ def _normalize_brief(raw: dict[str, Any]) -> dict[str, Any]:
         out["eyebrow"] = eyebrow.rstrip("…")
     cta_style = raw.get("ctaStyle")
     out["ctaStyle"] = cta_style if cta_style in CTA_STYLES else ("pill" if out.get("cta") else "none")
+    composition = clean_composition(raw.get("composition"))
+    if composition:
+        if composition.get("showCta") and not out.get("cta"):
+            composition = {**composition, "showCta": False}
+        out["composition"] = composition
     hero_prompt = raw.get("heroImagePrompt")
     accent_prompt = raw.get("accentImagePrompt")
     if hero == "ideogram_generate":
@@ -645,7 +873,9 @@ layoutTemplate options:
 - Copy limits: eyebrow ≤ {MAX_WORDS["eyebrow"]} words (short label, e.g. "New plan"), headline ≤ {MAX_WORDS["headline"]} words (ideal 4–8, one idea), subhead ≤ {MAX_WORDS["subline"]} words and one sentence, cta ≤ {MAX_WORDS["cta"]} words (verb first, e.g. "See pricing"). No hashtags, no URLs.
 - headlineScale: xl for ≤ 4 words, lg for 5–7, md for 8–10. headlineWeight: extrabold for xl/lg, bold for md.
 - ctaStyle: pill (default), outline (when the brand is minimal/monochrome), none (only for somber crisis notices).
-- One focal point: the headline (statement) or the image subject (split / full-bleed). The real logo is placed by the compiler; never ask for a logo in imagery."""
+- One focal point: the headline or the brand's own imagery. The real logo is placed by the compiler; never ask for a logo, wordmark or letters in imagery.
+- composition is the layout. visuals[].source is only palette-gradient (the captured multi-hue palette), logo-geometry (a symbol mark, never a wordmark) or kit-photo (a real photo that has no text). Do not request decorative shapes. evidence quotes what was seen. offer and proof are copied from the crisis facts, the site tagline or the brand profile, or they are empty. Never invent a product, price or proof line.
+- field is ideogram when the brand profile describes an imagery language (gradients, motifs, aesthetic). Otherwise palette-gradient or kit-photo. showCta is true only when the facts contain something to do."""
 
 
 def _llm_prompt(
@@ -698,6 +928,7 @@ When heroStrategy is ideogram_generate:
 - Set ideogramLayers to background-plus-accent only when a distinct subject helps the story; background-only for abstract texture-only heroes and always for centered-statement.
 - accentImagePrompt (background-plus-accent only): one isolated object, same rules as heroImagePrompt.
 Never describe homepage screenshots, browser chrome, or literal OG triangles.
+When the brand has an imagery direction, set field to ideogram and heroStrategy to ideogram_generate. heroImagePrompt describes that captured language (palette, motifs, lighting) and nothing else. Ideogram 4 generate cannot take a reference image; screenshots above are for you, not for the image model. Do not describe UI, type, logos or the page layout in heroImagePrompt.
 When heroStrategy is not ideogram_generate, set heroImagePrompt and accentImagePrompt to empty strings and ideogramLayers to background-only.
 When cta is not needed, set cta to an empty string and ctaStyle to none.
 Headline should state the update clearly; subhead supports with brand context or next step."""
@@ -735,17 +966,37 @@ def _anthropic_messages_body(
     *,
     model: str,
     brand_profile: dict[str, Any] | None = None,
+    reference_images: list[dict[str, Any]] | None = None,
 ) -> dict[str, Any]:
+    text = _llm_prompt(kit, crisis, format, brand_profile)
+    content: str | list[dict[str, Any]]
+    if reference_images:
+        blocks: list[dict[str, Any]] = []
+        for image in reference_images:
+            blocks.append({"type": "text", "text": f"Website screenshot: {image.get('label') or 'capture'}"})
+            blocks.append(
+                {
+                    "type": "image",
+                    "source": {
+                        "type": "base64",
+                        "media_type": image.get("mediaType") or "image/png",
+                        "data": image.get("data") or "",
+                    },
+                }
+            )
+        blocks.append({"type": "text", "text": text})
+        content = blocks
+    else:
+        content = text
     return {
         "model": model,
         "max_tokens": 1400,
         "system": (
             "You produce concise marketing creative briefs. "
-            "You MUST call submit_creative_brief exactly once with complete structured fields."
+            "You MUST call submit_creative_brief exactly once with complete structured fields. "
+            "Screenshots are vision context only. Ideogram cannot receive them as style references."
         ),
-        "messages": [
-            {"role": "user", "content": _llm_prompt(kit, crisis, format, brand_profile)}
-        ],
+        "messages": [{"role": "user", "content": content}],
         "tools": [_anthropic_submit_tool()],
         "tool_choice": {"type": "auto"},
     }
@@ -873,8 +1124,16 @@ def _call_anthropic(
     api_key: str,
     model: str,
     brand_profile: dict[str, Any] | None = None,
+    reference_images: list[dict[str, Any]] | None = None,
 ) -> dict[str, Any]:
-    body = _anthropic_messages_body(kit, crisis, format, model=model, brand_profile=brand_profile)
+    body = _anthropic_messages_body(
+        kit,
+        crisis,
+        format,
+        model=model,
+        brand_profile=brand_profile,
+        reference_images=reference_images,
+    )
     payload: dict[str, Any] = {}
     for _ in range(2):
         payload = _post_anthropic_messages(body, api_key=api_key)
@@ -896,10 +1155,17 @@ def _call_llm(
     api_key: str,
     model: str,
     brand_profile: dict[str, Any] | None = None,
+    reference_images: list[dict[str, Any]] | None = None,
 ) -> dict[str, Any]:
     if provider == "anthropic":
         return _call_anthropic(
-            kit, crisis, format, api_key=api_key, model=model, brand_profile=brand_profile
+            kit,
+            crisis,
+            format,
+            api_key=api_key,
+            model=model,
+            brand_profile=brand_profile,
+            reference_images=reference_images,
         )
     base_url, extra_headers = _openai_compatible_endpoint(provider)
     return _call_openai_compatible(
@@ -914,45 +1180,105 @@ def _call_llm(
     )
 
 
+def load_screenshot_images(kit: dict[str, Any] | None, repo_root: str | None = None) -> list[dict[str, Any]]:
+    """Base64 screenshots saved with the brand profile, for the brief model's eyes only."""
+    import base64
+
+    paths = (kit or {}).get("screenshotPaths") or {}
+    if not isinstance(paths, dict):
+        return []
+    images = []
+    root = repo_root or os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
+    for label, rel in list(paths.items())[:2]:
+        rel_text = str(rel or "").lstrip("/")
+        abs_path = rel_text if os.path.isabs(str(rel)) else os.path.join(root, rel_text)
+        if not os.path.isfile(abs_path):
+            continue
+        try:
+            with open(abs_path, "rb") as handle:
+                data = handle.read(1_500_000)
+        except OSError:
+            continue
+        if not data:
+            continue
+        media = "image/jpeg" if data[:3] == b"\xff\xd8\xff" else "image/png"
+        images.append({"label": str(label), "mediaType": media, "data": base64.b64encode(data).decode("ascii")})
+    return images
+
+
+def _imagery_prompt(kit: dict[str, Any] | None, brand_profile: dict[str, Any] | None) -> str:
+    profile = brand_profile if isinstance(brand_profile, dict) else {}
+    style = profile.get("imageryStyle")
+    if isinstance(style, dict) and str(style.get("ideogramPrompt") or "").strip():
+        return str(style["ideogramPrompt"]).strip()
+    return _fallback_ideogram_abstract_prompt(kit, {})
+
+
+def _with_conditioning(result: dict[str, Any], images: list[dict[str, Any]] | None) -> dict[str, Any]:
+    conditioning = ideogram_conditioning()
+    conditioning["visionScreenshots"] = len(images or [])
+    if images:
+        conditioning["mode"] = "vision-prompt"
+    else:
+        conditioning["mode"] = "prompt-only"
+    result["ideogramConditioning"] = conditioning
+    return result
+
+
 def build_creative_brief(
     kit: dict[str, Any] | None,
     crisis: dict[str, Any],
     format: str = "linkedin-1200x627",
     brand_profile: dict[str, Any] | None = None,
+    *,
+    reference_images: list[dict[str, Any]] | None = None,
+    repo_root: str | None = None,
 ) -> dict[str, Any]:
     """Build brief. Returns ``brief``, ``source`` (`llm`|`fallback`), optional ``model`` / ``provider``.
 
     ``brand_profile`` (optional AI-vision profile) enriches the prompt and template choice.
     """
     provider = resolve_llm_provider()
+    images = reference_images if reference_images is not None else load_screenshot_images(kit, repo_root)
     if not provider:
-        return {
-            "brief": build_fallback_brief(kit, crisis, format, brand_profile),
-            "source": "fallback",
-            "fallbackReason": "no_provider",
-            "errorDetail": "ConfigurationError",
-        }
+        return _with_conditioning(
+            {
+                "brief": build_fallback_brief(kit, crisis, format, brand_profile),
+                "source": "fallback",
+                "fallbackReason": "no_provider",
+                "errorDetail": "ConfigurationError",
+            },
+            images,
+        )
     api_key = api_key_for_provider(provider)
     if not api_key:
-        return {
-            "brief": build_fallback_brief(kit, crisis, format, brand_profile),
-            "source": "fallback",
-            "fallbackReason": "no_api_key",
-            "errorDetail": "MissingApiKeyError",
-        }
+        return _with_conditioning(
+            {
+                "brief": build_fallback_brief(kit, crisis, format, brand_profile),
+                "source": "fallback",
+                "fallbackReason": "no_api_key",
+                "errorDetail": "MissingApiKeyError",
+            },
+            images,
+        )
     model = resolve_llm_model(provider)
     try:
         llm_kwargs: dict[str, Any] = {"api_key": api_key, "model": model}
         if brand_profile:
             llm_kwargs["brand_profile"] = brand_profile
+        if images:
+            llm_kwargs["reference_images"] = images
         brief = _call_llm(provider, kit, crisis, format, **llm_kwargs)
         brief = coerce_ideogram_for_unsuitable_kit_hero(brief, kit, crisis)
-        return {
-            "brief": brief,
-            "source": "llm",
-            "model": model,
-            "provider": provider,
-        }
+        return _with_conditioning(
+            {
+                "brief": brief,
+                "source": "llm",
+                "model": model,
+                "provider": provider,
+            },
+            images,
+        )
     except (
         urllib.error.URLError,
         urllib.error.HTTPError,
@@ -961,13 +1287,16 @@ def build_creative_brief(
         TimeoutError,
         OSError,
     ) as exc:
-        return {
-            "brief": build_fallback_brief(kit, crisis, format, brand_profile),
-            "source": "fallback",
-            "fallbackReason": "llm_error",
-            "errorDetail": _safe_error_detail(exc, provider=provider),
-            "provider": provider,
-        }
+        return _with_conditioning(
+            {
+                "brief": build_fallback_brief(kit, crisis, format, brand_profile),
+                "source": "fallback",
+                "fallbackReason": "llm_error",
+                "errorDetail": _safe_error_detail(exc, provider=provider),
+                "provider": provider,
+            },
+            images,
+        )
 
 
 # --------------------------------------------------------------------------- art director pass
@@ -1025,6 +1354,12 @@ def _apply_art_director_patch(brief: dict[str, Any], review: dict[str, Any]) -> 
     ):
         if review.get(key) in allowed:
             patched[key] = review[key]
+    reviewed = clean_composition(review.get("composition"))
+    if reviewed:
+        previous = clean_composition(brief.get("composition")) or {}
+        if previous.get("field"):
+            reviewed["field"] = previous["field"]
+        patched["composition"] = reviewed
     normalized = _normalize_brief(patched)
     for key in ("heroImagePrompt", "accentImagePrompt", "ideogramLayers", "layoutTemplate"):
         if key in brief:
