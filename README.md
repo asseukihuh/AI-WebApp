@@ -180,8 +180,23 @@ python3 scripts/serve-static.py --port 8000
 |------|-----|----------------|
 | Home | `/home.html` | Flow overview and links |
 | Onboard | `/onboard.html` | POST scrape via `/api/scrape-kit` → preview → `localStorage` `commmaker.kit` |
-| Crisis | `/crisis.html` | Facts, tone, legal flag → templated LinkedIn caption → `sessionStorage` `commmaker.session` |
-| Editor | `/photocraft/` | PhotoCraft iframe; kit + brief summary banner; **1200×627** LinkedIn preset instructions |
+| Crisis | `/crisis.html` | Facts, tone, legal flag → caption draft → **Generate poster in PhotoCraft** (`POST /api/generate-poster`) |
+| Editor | `/photocraft/` | PhotoCraft iframe; opens generated `.pcraft` from `/generated/` when available (**1200×627**) |
+
+### Personalized poster (PhotoCraft CLI)
+
+The dev server compiles kit + crisis session into a PhotoCraft **command batch**, then runs **`photocraft-cli serve`** with `--automation-read-root` / `--automation-write-root` set to the repo so output lands in `generated/`.
+
+```bash
+python3 scripts/serve-static.py --port 8000
+curl -s -X POST localhost:8000/api/generate-poster \
+  -H 'Content-Type: application/json' \
+  -d '{"kit":{"siteName":"Acme","colors":["#1a365d"]},"session":{"brief":{"facts":"Update."},"suggestedHeadline":"Update"}}'
+```
+
+**`photocraft-cli` install (Linux):** On first poster request the server downloads [storytold/photocraft](https://github.com/storytold/photocraft) release **`v0.9.0`** `photocraft-0.9.0-linux-<arch>.tar.gz` into `vendor/photocraft-cli/` (gitignored). You can also install the tarball manually or put `photocraft-cli` on `PATH`. macOS/Windows: use the `photocraft-cli-*` zip from the same release page.
+
+If the CLI is missing, the API still returns **`commandBatch`** JSON plus **`cliError`** for local debugging.
 
 Optional LLM caption hook in the browser console or a future script:
 
@@ -202,7 +217,8 @@ ai-webapp/
 ├── chatbot.html       # Ollama chat interface
 ├── photocraft/        # CommMaker PhotoCraft embed (POC)
 ├── vendor/photocraft-web/  # Downloaded WASM site (gitignored; see README there)
-├── scripts/           # fetch-photocraft-web.sh, serve-static.py
+├── generated/         # Headless poster output (.pcraft); gitignored except .gitkeep
+├── scripts/           # fetch-photocraft-web.sh, serve-static.py, poster_compiler.py
 ├── imageGen.html      # Experimental generation web interface
 ├── src/
 │   ├── css/

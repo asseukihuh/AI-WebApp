@@ -24,9 +24,15 @@ if SCRIPTS not in sys.path:
     sys.path.insert(0, SCRIPTS)
 
 from kit_scraper import scrape_kit_from_html, validate_fetch_url  # noqa: E402
+from poster_compiler import compile_poster_batch, logo_cache_basename  # noqa: E402
+from photocraft_cli import run_poster_batch  # noqa: E402
 
 MAX_HTML_BYTES = 2_000_000
+MAX_POSTER_BODY_BYTES = 256_000
+MAX_LOGO_BYTES = 4_000_000
 FETCH_TIMEOUT_SEC = 20
+GENERATED_DIR = os.path.join(ROOT, "generated")
+ASSETS_DIR = os.path.join(GENERATED_DIR, "assets")
 
 mimetypes.add_type("application/wasm", ".wasm")
 mimetypes.add_type("text/javascript", ".js")
@@ -38,14 +44,18 @@ class CommMakerHandler(http.server.SimpleHTTPRequestHandler):
         super().__init__(*args, directory=ROOT, **kwargs)
 
     def do_POST(self) -> None:
-        if self.path.split("?", 1)[0] == "/api/scrape-kit":
+        path = self.path.split("?", 1)[0]
+        if path == "/api/scrape-kit":
             self._handle_scrape_kit()
+            return
+        if path == "/api/generate-poster":
+            self._handle_generate_poster()
             return
         self.send_error(404, "Not found")
 
-    def _read_json_body(self) -> dict:
+    def _read_json_body(self, max_bytes: int = 8192) -> dict:
         length = int(self.headers.get("Content-Length", "0"))
-        if length <= 0 or length > 8192:
+        if length <= 0 or length > max_bytes:
             raise ValueError("Invalid request body size")
         raw = self.rfile.read(length)
         return json.loads(raw.decode("utf-8"))
@@ -92,6 +102,91 @@ class CommMakerHandler(http.server.SimpleHTTPRequestHandler):
         except Exception as exc:  # noqa: BLE001 — MVP API
             self._send_json(500, {"error": str(exc)})
 
+    def _fetch_binary(self, url: str) -> bytes:
+        req = urllib.request.Request(
+            url,
+            headers={
+                "User-Agent": "CommMaker-PosterCompiler/0.1 (+https://github.com/asseukihuh/AI-WebApp)",
+                "Accept": "image/*,*/*",
+            },
+            method="GET",
+        )
+        with urllib.request.urlopen(req, timeout=FETCH_TIMEOUT_SEC) as resp:
+            data = resp.read(MAX_LOGO_BYTES + 1)
+        if len(data) > MAX_LOGO_BYTES:
+            raise ValueError("Logo image too large")
+        return data
+
+    def _maybe_cache_logo(self, kit: dict) -> str | None:
+        logo_url = kit.get("logoUrl") if kit else None
+        if not logo_url or not isinstance(logo_url, str):
+            return None
+        try:
+            logo_url = validate_fetch_url(logo_url)
+        except ValueError:
+            return None
+        os.makedirs(ASSETS_DIR, exist_ok=True)
+        basename = logo_cache_basename(logo_url)
+        rel_path = f"generated/assets/{basename}"
+        abs_path = os.path.join(ROOT, rel_path)
+        if not os.path.isfile(abs_path):
+            try:
+                data = self._fetch_binary(logo_url)
+            except (urllib.error.HTTPError, urllib.error.URLError, ValueError):
+                return None
+            with open(abs_path, "wb") as handle:
+                handle.write(data)
+        return rel_path
+
+    def _handle_generate_poster(self) -> None:
+        try:
+            body = self._read_json_body(MAX_POSTER_BODY_BYTES)
+            kit = body.get("kit") or body.get("kitSnapshot")
+            session = body.get("session")
+            if not session and body.get("brief"):
+                session = {"brief": body["brief"]}
+            if not session:
+                raise ValueError("Request must include session (or brief) JSON")
+            if not kit:
+                kit = session.get("kitSnapshot")
+            logo_rel = self._maybe_cache_logo(kit or {})
+            batch = compile_poster_batch(kit, session, logo_relative_path=logo_rel)
+            os.makedirs(GENERATED_DIR, exist_ok=True)
+            try:
+                result = run_poster_batch(ROOT, batch)
+            except urllib.error.HTTPError as exc:
+                self._send_json(
+                    502,
+                    {"error": f"PhotoCraft CLI download HTTP {exc.code}"},
+                )
+                return
+            except urllib.error.URLError as exc:
+                self._send_json(
+                    502,
+                    {"error": f"PhotoCraft CLI download failed: {exc.reason}"},
+                )
+                return
+            payload = {
+                "ok": result.get("ok", False),
+                "commandBatch": result.get("commandBatch"),
+                "documentPath": result.get("documentPath"),
+                "openUrl": result.get("openUrl"),
+                "cliAvailable": result.get("cliAvailable", False),
+            }
+            if result.get("error"):
+                payload["cliError"] = result["error"]
+            self._send_json(200, payload)
+        except ValueError as exc:
+            self._send_json(400, {"error": str(exc)})
+        except urllib.error.HTTPError as exc:
+            self._send_json(502, {"error": f"Logo fetch HTTP {exc.code}"})
+        except urllib.error.URLError as exc:
+            self._send_json(502, {"error": f"Could not fetch logo: {exc.reason}"})
+        except json.JSONDecodeError:
+            self._send_json(400, {"error": "Invalid JSON body"})
+        except Exception as exc:  # noqa: BLE001 — MVP API
+            self._send_json(500, {"error": str(exc)})
+
     def end_headers(self) -> None:
         if self.coop_coep:
             self.send_header("Cross-Origin-Opener-Policy", "same-origin")
@@ -121,6 +216,8 @@ def main() -> None:
         if args.coop_coep:
             print("COOP/COEP enabled (optional; PhotoCraft does not need SharedArrayBuffer)")
         print("PhotoCraft embed: http://localhost:{}/photocraft/".format(args.port))
+        print("Poster API: POST http://localhost:{}/api/generate-poster".format(args.port))
+        os.makedirs(GENERATED_DIR, exist_ok=True)
         httpd.serve_forever()
 
 

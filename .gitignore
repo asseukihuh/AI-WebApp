@@ -9,3 +9,9 @@ vendor/photocraft-web/*
 
 __pycache__/
 *.pyc
+
+# Headless poster output (PhotoCraft CLI)
+generated/*
+!generated/.gitkeep
+
+vendor/photocraft-cli/
