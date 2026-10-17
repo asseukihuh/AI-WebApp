@@ -53,6 +53,10 @@ function Write-CommmakerSourceJson([string]$DestDir, [string]$Repo, [string]$Ref
     [System.IO.File]::WriteAllText($metaPath, $payload + "`n")
 }
 
+function Download-ToFile([string]$Uri, [string]$OutFile) {
+    Invoke-WebRequest -Uri $Uri -OutFile $OutFile -UseBasicParsing -Headers @{ "User-Agent" = "CommMaker-Windows-Install" }
+}
+
 function Install-PhotocraftZip([string]$AssetUrl, [string]$DestDir, [string]$SourceRepo, [string]$Ref) {
     $tmp = Join-Path ([System.IO.Path]::GetTempPath()) ("commmaker-pc-" + [guid]::NewGuid().ToString("n"))
     New-Item -ItemType Directory -Path $tmp -Force | Out-Null
@@ -60,7 +64,7 @@ function Install-PhotocraftZip([string]$AssetUrl, [string]$DestDir, [string]$Sou
     $stageDir = Join-Path $tmp "stage"
 
     try {
-        Invoke-WebRequest -Uri $AssetUrl -OutFile $zipPath -Headers @{ "User-Agent" = "CommMaker-Windows-Install" }
+        Download-ToFile -Uri $AssetUrl -OutFile $zipPath
 
         $extractRoot = Join-Path $tmp "extract"
         Expand-Archive -Path $zipPath -DestinationPath $extractRoot -Force
@@ -119,7 +123,17 @@ if (-not $pick) {
 }
 
 Write-Host "Fetching photocraft-web $Version from $($pick.Repo) ..."
-Install-PhotocraftZip -AssetUrl $pick.Url -DestDir $Dest -SourceRepo $pick.Repo -Ref "v$Version"
+try {
+    Install-PhotocraftZip -AssetUrl $pick.Url -DestDir $Dest -SourceRepo $pick.Repo -Ref "v$Version"
+} catch {
+    if ($pick.Url -ne $FallbackAssetUrl) {
+        Write-Host "note: primary download failed; retrying upstream fallback (v$FallbackVersion)" -ForegroundColor Yellow
+        Install-PhotocraftZip -AssetUrl $FallbackAssetUrl -DestDir $Dest -SourceRepo $UpstreamRepo -Ref "v$FallbackVersion"
+        $Version = $FallbackVersion
+    } else {
+        throw
+    }
+}
 Write-Host "Installed to $Dest (version $Version)"
 Write-Host "OK: $(Join-Path $Dest 'index.html')"
 
