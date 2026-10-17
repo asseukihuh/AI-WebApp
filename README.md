@@ -264,7 +264,7 @@ Before compile, Crisis calls **`POST /api/creative-brief`**: a frontier LLM choo
 
 #### Creative brief LLM (Phase B)
 
-**Default model (when `COMMMAKER_LLM_MODEL` is unset):** provider-specific **frontier** IDs — not mini/nano. We default to **Claude Sonnet 4** on Anthropic (`claude-sonnet-4-20250514`) and matching IDs on other providers because Sonnet-class models balance strong marketing reasoning, reliable JSON structured output, and latency for a single brief per poster. Override with `COMMMAKER_LLM_MODEL` for Opus, o3, GPT-4.1, or OpenRouter routes.
+**Default model (when `COMMMAKER_LLM_MODEL` is unset):** provider-specific **frontier** IDs — not mini/nano. We default to **Claude Sonnet 5.5** on Anthropic (`claude-sonnet-5-5`) and matching IDs on other providers because Sonnet-class models balance strong marketing reasoning, reliable JSON structured output, and latency for a single brief per poster. Override with `COMMMAKER_LLM_MODEL` for Opus (`claude-opus-4-8`), o3, GPT-4.1, or OpenRouter routes. Legacy Sonnet 4 / Opus 4 dated IDs (e.g. `claude-sonnet-4-20250514`) were retired on the Anthropic API in mid-2026 and return HTTP 404.
 
 | Variable | Purpose |
 |----------|---------|
@@ -287,8 +287,8 @@ When the creative brief uses `heroStrategy: ideogram_generate`, CommMaker genera
 
 | Model | Use case | Example env |
 |-------|----------|-------------|
-| `claude-sonnet-4-20250514` | **Default (Anthropic)** — best balance of quality, speed, structured briefs | `COMMMAKER_LLM_PROVIDER=anthropic` + `ANTHROPIC_API_KEY=…` |
-| `claude-opus-4-20250514` | Maximum copy/layout reasoning when latency cost is acceptable | `COMMMAKER_LLM_MODEL=claude-opus-4-20250514` |
+| `claude-sonnet-5-5` | **Default (Anthropic)** — best balance of quality, speed, structured briefs | `COMMMAKER_LLM_PROVIDER=anthropic` + `ANTHROPIC_API_KEY=…` |
+| `claude-opus-4-8` | Maximum copy/layout reasoning when latency cost is acceptable | `COMMMAKER_LLM_MODEL=claude-opus-4-8` |
 | `gpt-4.1` | **Default (OpenAI)** — strong general marketing reasoning | `OPENAI_API_KEY=…` |
 | `o3` | Harder tradeoffs (legal tone, crowded layouts) | `COMMMAKER_LLM_MODEL=o3` |
 | `anthropic/claude-sonnet-4` | **Default (OpenRouter)** — Sonnet via single OpenRouter key | `OPENROUTER_API_KEY=…` |
@@ -296,7 +296,7 @@ When the creative brief uses `heroStrategy: ideogram_generate`, CommMaker genera
 
 ```bash
 export ANTHROPIC_API_KEY=sk-ant-…
-# optional: export COMMMAKER_LLM_MODEL=claude-opus-4-20250514
+# optional: export COMMMAKER_LLM_MODEL=claude-opus-4-8
 python3 scripts/serve-static.py --port 8000
 python3 scripts/test_creative_brief.py
 ```
