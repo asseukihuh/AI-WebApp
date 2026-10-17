@@ -1,0 +1,39 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>CommMaker — Onboard (Communication Kit)</title>
+    <link rel="stylesheet" href="src/css/commmaker.css">
+    <script type="module" src="src/js/onboard.js"></script>
+</head>
+<body class="commmaker-page">
+    <div class="commmaker-shell">
+        <header class="commmaker-header">
+            <h1>Communication Kit</h1>
+            <p>Import brand signals from a public website (Pomelli-style MVP scrape).</p>
+        </header>
+        <div id="commmaker-nav"></div>
+
+        <section class="commmaker-card">
+            <h2>Website URL</h2>
+            <form id="scrape-form">
+                <div class="field">
+                    <label for="site-url">Company or organization URL</label>
+                    <input type="url" id="site-url" name="url" required placeholder="https://example.com" autocomplete="url" />
+                </div>
+                <button type="submit" id="scrape-submit">Scrape kit</button>
+            </form>
+            <p id="scrape-status" role="status"></p>
+        </section>
+
+        <section id="kit-preview" class="commmaker-card" hidden></section>
+
+        <div class="btn-row">
+            <button type="button" id="save-kit-btn" class="secondary" disabled>Save kit to browser</button>
+            <button type="button" id="continue-crisis-btn" disabled>Continue to crisis wizard →</button>
+        </div>
+        <p class="muted">Saved kits use localStorage key <code>commmaker.kit</code>. Use <code>python3 scripts/serve-static.py</code> so the scrape API is available.</p>
+    </div>
+</body>
+</html>

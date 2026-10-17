@@ -168,14 +168,38 @@ packaging/web/package.sh          # release-style zip layout under target/
 
 See [packaging/web/README.md](https://github.com/asseukihuh/photocraft/blob/main/packaging/web/README.md) on the fork for hosting, iframe embedding, and Docker.
 
+### CommMaker MVP flows
+
+Use the dev server (required for website kit scrape API):
+
+```bash
+python3 scripts/serve-static.py --port 8000
+```
+
+| Step | URL | What it does |
+|------|-----|----------------|
+| Home | `/home.html` | Flow overview and links |
+| Onboard | `/onboard.html` | POST scrape via `/api/scrape-kit` → preview → `localStorage` `commmaker.kit` |
+| Crisis | `/crisis.html` | Facts, tone, legal flag → templated LinkedIn caption → `sessionStorage` `commmaker.session` |
+| Editor | `/photocraft/` | PhotoCraft iframe; kit + brief summary banner; **1200×627** LinkedIn preset instructions |
+
+Optional LLM caption hook in the browser console or a future script:
+
+```js
+window.commmakerGenerateCaptionWithLLM = async (brief) => { /* call Ollama */ };
+```
+
 ---
 
 ## 📁 Project Architecture
 
 ```
 ai-webapp/
-├── index.html         # Entry point (auto-redirects to chatbot)
-├── chatbot.html       # Main chat web interface
+├── index.html         # Entry point (redirects to CommMaker home)
+├── home.html          # CommMaker hub
+├── onboard.html       # Communication Kit scrape
+├── crisis.html        # Crisis fast path wizard
+├── chatbot.html       # Ollama chat interface
 ├── photocraft/        # CommMaker PhotoCraft embed (POC)
 ├── vendor/photocraft-web/  # Downloaded WASM site (gitignored; see README there)
 ├── scripts/           # fetch-photocraft-web.sh, serve-static.py

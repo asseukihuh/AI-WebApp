@@ -1,0 +1,258 @@
+* {
+    box-sizing: border-box;
+}
+
+body.commmaker-page {
+    margin: 0;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    background: #f0f2f6;
+    color: #1e293b;
+    line-height: 1.5;
+}
+
+.commmaker-shell {
+    max-width: 960px;
+    margin: 0 auto;
+    padding: 1.25rem 1rem 2rem;
+}
+
+.commmaker-header h1 {
+    margin: 0 0 0.35rem;
+    font-size: 1.75rem;
+}
+
+.commmaker-header p {
+    margin: 0;
+    color: #475569;
+}
+
+.commmaker-nav {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 0.35rem 0.5rem;
+    margin: 1rem 0 1.25rem;
+    padding: 0.65rem 0.85rem;
+    background: #fff;
+    border: 1px solid #e2e8f0;
+    border-radius: 8px;
+}
+
+.commmaker-nav a {
+    color: #2563eb;
+    text-decoration: none;
+    font-weight: 500;
+    font-size: 0.95rem;
+}
+
+.commmaker-nav a.is-active {
+    color: #0f172a;
+    text-decoration: underline;
+}
+
+.commmaker-nav-sep {
+    color: #94a3b8;
+    font-size: 0.85rem;
+}
+
+.commmaker-card {
+    background: #fff;
+    border: 1px solid #e2e8f0;
+    border-radius: 10px;
+    padding: 1.25rem;
+    margin-bottom: 1rem;
+}
+
+.commmaker-card h2 {
+    margin: 0 0 0.75rem;
+    font-size: 1.15rem;
+}
+
+.field {
+    margin-bottom: 1rem;
+}
+
+.field label {
+    display: block;
+    font-weight: 600;
+    margin-bottom: 0.35rem;
+}
+
+.field input[type="url"],
+.field input[type="text"],
+.field textarea {
+    width: 100%;
+    padding: 0.55rem 0.65rem;
+    border: 1px solid #cbd5e1;
+    border-radius: 6px;
+    font: inherit;
+}
+
+.field textarea {
+    min-height: 6rem;
+    resize: vertical;
+}
+
+.tone-options {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.75rem 1.25rem;
+}
+
+.tone-options label {
+    font-weight: 500;
+    display: flex;
+    align-items: center;
+    gap: 0.35rem;
+}
+
+.btn-row {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.5rem;
+    margin-top: 0.75rem;
+}
+
+button,
+.btn {
+    display: inline-block;
+    padding: 0.55rem 1rem;
+    border-radius: 6px;
+    border: 1px solid #2563eb;
+    background: #2563eb;
+    color: #fff;
+    font: inherit;
+    font-weight: 600;
+    cursor: pointer;
+    text-decoration: none;
+}
+
+button:disabled,
+.btn:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+}
+
+button.secondary,
+.btn.secondary {
+    background: #fff;
+    color: #2563eb;
+}
+
+#scrape-status {
+    margin-top: 0.75rem;
+    font-size: 0.9rem;
+    color: #334155;
+}
+
+#scrape-status.is-error {
+    color: #b91c1c;
+}
+
+.kit-dl {
+    display: grid;
+    grid-template-columns: 7rem 1fr;
+    gap: 0.35rem 0.75rem;
+    margin: 0;
+}
+
+.kit-dl dt {
+    font-weight: 600;
+    color: #64748b;
+}
+
+.kit-dl dd {
+    margin: 0;
+}
+
+.kit-colors {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.35rem;
+    align-items: center;
+}
+
+.kit-swatch {
+    display: inline-block;
+    width: 1.25rem;
+    height: 1.25rem;
+    border-radius: 4px;
+    border: 1px solid rgba(0, 0, 0, 0.15);
+}
+
+.kit-logo {
+    max-width: 120px;
+    max-height: 64px;
+    object-fit: contain;
+    background: #f8fafc;
+    border: 1px solid #e2e8f0;
+    border-radius: 4px;
+    padding: 4px;
+}
+
+.muted {
+    color: #64748b;
+    font-size: 0.9rem;
+}
+
+.kit-banner,
+.session-banner {
+    background: #eff6ff;
+    border: 1px solid #bfdbfe;
+    border-radius: 8px;
+    padding: 0.85rem 1rem;
+    margin-bottom: 1rem;
+    font-size: 0.9rem;
+}
+
+.kit-banner p,
+.session-banner p {
+    margin: 0.25rem 0;
+}
+
+.caption-preview {
+    white-space: pre-wrap;
+    background: #f8fafc;
+    border: 1px solid #e2e8f0;
+    border-radius: 8px;
+    padding: 1rem;
+    min-height: 8rem;
+    font-size: 0.95rem;
+}
+
+.caption-preview.is-error {
+    border-color: #fecaca;
+    background: #fef2f2;
+    color: #b91c1c;
+}
+
+.home-grid {
+    display: grid;
+    gap: 1rem;
+}
+
+@media (min-width: 640px) {
+    .home-grid {
+        grid-template-columns: 1fr 1fr;
+    }
+}
+
+.home-grid a.card-link {
+    display: block;
+    padding: 1.25rem;
+    background: #fff;
+    border: 1px solid #e2e8f0;
+    border-radius: 10px;
+    color: inherit;
+    text-decoration: none;
+}
+
+.home-grid a.card-link:hover {
+    border-color: #93c5fd;
+    box-shadow: 0 2px 8px rgba(37, 99, 235, 0.08);
+}
+
+.home-grid a.card-link h2 {
+    margin: 0 0 0.35rem;
+    color: #2563eb;
+}

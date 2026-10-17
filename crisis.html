@@ -1,0 +1,54 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>CommMaker — Crisis fast path</title>
+    <link rel="stylesheet" href="src/css/commmaker.css">
+    <script type="module" src="src/js/crisis.js"></script>
+</head>
+<body class="commmaker-page">
+    <div class="commmaker-shell">
+        <header class="commmaker-header">
+            <h1>Crisis fast path</h1>
+            <p>Structured brief and LinkedIn caption draft — stick to confirmed facts, no speculation.</p>
+        </header>
+        <div id="commmaker-nav"></div>
+
+        <aside id="kit-banner" class="kit-banner" aria-label="Communication kit summary"></aside>
+
+        <form id="crisis-form" class="commmaker-card">
+            <h2>Situation brief</h2>
+            <div class="field">
+                <label for="facts">Confirmed facts <span class="muted">(required)</span></label>
+                <textarea id="facts" name="facts" required placeholder="What happened, who is affected, what actions were taken…"></textarea>
+            </div>
+            <div class="field">
+                <label for="audience-need">What audiences need to know <span class="muted">(optional)</span></label>
+                <textarea id="audience-need" name="audienceNeed" placeholder="Safety steps, service status, how to get help…"></textarea>
+            </div>
+            <div class="field">
+                <span class="field-label">Tone</span>
+                <div class="tone-options" role="radiogroup" aria-label="Tone">
+                    <label><input type="radio" name="tone" value="calm" /> Calm</label>
+                    <label><input type="radio" name="tone" value="factual" checked /> Factual</label>
+                    <label><input type="radio" name="tone" value="empathetic" /> Empathetic</label>
+                </div>
+            </div>
+            <div class="field">
+                <label><input type="checkbox" id="legal-review" name="legalReview" /> Legal review needed before publishing</label>
+            </div>
+            <button type="submit" id="generate-btn">Generate caption draft</button>
+        </form>
+
+        <section class="commmaker-card">
+            <h2>LinkedIn caption draft</h2>
+            <div id="caption-preview" class="caption-preview">Complete the form above to generate copy.</div>
+            <div class="btn-row">
+                <button type="button" id="open-editor-btn" disabled>Open PhotoCraft editor (1200×627) →</button>
+            </div>
+            <p class="muted">Session saved to <code>sessionStorage</code> key <code>commmaker.session</code>. Override copy generation with <code>window.commmakerGenerateCaptionWithLLM(brief)</code> for LLM integration.</p>
+        </section>
+    </div>
+</body>
+</html>

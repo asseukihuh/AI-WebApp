@@ -3,27 +3,23 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>CommMaker — PhotoCraft editor (POC)</title>
+    <title>CommMaker — PhotoCraft editor</title>
     <link rel="stylesheet" href="../src/css/photocraft.css">
-    <script defer src="../src/js/photocraft.js"></script>
+    <link rel="stylesheet" href="../src/css/commmaker.css">
+    <script type="module" src="../src/js/photocraft.js"></script>
 </head>
 <body class="photocraft-page">
     <header class="photocraft-header">
-        <h1>CommMaker · PhotoCraft embed (proof of concept)</h1>
-        <p>
-            The editor runs in an iframe from <code>vendor/photocraft-web/</code>
-            (WASM + WebGPU/WebGL2). Requires Chrome/Edge with WebGPU for best results.
+        <h1>CommMaker · PhotoCraft editor</h1>
+        <p id="linkedin-instructions">
+            LinkedIn preset: <strong>1200 × 627 px</strong>. Kit and crisis brief are shown below until the iframe bridge can consume them.
         </p>
+        <div id="commmaker-nav"></div>
+        <aside id="session-banner" class="session-banner" hidden aria-label="Kit and session summary"></aside>
         <p class="photocraft-notice">
-            <strong>COOP / COEP:</strong> PhotoCraft does not use <code>SharedArrayBuffer</code>, so isolation headers are
-            <em>not</em> required for the editor alone. If the shell later enables
-            <code>Cross-Origin-Embedder-Policy: require-corp</code> for other features, serve PhotoCraft assets with
-            <code>Cross-Origin-Resource-Policy: same-origin</code> (or <code>cross-origin</code> on a CDN).
-            Use <code>python3 scripts/serve-static.py --coop-coep</code> to test that mode.
+            Editor loads from <code>vendor/photocraft-web/</code> (run <code>./scripts/fetch-photocraft-web.sh</code>).
+            COOP/COEP are not required for PhotoCraft alone; see README.
         </p>
-        <nav class="photocraft-nav" aria-label="App navigation">
-            <a href="../chatbot.html">&larr; Back to chat</a>
-        </nav>
     </header>
     <div id="photocraft-frame-wrap" class="photocraft-frame-wrap"></div>
 </body>

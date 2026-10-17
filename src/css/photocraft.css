@@ -60,10 +60,31 @@
     position: relative;
 }
 
+.photocraft-page .commmaker-nav {
+    margin: 0.5rem 0;
+    background: #1e1e24;
+    border-color: #333;
+}
+
+.photocraft-page .commmaker-nav a {
+    color: #7eb8ff;
+}
+
+.photocraft-page .session-banner {
+    margin-top: 0.5rem;
+    background: #1a2433;
+    border-color: #334155;
+    color: #e2e8f0;
+}
+
+.photocraft-page .kit-swatch {
+    border-color: rgba(255, 255, 255, 0.2);
+}
+
 .photocraft-frame {
     display: block;
     width: 100%;
-    height: calc(100vh - 7rem);
+    height: calc(100vh - 12rem);
     min-height: 480px;
     border: 0;
     background: #0a0a0c;
