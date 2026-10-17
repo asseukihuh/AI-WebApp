@@ -45,7 +45,7 @@ from typing import Any
 
 import communication_kit as kit_design
 import poster_design as design
-from creative_brief import clean_composition, default_composition
+from creative_brief import clean_composition, default_composition, sharper_subline
 
 LINKEDIN_WIDTH = 1200
 LINKEDIN_HEIGHT = 627
@@ -936,6 +936,7 @@ def compile_poster_batch(
         resolved.get("body") or profile_font.get("body") or pairing.get("bodyFamily") or _pick_body_font(kit, headline_font)
     )
 
+    composition = clean_composition(brief.get("composition")) or default_composition(kit, brand_profile)
     template_name = design.resolve_template_name(
         creative_brief,
         has_image=has_photo_hero,
@@ -943,11 +944,29 @@ def compile_poster_batch(
         brand_profile=brand_profile,
         communication_kit=comm_kit or None,
     )
+    # Centred statement ignores a left-hand composition and parks a dark wordmark
+    # on a light purple disc. An explicit split or panel template is left alone.
+    if composition.get("textRegion") in ("left", "bottom-left") and template_name == "centered-statement":
+        template_name = "full-bleed-scrim"
 
+    subline = sharper_subline(
+        kit,
+        {
+            "crisisMessage": headline,
+            "crisisFacts": str((session.get("brief") or {}).get("facts") or ""),
+        },
+        brand_profile,
+        subline,
+    )
     subline = design.clamp_words(subline, design.MAX_WORDS["subline"], design.MAX_CHARS["subline"])
     eyebrow = str(brief.get("eyebrow") or "").strip()
-    cta = str(brief.get("cta") or ("" if creative_brief else "Read more")).strip()
+    cta = str(brief.get("cta") or "").strip()
     cta_style = brief.get("ctaStyle") if brief.get("ctaStyle") in design.CTA_STYLES else "pill"
+    if composition.get("showCta") and not cta:
+        cta = "Learn more"
+        cta_style = "pill"
+    if composition.get("showCta") and cta_style == "none":
+        cta_style = "pill"
     if not cta:
         cta_style = "none"
     headline_scale = brief.get("headlineScale")
@@ -982,9 +1001,6 @@ def compile_poster_batch(
             logo_size=logo_size,
         )
 
-    composition = clean_composition(brief.get("composition")) or default_composition(kit, brand_profile)
-    if composition.get("showCta") and cta and cta_style == "none":
-        cta_style = "pill"
     identity_stops = design.identity_gradient_stops(brand_profile, roles)
     wants_gradient = any(
         item.get("source") == "palette-gradient" for item in composition.get("visuals") or []

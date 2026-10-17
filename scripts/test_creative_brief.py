@@ -410,6 +410,48 @@ class TestCreativeBriefFallback(unittest.TestCase):
         self.assertEqual(result["provider"], "anthropic")
 
 
+class TestCrisisStripeFlow(unittest.TestCase):
+    def test_students_headline_does_not_use_locale_tagline_or_centered_layout(self) -> None:
+        from poster_compiler import compile_poster_batch
+
+        def load(name: str) -> dict:
+            with open(os.path.join(SCRIPTS, "fixtures", name), encoding="utf-8") as handle:
+                return json.load(handle)
+
+        kit = load("kit-stripe.json")
+        kit["tagline"] = "Plateforme et solution de paiement en ligne"
+        profile = load("brand-profile-stripe.json")
+        kit["brandProfile"] = profile
+        crisis = {"crisisMessage": "Stripe for students", "crisisFacts": "Stripe for students", "tone": "celebratory"}
+        brief = build_fallback_brief(kit, crisis, brand_profile=profile)
+        self.assertEqual(brief["layoutTemplate"], "full-bleed-scrim")
+        self.assertNotIn("Plateforme", brief["subhead"])
+        self.assertIn("Financial infrastructure", brief["subhead"])
+        self.assertTrue(brief["cta"])
+        self.assertEqual(brief["composition"]["textRegion"], "left")
+        self.assertEqual(brief["logoTreatment"], "wordmark-white")
+        batch = compile_poster_batch(
+            kit,
+            {"suggestedHeadline": "Stripe for students", "brief": {"headline": "Stripe for students", "facts": "Stripe for students"}},
+            creative_brief=brief,
+            brand_profile=profile,
+            logo_relative_path="generated/assets/logo.svg",
+            logo_variants={
+                "original": "generated/assets/logo.svg",
+                "light": "generated/assets/logo-light.svg",
+                "dark": "generated/assets/logo-dark.svg",
+            },
+            logo_width=60,
+            logo_height=25,
+        )
+        meta = batch["meta"]
+        self.assertEqual(meta["layoutTemplate"], "full-bleed-scrim")
+        self.assertNotIn("Plateforme", meta["tagline"])
+        self.assertTrue(meta["cta"])
+        self.assertTrue(meta["identityField"])
+        self.assertEqual(meta["logoVariant"], "light")
+
+
 class TestPosterWithBrief(unittest.TestCase):
     def test_gradient_brand_uses_svg_background_when_assets_dir_set(self) -> None:
         import tempfile

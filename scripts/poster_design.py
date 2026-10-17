@@ -370,20 +370,21 @@ def identity_gradient_stops(
     contributes blurple and the orange ribbon; those two stops are the field.
     """
     ordered: list[str] = []
-    for role in ("primary", "accent", "secondary"):
-        hex6 = profile_palette_roles(brand_profile).get(role) or ""
-        if not hex6:
-            continue
+
+    def _take(hex6: str) -> None:
+        if len(ordered) >= 2 or not hex6:
+            return
         rgb = hex_to_rgb(hex6)
         if chroma(rgb) < 0.18 or relative_luminance(rgb) > 0.92:
-            continue
+            return
         if any(not _hexes_differ(hex6, seen) for seen in ordered):
-            continue
+            return
         ordered.append(hex6)
-        if len(ordered) == 2:
-            break
-    if len(ordered) < 2 and _hexes_differ(roles.brand, roles.accent) and chroma(hex_to_rgb(roles.accent)) >= 0.18:
-        ordered = [roles.brand, roles.accent]
+
+    _take(roles.brand)
+    _take(roles.accent)
+    for hex6 in profile_palette_list(brand_profile):
+        _take(hex6)
     if len(ordered) < 2:
         return None
     start, end = ordered[0], ordered[1]

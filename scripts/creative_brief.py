@@ -348,16 +348,71 @@ def _first_fact_line(crisis: dict[str, Any]) -> str:
     return _truncate(line or "Important update", 90)
 
 
-def _fallback_subhead(kit: dict[str, Any] | None, crisis: dict[str, Any]) -> str:
-    """Subhead: the first confirmed fact that isn't the headline; the kit tagline only as a last resort."""
+_GENERIC_TAGLINE_BITS = (
+    "plateforme",
+    "solution de paiement",
+    "paiement en ligne",
+    "site officiel",
+    "accueil",
+    "homepage",
+    "official website",
+    "online payment",
+)
+
+
+def sharper_subline(
+    kit: dict[str, Any] | None,
+    crisis: dict[str, Any] | None,
+    brand_profile: dict[str, Any] | None,
+    proposed: str = "",
+) -> str:
+    """Prefer a fact or the profile line over a generic locale homepage tagline."""
     kit = kit or {}
-    headline = _first_fact_line(crisis).casefold()
+    crisis = crisis or {}
+    profile = brand_profile if isinstance(brand_profile, dict) else {}
+    if not profile and isinstance(kit.get("brandProfile"), dict):
+        profile = kit["brandProfile"]
+    headline = (_first_fact_line(crisis) or str(crisis.get("crisisMessage") or "")).strip()
+    kit_tag = str(kit.get("tagline") or "").strip()
+    profile_tag = str(profile.get("tagline") or "").strip()
+
+    def generic(text: str) -> bool:
+        low = text.casefold().strip()
+        if not low:
+            return True
+        if any(bit in low for bit in _GENERIC_TAGLINE_BITS):
+            return True
+        if kit_tag and low == kit_tag.casefold() and profile_tag and profile_tag.casefold() != low:
+            return True
+        return False
+
+    def usable(text: str) -> bool:
+        text = str(text or "").strip()
+        if not text or generic(text):
+            return False
+        if headline and text.casefold() == headline.casefold():
+            return False
+        return True
+
+    overview = str(profile.get("businessOverview") or "").split(".")[0].strip()
     facts = str(crisis.get("crisisFacts") or crisis.get("facts") or "")
-    for line in facts.splitlines():
-        line = line.strip()
-        if line and len(line) > 12 and line.casefold() != headline:
-            return clamp_words(line, MAX_WORDS["subline"], MAX_CHARS["subline"])
-    return clamp_words(str(kit.get("tagline") or "").strip(), MAX_WORDS["subline"], MAX_CHARS["subline"])
+    fact_lines = [line.strip() for line in facts.splitlines() if usable(line)]
+    # The brief's own subhead wins when it is a real line. Facts and the profile
+    # tagline are only used to replace a generic locale tagline.
+    if usable(proposed):
+        return clamp_words(str(proposed).strip(), MAX_WORDS["subline"], MAX_CHARS["subline"])
+    for line in fact_lines:
+        return clamp_words(line, MAX_WORDS["subline"], MAX_CHARS["subline"])
+    for candidate in (profile_tag, overview):
+        if usable(candidate):
+            return clamp_words(str(candidate).strip(), MAX_WORDS["subline"], MAX_CHARS["subline"])
+    return ""
+
+
+def _fallback_subhead(kit: dict[str, Any] | None, crisis: dict[str, Any]) -> str:
+    """Subhead from facts or the brand profile, not a generic locale tagline."""
+    profile = (kit or {}).get("brandProfile") if isinstance((kit or {}).get("brandProfile"), dict) else None
+    return sharper_subline(kit, crisis, profile, "")
 
 
 def _fallback_hero_and_layout(
@@ -416,13 +471,19 @@ def fallback_layout_template(
         return "device-stage"
     hint = template_hint_from_profile(brand_profile)
     if hint and (has_image or hint == "centered-statement"):
-        return hint
-    return default_template_for(
-        layout_recipe=layout_recipe,
-        has_image=has_image,
-        emphasis=emphasis,
-        monochrome=brand_roles(kit, brand_profile).monochrome,
-    )
+        chosen = hint
+    else:
+        chosen = default_template_for(
+            layout_recipe=layout_recipe,
+            has_image=has_image,
+            emphasis=emphasis,
+            monochrome=brand_roles(kit, brand_profile).monochrome,
+        )
+    # A left composition must not be dropped into the centred statement template.
+    region = default_composition(kit, brand_profile).get("textRegion")
+    if region in ("left", "bottom-left") and chosen == "centered-statement":
+        return "full-bleed-scrim"
+    return chosen
 
 
 def has_imagery_direction(kit: dict[str, Any] | None, brand_profile: dict[str, Any] | None) -> bool:
@@ -600,7 +661,7 @@ def build_fallback_brief(
     kit = kit or {}
     crisis = crisis or {}
     headline = _first_fact_line(crisis)
-    subhead = _fallback_subhead(kit, crisis)
+    subhead = sharper_subline(kit, crisis, brand_profile, "")
     hero_strategy, layout = _fallback_hero_and_layout(kit)
     logo = _fallback_logo_treatment(kit, hero_strategy, layout)
     emphasis = _tone_to_emphasis(crisis.get("tone"))
@@ -641,8 +702,7 @@ def build_fallback_brief(
         brief["layoutRecipe"] = "photo-hero-type"
         brief["layoutTemplate"] = "full-bleed-scrim"
         brief["ideogramLayers"] = "background-only"
-        if not str(brief.get("heroImagePrompt") or "").strip():
-            brief["heroImagePrompt"] = _imagery_prompt(kit, brand_profile)
+        brief["heroImagePrompt"] = _imagery_prompt(kit, brand_profile)
     return brief
 
 
@@ -688,8 +748,6 @@ def _normalize_brief(raw: dict[str, Any]) -> dict[str, Any]:
     out["ctaStyle"] = cta_style if cta_style in CTA_STYLES else ("pill" if out.get("cta") else "none")
     composition = clean_composition(raw.get("composition"))
     if composition:
-        if composition.get("showCta") and not out.get("cta"):
-            composition = {**composition, "showCta": False}
         out["composition"] = composition
     hero_prompt = raw.get("heroImagePrompt")
     accent_prompt = raw.get("accentImagePrompt")
