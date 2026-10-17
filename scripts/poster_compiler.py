@@ -1110,7 +1110,7 @@ def compile_poster_batch(
     contrast["headline"] = design.min_contrast(text_rgb, text_samples)
     steps.append(
         _type_step(
-            "Headline", headline, h["box"], font=headline_font, size=h["size"], color=text_color,
+            "Headline", h["text"], h["box"], font=headline_font, size=h["size"], color=text_color,
             weight=h["weight"], align=plan.align, leading=h["leading"], tracking=design.HEADLINE_TRACKING,
         )
     )
@@ -1119,7 +1119,7 @@ def compile_poster_batch(
         contrast["subline"] = contrast["headline"]
         steps.append(
             _type_step(
-                "Subline", subline, sub["box"], font=body_font, size=sub["size"], color=text_color,
+                "Subline", sub["text"], sub["box"], font=body_font, size=sub["size"], color=text_color,
                 weight=design.SUBLINE_WEIGHT, align=plan.align, leading=sub["leading"],
             )
         )
@@ -1139,9 +1139,11 @@ def compile_poster_batch(
             shape["stroke"] = {"width": 2, "color": colors["stroke"], "align": "inside"}
         steps.append({"command": "shape.create", "params": shape})
         label_h = design.CTA_LABEL_SIZE * 1.3
+        # PhotoCraft puts cap tops ~1px below the type box top; centre the cap height optically.
+        cap_h = design.CTA_LABEL_SIZE * 0.73
         steps.append(
             _type_step(
-                "CTA label", chip["label"], (cx, cy + (ch - label_h) / 2 - 1, cw, label_h + 4),
+                "CTA label", chip["label"], (cx, cy + (ch - cap_h) / 2 + 1, cw, label_h + 4),
                 font=body_font, size=design.CTA_LABEL_SIZE, color=colors["label"],
                 weight=design.CTA_LABEL_WEIGHT, align="center", tracking=10,
             )

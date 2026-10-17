@@ -54,9 +54,10 @@ MIN_WHITESPACE_RATIO = 0.35
 SCRIM_MAX_ALPHA = 0.85
 SCRIM_FADE_PX = 200
 
-# Average advance per character, in em, for estimated line wrapping.
-HEADLINE_EM = 0.56
-BODY_EM = 0.5
+# Average advance per character, in em, for planned line breaks. Kept ~8% above measured Inter
+# (bold ≈ 0.48, regular ≈ 0.49) so planned lines never re-wrap inside the type box.
+HEADLINE_EM = 0.53
+BODY_EM = 0.53
 CAPS_EM = 0.74
 
 INK = "#0b1220"
@@ -591,6 +592,22 @@ def wrap_lines(text: str, size: float, box_w: float, em: float) -> list[str]:
     return lines
 
 
+def balance_lines(text: str, size: float, box_w: float, em: float) -> list[str]:
+    """Greedy wrap, then narrow the measure while the line count holds (no orphan last word)."""
+    lines = wrap_lines(text, size, box_w, em)
+    if len(lines) < 2:
+        return lines
+    step = size * em
+    width = box_w
+    while width > step:
+        width -= step
+        trial = wrap_lines(text, size, width, em)
+        if len(trial) > len(lines):
+            break
+        lines = trial
+    return lines
+
+
 def fit_headline(
     text: str,
     box_w: float,
@@ -603,7 +620,7 @@ def fit_headline(
         longest = max((len(w) for w in text.split()), default=0)
         fits_words = longest * size * HEADLINE_EM <= box_w
         if (len(lines) <= max_lines and fits_words) or size <= HEADLINE_MIN_SIZE:
-            return size, lines
+            return size, balance_lines(text, size, box_w, HEADLINE_EM)
         size -= 2
 
 
@@ -676,11 +693,11 @@ def plan_layout(
     box_x, box_w = tpl.text_x, tpl.text_w
 
     h_size, h_lines = fit_headline(headline, box_w, scale, tpl.max_headline_lines)
-    s_lines = wrap_lines(subline, SUBLINE_SIZE, box_w, BODY_EM) if subline else []
+    s_lines = balance_lines(subline, SUBLINE_SIZE, box_w, BODY_EM) if subline else []
     s_size = SUBLINE_SIZE
     if len(s_lines) > 2:
         s_size = SUBLINE_MIN_SIZE
-        s_lines = wrap_lines(subline, s_size, box_w, BODY_EM)
+        s_lines = balance_lines(subline, s_size, box_w, BODY_EM)
 
     show_cta = bool(cta) and cta_style != "none"
     eyebrow_h = EYEBROW_SIZE * 1.2 if eyebrow else 0.0
@@ -733,7 +750,7 @@ def plan_layout(
                 "weightKey": weight_key,
                 "lines": len(h_lines),
                 "leading": round(h_size * HEADLINE_LEADING, 1),
-                "text": headline,
+                "text": "\n".join(h_lines),
             }
         elif name == "subline":
             plan.elements["subline"] = {
@@ -741,7 +758,7 @@ def plan_layout(
                 "size": s_size,
                 "lines": len(s_lines),
                 "leading": round(s_size * SUBLINE_LEADING, 1),
-                "text": subline,
+                "text": "\n".join(s_lines),
             }
         elif name == "cta":
             label_w = len(cta) * CTA_LABEL_SIZE * 0.56
