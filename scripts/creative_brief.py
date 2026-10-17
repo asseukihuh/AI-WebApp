@@ -28,8 +28,9 @@ FallbackReason = Literal["no_provider", "no_api_key", "llm_error"]
 LlmProvider = Literal["openai", "anthropic", "openrouter"]
 
 # Frontier defaults — never mini/nano (quality for marketing copy + layout decisions).
+# Opus override (not a default): COMMMAKER_LLM_MODEL=claude-opus-4-8
 FRONTIER_MODEL_BY_PROVIDER: dict[LlmProvider, str] = {
-    "anthropic": "claude-sonnet-4-20250514",
+    "anthropic": "claude-sonnet-5-5",
     "openai": "gpt-4.1",
     "openrouter": "anthropic/claude-sonnet-4",
 }
@@ -125,9 +126,17 @@ def api_key_for_provider(provider: LlmProvider) -> str:
     return (os.environ.get("OPENAI_API_KEY") or "").strip()
 
 
-def _safe_error_detail(exc: BaseException) -> str:
+def _safe_error_detail(
+    exc: BaseException,
+    *,
+    provider: LlmProvider | None = None,
+) -> str:
     """Short, non-secret diagnostic for UI when LLM call fails."""
     if isinstance(exc, urllib.error.HTTPError):
+        if exc.code == 404 and provider == "anthropic":
+            return (
+                "HTTP 404 — check COMMMAKER_LLM_MODEL (Sonnet 4 IDs retired)"
+            )
         return f"HTTP {exc.code}"
     return type(exc).__name__
 
@@ -613,6 +622,6 @@ def build_creative_brief(
             "brief": build_fallback_brief(kit, crisis, format),
             "source": "fallback",
             "fallbackReason": "llm_error",
-            "errorDetail": _safe_error_detail(exc),
+            "errorDetail": _safe_error_detail(exc, provider=provider),
             "provider": provider,
         }

@@ -88,7 +88,7 @@ class TestCreativeBriefFallback(unittest.TestCase):
         with patch.dict(os.environ, {}, clear=False):
             os.environ.pop("COMMMAKER_LLM_MODEL", None)
             model = resolve_llm_model("anthropic")
-        self.assertEqual(model, "claude-sonnet-4-20250514")
+        self.assertEqual(model, "claude-sonnet-5-5")
 
     @patch.dict(os.environ, {"OPENAI_API_KEY": "test-key"})
     @patch("creative_brief._call_llm")
@@ -126,6 +126,33 @@ class TestCreativeBriefFallback(unittest.TestCase):
 
     def test_safe_error_detail_uses_exception_class(self) -> None:
         self.assertEqual(_safe_error_detail(TimeoutError()), "TimeoutError")
+
+    def test_safe_error_detail_anthropic_404_hint(self) -> None:
+        err = urllib.error.HTTPError(
+            url="https://api.anthropic.com/v1/messages",
+            code=404,
+            msg="Not Found",
+            hdrs=None,
+            fp=None,
+        )
+        detail = _safe_error_detail(err, provider="anthropic")
+        self.assertIn("COMMMAKER_LLM_MODEL", detail)
+        self.assertIn("Sonnet 4 IDs retired", detail)
+
+    @patch.dict(os.environ, {"ANTHROPIC_API_KEY": "test-key"})
+    @patch("creative_brief._call_llm")
+    def test_anthropic_404_fallback_metadata(self, mock_llm) -> None:
+        mock_llm.side_effect = urllib.error.HTTPError(
+            url="https://api.anthropic.com/v1/messages",
+            code=404,
+            msg="Not Found",
+            hdrs=None,
+            fp=None,
+        )
+        result = build_creative_brief({}, {"crisisFacts": "x"})
+        self.assertEqual(result["fallbackReason"], "llm_error")
+        self.assertIn("Sonnet 4 IDs retired", result["errorDetail"])
+        self.assertEqual(result["provider"], "anthropic")
 
 
 class TestPosterWithBrief(unittest.TestCase):
