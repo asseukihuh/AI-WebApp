@@ -13,7 +13,13 @@ if SCRIPTS not in sys.path:
 
 from font_fetcher import parse_google_font_links, pick_body_font, pick_headline_font  # noqa: E402
 from kit_scraper import scrape_kit_from_html  # noqa: E402
-from poster_compiler import compile_poster_batch  # noqa: E402
+from image_probe import svg_dimensions_from_text  # noqa: E402
+from poster_compiler import (  # noqa: E402
+    HEADLINE_SIZE_WITH_SUB,
+    LOGO_TARGET_WIDTH_MIN,
+    SUBLINE_SIZE,
+    compile_poster_batch,
+)
 
 
 def _type_fonts(batch: dict) -> dict[str, str]:
@@ -27,9 +33,16 @@ def _type_fonts(batch: dict) -> dict[str, str]:
     return out
 
 
+_STRIPE_LOGO_SVG = (
+    '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 120" width="512" height="120">'
+    '<path fill="#635BFF" d="M0 0h512v120H0z"/></svg>'
+)
+
+
 def _stripe_kit() -> dict:
     return {
         "siteName": "Stripe",
+        "logoSvg": _STRIPE_LOGO_SVG,
         "fonts": ["sohne-var", "Inter", "Helvetica"],
         "googleFonts": [
             {
@@ -96,7 +109,7 @@ def test_batch_fonts_differ() -> None:
         )
         fonts = _type_fonts(batch)
         assert fonts["Headline"] != fonts["Subline"], (kit.get("siteName"), fonts)
-        assert fonts["Subline"] == fonts["Footer"]
+        assert "Footer" not in fonts
         meta = (batch.get("meta") or {}).get("fonts") or {}
         assert meta.get("headline") == fonts["Headline"]
         assert meta.get("body") == fonts["Subline"]
@@ -116,16 +129,36 @@ def test_google_font_link_parse() -> None:
 
 
 def test_logo_placements_with_hero() -> None:
+    svg_dims = svg_dimensions_from_text(_STRIPE_LOGO_SVG)
+    assert svg_dims == (512, 120)
     batch = compile_poster_batch(
         _stripe_kit(),
         _session(),
         hero_relative_path="generated/assets/test-hero.jpg",
         logo_relative_path="generated/assets/test-logo.png",
+        logo_width=svg_dims[0],
+        logo_height=svg_dims[1],
     )
     placements = batch.get("placements") or []
     assert len(placements) >= 2
     assert placements[0].get("name") == "Logo knockback"
-    assert placements[-1].get("name") == "Logo"
+    logo_place = placements[-1]
+    assert logo_place.get("name") == "Logo"
+    layout = (batch.get("meta") or {}).get("logoLayout") or {}
+    tw = layout.get("targetWidthPx", 0)
+    assert LOGO_TARGET_WIDTH_MIN <= tw <= 320
+    assert tw >= 280
+    assert layout.get("logoScalePercent", 0) >= 40
+    knock_scale = placements[0].get("scale") or 0
+    assert 150 <= knock_scale <= 220
+
+    steps = batch.get("steps") or []
+    type_steps = [s for s in steps if s.get("command") == "type.create"]
+    headline = next(s for s in type_steps if s["params"]["name"] == "Headline")
+    subline = next(s for s in type_steps if s["params"]["name"] == "Subline")
+    assert headline["params"]["size"] == HEADLINE_SIZE_WITH_SUB
+    assert subline["params"]["size"] == SUBLINE_SIZE
+    assert len(subline["params"]["text"]) <= 72
 
 
 def main() -> int:

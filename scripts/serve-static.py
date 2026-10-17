@@ -30,7 +30,7 @@ from kit_scraper import (  # noqa: E402
     scrape_kit_from_page,
     validate_fetch_url,
 )
-from image_probe import raster_dimensions  # noqa: E402
+from image_probe import image_dimensions, raster_dimensions, svg_dimensions_from_text  # noqa: E402
 from font_fetcher import resolve_poster_fonts  # noqa: E402
 from poster_compiler import (  # noqa: E402
     compile_poster_batch,
@@ -244,14 +244,19 @@ class CommMakerHandler(http.server.SimpleHTTPRequestHandler):
             hero_width: int | None = None
             hero_height: int | None = None
             logo_width: int | None = None
+            logo_height: int | None = None
             if hero_rel:
                 hero_dims = raster_dimensions(os.path.join(ROOT, hero_rel))
                 if hero_dims:
                     hero_width, hero_height = hero_dims
             if logo_rel:
-                logo_dims = raster_dimensions(os.path.join(ROOT, logo_rel))
+                logo_dims = image_dimensions(os.path.join(ROOT, logo_rel))
                 if logo_dims:
-                    logo_width = logo_dims[0]
+                    logo_width, logo_height = logo_dims
+            elif isinstance((kit or {}).get("logoSvg"), str):
+                svg_dims = svg_dimensions_from_text(str(kit["logoSvg"]))
+                if svg_dims:
+                    logo_width, logo_height = svg_dims
 
             def _font_fetch(url: str) -> bytes:
                 req = urllib.request.Request(
@@ -278,6 +283,7 @@ class CommMakerHandler(http.server.SimpleHTTPRequestHandler):
                 hero_width=hero_width,
                 hero_height=hero_height,
                 logo_width=logo_width,
+                logo_height=logo_height,
                 fonts_resolved=fonts_resolved,
             )
             os.makedirs(GENERATED_DIR, exist_ok=True)
