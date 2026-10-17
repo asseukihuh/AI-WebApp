@@ -252,9 +252,19 @@ On Windows, prefer `.\scripts\dev-commmaker.ps1` (same server, auto vendor insta
 | Step | URL | What it does |
 |------|-----|----------------|
 | Home | `/home.html` | Flow overview and links |
-| Onboard | `/onboard.html` | POST scrape via `/api/scrape-kit` → preview → `localStorage` `commmaker.kit` |
+| Onboard | `/onboard.html` | **Analyze brand** → `POST /api/brand-profile` (Playwright screenshots + CSS signals → Claude vision → editable Brand Profile; falls back to `/api/scrape-kit`) → `localStorage` `commmaker.kit` (`kit.brandProfile`) |
 | Crisis | `/crisis.html` | Facts → caption draft → **creative brief** (`POST /api/creative-brief`) → **Generate poster** (`POST /api/generate-poster`) |
 | Editor | `/photocraft/` | PhotoCraft iframe; opens generated `.pcraft` from `/generated/` when available (**1200×627**) |
+
+### Brand Profile (AI + vision)
+
+Onboard renders the site headlessly, then:
+
+- captures desktop, full-page and mobile screenshots;
+- merges computed CSS colours, fonts and the header logo with the static scrape;
+- has Claude vision (`claude-sonnet-5-5`) pick, rank and interpret those signals into an editable Pomelli-style profile: palette roles, fonts, tagline, values, aesthetic, tone, imagery style, layout traits and don'ts.
+
+Exact hex, font and logo values always come from the scraped candidates. The edited profile then feeds the creative brief and the Ideogram background prompts. Optional setup: `pip install playwright pillow && python -m playwright install chromium`. Without a key or browser you get a procedural fallback profile. Each analysis costs about $0.04 and is cached per domain for 7 days. See [`docs/brand-profile.md`](docs/brand-profile.md).
 
 ### Personalized poster (PhotoCraft CLI)
 
