@@ -46,6 +46,12 @@ from ideogram_client import (  # noqa: E402
     ideogram_api_key,
 )
 from image_luma import load_rgb_grid  # noqa: E402
+from brand_profile import (  # noqa: E402
+    analyze_brand,
+    apply_brand_profile_to_kit,
+    augment_ideogram_prompt,
+    playwright_available,
+)
 from poster_compiler import (  # noqa: E402
     compile_poster_batch,
     hero_cache_basename,
@@ -76,6 +82,14 @@ mimetypes.add_type("text/javascript", ".js")
 
 
 CREATIVE_BRIEF_STACK = "v26-design-system"
+
+
+def _request_brand_profile(body: dict, kit: dict) -> dict | None:
+    """Explicit ``brandProfile`` in the request, else the one onboarding saves on ``kit.brandProfile``."""
+    for candidate in (body.get("brandProfile"), (kit or {}).get("brandProfile")):
+        if isinstance(candidate, dict) and candidate:
+            return candidate
+    return None
 
 
 def dev_status_payload() -> dict:
@@ -357,10 +371,8 @@ class CommMakerHandler(http.server.SimpleHTTPRequestHandler):
     def _handle_creative_brief(self) -> None:
         try:
             body = self._read_json_body(MAX_POSTER_BODY_BYTES)
-            kit = body.get("kit") or {}
-            brand_profile = body.get("brandProfile")
-            if not isinstance(brand_profile, dict):
-                brand_profile = None
+            kit = apply_brand_profile_to_kit(body.get("kit") or {})
+            brand_profile = _request_brand_profile(body, kit)
             crisis_message = str(body.get("crisisMessage") or "").strip()
             crisis_facts = body.get("crisisFacts")
             crisis: dict = {
@@ -405,10 +417,8 @@ class CommMakerHandler(http.server.SimpleHTTPRequestHandler):
                 raise ValueError("Request must include session (or brief) JSON")
             if not kit:
                 kit = session.get("kitSnapshot")
-            kit = dict(kit or {})
-            brand_profile = body.get("brandProfile")
-            if not isinstance(brand_profile, dict):
-                brand_profile = None
+            kit = apply_brand_profile_to_kit(kit)
+            brand_profile = _request_brand_profile(body, kit)
             if isinstance(kit.get("logoSvg"), str) and kit["logoSvg"].strip().startswith(
                 "<svg"
             ):
@@ -439,7 +449,9 @@ class CommMakerHandler(http.server.SimpleHTTPRequestHandler):
                     str(creative_brief.get("heroImagePrompt") or ""), kit, role="background"
                 )
                 layers_mode = effective_ideogram_layers(creative_brief)
-                accent_prompt = str(creative_brief.get("accentImagePrompt") or "").strip()
+                accent_prompt = augment_ideogram_prompt(
+                    str(creative_brief.get("accentImagePrompt") or ""), kit, role="accent"
+                )
                 roles = brand_roles(kit, brand_profile)
                 template_name = resolve_template_name(
                     creative_brief,
