@@ -372,6 +372,41 @@ def _kit_color_phrase(kit: dict[str, Any] | None) -> str:
     return ", ".join(str(c) for c in colors[:4])
 
 
+def coerce_ideogram_for_unsuitable_kit_hero(
+    brief: dict[str, Any],
+    kit: dict[str, Any] | None,
+    crisis: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    """
+    Prefer Ideogram when scraped heroes are busy UI or OG brand marks.
+
+    The LLM often picks ``gradient_from_palette`` or ``use_kit_photo`` for crisis
+    posts; the poster pipeline skips those kit heroes anyway, which yields flat
+    gradient + type posters unless we upgrade the brief.
+    """
+    kit = kit or {}
+    crisis = crisis or {}
+    if not (kit.get("heroBusy") or kit.get("heroBrandMark")):
+        return brief
+    if not (os.environ.get("IDEOGRAM_API_KEY") or "").strip():
+        return brief
+    hero = brief.get("heroStrategy") or ""
+    if hero == "ideogram_generate":
+        return brief
+    if hero not in ("use_kit_photo", "gradient_from_palette", "solid", "none"):
+        return brief
+    upgraded: dict[str, Any] = dict(brief)
+    upgraded["heroStrategy"] = "ideogram_generate"
+    upgraded["layoutRecipe"] = "photo-hero-type"
+    if not str(upgraded.get("heroImagePrompt") or "").strip():
+        upgraded["heroImagePrompt"] = _fallback_ideogram_prompt(kit, crisis)
+    upgraded["ideogramLayers"] = effective_ideogram_layers(upgraded)
+    if upgraded["ideogramLayers"] == "background-plus-accent":
+        if not str(upgraded.get("accentImagePrompt") or "").strip():
+            upgraded["accentImagePrompt"] = _fallback_accent_prompt(kit, crisis)
+    return _normalize_brief(upgraded)
+
+
 def effective_ideogram_layers(
     brief: dict[str, Any] | None,
     *,
@@ -682,6 +717,7 @@ def build_creative_brief(
             api_key=api_key,
             model=model,
         )
+        brief = coerce_ideogram_for_unsuitable_kit_hero(brief, kit, crisis)
         return {
             "brief": brief,
             "source": "llm",

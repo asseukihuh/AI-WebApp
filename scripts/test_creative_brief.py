@@ -25,6 +25,7 @@ from creative_brief import (  # noqa: E402
     api_key_for_provider,
     build_creative_brief,
     build_fallback_brief,
+    coerce_ideogram_for_unsuitable_kit_hero,
     default_model_for_provider,
     resolve_llm_model,
 )
@@ -49,6 +50,45 @@ class TestCreativeBriefFallback(unittest.TestCase):
         brief = build_fallback_brief(kit, crisis)
         self.assertEqual(brief["heroStrategy"], "ideogram_generate")
         self.assertIn("Acme", brief.get("heroImagePrompt", ""))
+
+    @patch.dict(os.environ, {"IDEOGRAM_API_KEY": "test-key", "OPENAI_API_KEY": "test-key"})
+    @patch("creative_brief._call_llm")
+    def test_llm_gradient_coerced_to_ideogram_when_brand_mark(self, mock_llm) -> None:
+        mock_llm.return_value = {
+            "headline": "Service update",
+            "subhead": "We are investigating",
+            "layoutRecipe": "gradient-brand",
+            "heroStrategy": "gradient_from_palette",
+            "logoTreatment": "wordmark-white",
+            "emphasis": "calm",
+            "rationale": "Calm gradient for crisis.",
+        }
+        kit = {
+            "siteName": "Stripe",
+            "heroBrandMark": True,
+            "heroImageUrl": "https://cdn.example/stripe-og.png",
+            "colors": ["#635bff", "#0a2540"],
+        }
+        result = build_creative_brief(kit, {"crisisFacts": "API errors elevated."})
+        self.assertEqual(result["source"], "llm")
+        brief = result["brief"]
+        self.assertEqual(brief["heroStrategy"], "ideogram_generate")
+        self.assertEqual(brief["layoutRecipe"], "photo-hero-type")
+        self.assertIn("Stripe", brief.get("heroImagePrompt", ""))
+
+    def test_coerce_noop_without_ideogram_key(self) -> None:
+        brief = {
+            "headline": "Update",
+            "subhead": "",
+            "layoutRecipe": "gradient-brand",
+            "heroStrategy": "gradient_from_palette",
+            "logoTreatment": "wordmark-white",
+            "emphasis": "calm",
+            "rationale": "x",
+        }
+        kit = {"heroBrandMark": True, "siteName": "Stripe"}
+        out = coerce_ideogram_for_unsuitable_kit_hero(brief, kit, {})
+        self.assertEqual(out["heroStrategy"], "gradient_from_palette")
 
     def test_fallback_busy_hero_uses_gradient(self) -> None:
         kit = {

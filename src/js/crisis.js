@@ -329,12 +329,16 @@ async function generatePosterInPhotoCraft() {
             fonts?.headline && fonts?.body
                 ? ` Fonts: ${fonts.headline} / ${fonts.body}.`
                 : "";
+        const strategyNote =
+            data.heroStrategy && data.heroStrategy !== "ideogram_generate"
+                ? ` Brief hero: ${data.heroStrategy}.`
+                : "";
         const heroNote =
-            data.heroSource === "ideogram-4"
+            data.ideogramUsed || data.heroSource === "ideogram-4"
                 ? " Hero: Ideogram 4 (AI-generated)."
                 : data.ideogramFallback
                   ? ` ${data.ideogramFallback}`
-                  : "";
+                  : strategyNote;
         setPosterStatus(
             (data.userMessage || "Poster saved. Downloading and opening PhotoCraft…") +
                 heroNote +
