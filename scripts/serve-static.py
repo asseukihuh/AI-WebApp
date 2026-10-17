@@ -33,6 +33,7 @@ from kit_scraper import (  # noqa: E402
 from image_probe import image_dimensions, raster_dimensions, svg_dimensions_from_text  # noqa: E402
 from font_fetcher import resolve_poster_fonts  # noqa: E402
 from creative_brief import build_creative_brief  # noqa: E402
+from ideogram_client import generate_hero_image, ideogram_api_key  # noqa: E402
 from poster_compiler import (  # noqa: E402
     compile_poster_batch,
     hero_cache_basename,
@@ -309,6 +310,65 @@ class CommMakerHandler(http.server.SimpleHTTPRequestHandler):
             hero_busy = bool(kit.get("heroBusy"))
             hero_brand_mark = bool(kit.get("heroBrandMark"))
             hero_rel = None
+            hero_meta: dict = {}
+            ideogram_fallback_message: str | None = None
+            if (
+                isinstance(creative_brief, dict)
+                and creative_brief.get("heroStrategy") == "ideogram_generate"
+            ):
+                prompt = str(creative_brief.get("heroImagePrompt") or "").strip()
+                if ideogram_api_key() and prompt:
+                    try:
+                        hero_rel, _bytes, hero_meta = generate_hero_image(
+                            prompt,
+                            "1200x627",
+                            assets_dir=ASSETS_DIR,
+                        )
+                        kit["heroImageUrl"] = f"/{hero_rel}"
+                    except (
+                        urllib.error.URLError,
+                        urllib.error.HTTPError,
+                        ValueError,
+                        json.JSONDecodeError,
+                        OSError,
+                    ) as exc:
+                        ideogram_fallback_message = (
+                            f"Ideogram hero unavailable ({exc}); using kit gradient/photo fallback."
+                        )
+                        asset_errors.append(
+                            {"role": "ideogram", "error": str(exc), "url": ""}
+                        )
+                        patched = dict(creative_brief)
+                        if kit.get("heroImageUrl") and not (
+                            kit.get("heroBusy") or kit.get("heroBrandMark")
+                        ):
+                            patched["heroStrategy"] = "use_kit_photo"
+                        else:
+                            patched["heroStrategy"] = "gradient_from_palette"
+                            patched["layoutRecipe"] = "gradient-brand"
+                        creative_brief = patched
+                elif not ideogram_api_key():
+                    ideogram_fallback_message = (
+                        "IDEOGRAM_API_KEY not set — using scraped kit hero or brand gradient."
+                    )
+                    patched = dict(creative_brief)
+                    if kit.get("heroImageUrl") and not (
+                        kit.get("heroBusy") or kit.get("heroBrandMark")
+                    ):
+                        patched["heroStrategy"] = "use_kit_photo"
+                    else:
+                        patched["heroStrategy"] = "gradient_from_palette"
+                        patched["layoutRecipe"] = "gradient-brand"
+                    creative_brief = patched
+                elif not prompt:
+                    ideogram_fallback_message = (
+                        "Creative brief missing heroImagePrompt — using gradient fallback."
+                    )
+                    creative_brief = {
+                        **creative_brief,
+                        "heroStrategy": "gradient_from_palette",
+                        "layoutRecipe": "gradient-brand",
+                    }
             if not should_skip_hero_for_brief(kit, creative_brief):
                 hero_rel = self._maybe_cache_hero(kit, asset_errors)
             logo_treatment = (creative_brief or {}).get("logoTreatment")
@@ -409,6 +469,14 @@ class CommMakerHandler(http.server.SimpleHTTPRequestHandler):
                 "placementErrors": placement_errors,
                 "fontsResolved": fonts_resolved,
             }
+            if hero_meta:
+                payload["heroSource"] = hero_meta.get("heroSource")
+                payload["heroImagePrompt"] = hero_meta.get("heroImagePrompt")
+                payload["ideogramResolution"] = hero_meta.get("ideogramResolution")
+                if hero_meta.get("resolutionNote"):
+                    payload["resolutionNote"] = hero_meta["resolutionNote"]
+            if ideogram_fallback_message:
+                payload["ideogramFallback"] = ideogram_fallback_message
             if result.get("error"):
                 payload["cliError"] = result["error"]
             if result.get("cliError"):

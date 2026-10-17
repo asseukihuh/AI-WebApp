@@ -103,14 +103,23 @@ function setPosterStatus(message, { error = false, success = false } = {}) {
     posterStatus.setAttribute("role", message ? "alert" : "status");
 }
 
-function formatHeroStrategyLabel(strategy) {
+function formatHeroStrategyLabel(strategy, brief) {
     const labels = {
-        use_kit_photo: "Hero: kit marketing photo",
+        use_kit_photo: "Hero: scraped kit marketing photo",
+        ideogram_generate: "Hero: AI-generated (Ideogram 4)",
         gradient_from_palette: "Hero: brand gradient from palette",
         solid: "Hero: solid brand color",
         none: "Hero: none (type-focused)",
     };
-    return labels[strategy] || `Hero strategy: ${strategy || "—"}`;
+    let label = labels[strategy] || `Hero strategy: ${strategy || "—"}`;
+    if (strategy === "ideogram_generate" && brief?.heroImagePrompt) {
+        const snippet =
+            brief.heroImagePrompt.length > 100
+                ? `${brief.heroImagePrompt.slice(0, 97)}…`
+                : brief.heroImagePrompt;
+        label += ` — “${snippet}”`;
+    }
+    return label;
 }
 
 function renderCreativeBriefPanel(apiResult) {
@@ -140,7 +149,7 @@ function renderCreativeBriefPanel(apiResult) {
     if (briefHeroStrategy) {
         const layout = brief.layoutRecipe ? ` · Layout: ${brief.layoutRecipe}` : "";
         briefHeroStrategy.textContent =
-            formatHeroStrategyLabel(brief.heroStrategy) + layout;
+            formatHeroStrategyLabel(brief.heroStrategy, brief) + layout;
     }
     if (briefRationale) {
         briefRationale.textContent = brief.rationale || "";
@@ -284,8 +293,15 @@ async function generatePosterInPhotoCraft() {
             fonts?.headline && fonts?.body
                 ? ` Fonts: ${fonts.headline} / ${fonts.body}.`
                 : "";
+        const heroNote =
+            data.heroSource === "ideogram-4"
+                ? " Hero: Ideogram 4 (AI-generated)."
+                : data.ideogramFallback
+                  ? ` ${data.ideogramFallback}`
+                  : "";
         setPosterStatus(
             (data.userMessage || "Poster saved. Downloading and opening PhotoCraft…") +
+                heroNote +
                 fontNote,
             { success: true }
         );
