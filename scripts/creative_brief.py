@@ -97,16 +97,49 @@ def default_model_for_provider(provider: LlmProvider) -> str:
     return FRONTIER_MODEL_BY_PROVIDER[provider]
 
 
+def _normalize_api_key(raw: str | None) -> str:
+    """Strip whitespace and UTF-8 BOM from env-sourced API keys."""
+    if not raw:
+        return ""
+    return raw.strip().lstrip("\ufeff")
+
+
+_ANTHROPIC_CONSOLE_KEY_PREFIXES = (
+    "sk-ant-usr-",
+    "sk-ant-svc-",
+    "sk-ant-admin-",
+    "sk-ant-api",
+)
+
+
+def _anthropic_uses_bearer_auth(api_key: str) -> bool:
+    return any(api_key.startswith(prefix) for prefix in _ANTHROPIC_CONSOLE_KEY_PREFIXES)
+
+
+def _anthropic_request_headers(api_key: str) -> dict[str, str]:
+    headers = {
+        "x-api-key": api_key,
+        "anthropic-version": "2023-06-01",
+        "Content-Type": "application/json",
+    }
+    if _anthropic_uses_bearer_auth(api_key):
+        headers["Authorization"] = f"Bearer {api_key}"
+    workspace_id = _normalize_api_key(os.environ.get("ANTHROPIC_WORKSPACE_ID"))
+    if workspace_id:
+        headers["anthropic-workspace-id"] = workspace_id
+    return headers
+
+
 def resolve_llm_provider() -> LlmProvider | None:
     """Pick provider from ``COMMMAKER_LLM_PROVIDER`` or installed API keys."""
     forced = (os.environ.get("COMMMAKER_LLM_PROVIDER") or "").strip().lower()
     if forced in FRONTIER_MODEL_BY_PROVIDER:
         return forced  # type: ignore[return-value]
-    if (os.environ.get("ANTHROPIC_API_KEY") or "").strip():
+    if _normalize_api_key(os.environ.get("ANTHROPIC_API_KEY")):
         return "anthropic"
-    if (os.environ.get("OPENROUTER_API_KEY") or "").strip():
+    if _normalize_api_key(os.environ.get("OPENROUTER_API_KEY")):
         return "openrouter"
-    if (os.environ.get("OPENAI_API_KEY") or "").strip():
+    if _normalize_api_key(os.environ.get("OPENAI_API_KEY")):
         return "openai"
     return None
 
@@ -120,10 +153,10 @@ def resolve_llm_model(provider: LlmProvider) -> str:
 
 def api_key_for_provider(provider: LlmProvider) -> str:
     if provider == "anthropic":
-        return (os.environ.get("ANTHROPIC_API_KEY") or "").strip()
+        return _normalize_api_key(os.environ.get("ANTHROPIC_API_KEY"))
     if provider == "openrouter":
-        return (os.environ.get("OPENROUTER_API_KEY") or "").strip()
-    return (os.environ.get("OPENAI_API_KEY") or "").strip()
+        return _normalize_api_key(os.environ.get("OPENROUTER_API_KEY"))
+    return _normalize_api_key(os.environ.get("OPENAI_API_KEY"))
 
 
 def _http_error_body(exc: urllib.error.HTTPError, limit: int = 240) -> str:
@@ -496,11 +529,7 @@ def _post_anthropic_messages(body: dict[str, Any], *, api_key: str) -> dict[str,
     req = urllib.request.Request(
         url,
         data=json.dumps(body).encode("utf-8"),
-        headers={
-            "x-api-key": api_key,
-            "anthropic-version": "2023-06-01",
-            "Content-Type": "application/json",
-        },
+        headers=_anthropic_request_headers(api_key),
         method="POST",
     )
     with urllib.request.urlopen(req, timeout=LLM_TIMEOUT_SEC) as resp:

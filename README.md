@@ -269,7 +269,8 @@ Before compile, Crisis calls **`POST /api/creative-brief`**: a frontier LLM choo
 | Variable | Purpose |
 |----------|---------|
 | `COMMMAKER_LLM_PROVIDER` | Optional: `openai`, `anthropic`, or `openrouter`. If unset, the first matching key wins: Anthropic → OpenRouter → OpenAI. |
-| `ANTHROPIC_API_KEY` | Direct Anthropic Messages API |
+| `ANTHROPIC_API_KEY` | Direct Anthropic Messages API (Console `sk-ant-usr-…` keys also send `Authorization: Bearer`) |
+| `ANTHROPIC_WORKSPACE_ID` | Optional Anthropic Console workspace id (`anthropic-workspace-id` header) when your key spans multiple workspaces |
 | `OPENAI_API_KEY` | OpenAI Chat Completions (also used when `OPENAI_API_BASE` points at a compatible proxy) |
 | `OPENROUTER_API_KEY` | One key for many models via [OpenRouter](https://openrouter.ai/) |
 | `COMMMAKER_LLM_MODEL` | Override model id (see table below) |
