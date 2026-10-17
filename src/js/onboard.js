@@ -39,16 +39,39 @@ function renderPreview(kit) {
                   .join("")
             : '<span class="muted">None detected</span>';
 
-    const logoBlock = kit.logoUrl
-        ? `<img class="kit-logo" src="${escapeHtml(kit.logoUrl)}" alt="Logo preview" referrerpolicy="no-referrer" />`
-        : '<p class="muted">No logo URL found</p>';
+    const logoSrc = kit.logoUrl || (kit.logoSvg ? `data:image/svg+xml,${encodeURIComponent(kit.logoSvg)}` : null);
+    const logoBlock = logoSrc
+        ? `<img class="kit-logo" src="${escapeHtml(logoSrc)}" alt="Logo preview" referrerpolicy="no-referrer" />`
+        : '<p class="muted">No logo detected</p>';
+
+    const heroBlock = kit.heroImageUrl
+        ? `<img class="kit-hero-thumb" src="${escapeHtml(kit.heroImageUrl)}" alt="Hero imagery preview" referrerpolicy="no-referrer" />`
+        : '<p class="muted">No hero image detected</p>';
+
+    const headlineRow = kit.headline
+        ? `<dt>Headline</dt><dd>${escapeHtml(kit.headline)}</dd>`
+        : "";
+    const taglineRow = kit.tagline
+        ? `<dt>Tagline</dt><dd>${escapeHtml(kit.tagline)}</dd>`
+        : "";
 
     previewEl.innerHTML = `
         <h2>Kit preview</h2>
+        <div class="kit-visual-row">
+            <figure class="kit-thumb-block">
+                <figcaption>Logo</figcaption>
+                ${logoBlock}
+            </figure>
+            <figure class="kit-thumb-block">
+                <figcaption>Hero / marketing</figcaption>
+                ${heroBlock}
+            </figure>
+        </div>
         <dl class="kit-dl">
             <dt>Site name</dt><dd>${escapeHtml(kit.siteName)}</dd>
+            ${headlineRow}
+            ${taglineRow}
             <dt>Source</dt><dd><a href="${escapeHtml(kit.sourceUrl)}" target="_blank" rel="noopener noreferrer">${escapeHtml(kit.sourceUrl)}</a></dd>
-            <dt>Logo</dt><dd>${logoBlock}</dd>
             <dt>Colors</dt><dd class="kit-colors">${colors}</dd>
             <dt>Fonts</dt><dd>${escapeHtml((kit.fonts || []).join(", ") || "—")}</dd>
             <dt>Scraped</dt><dd>${escapeHtml(kit.scrapedAt || "")}</dd>

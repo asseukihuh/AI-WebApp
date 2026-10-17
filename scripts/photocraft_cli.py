@@ -260,16 +260,28 @@ def run_poster_batch(
             "method": "doc.new",
             "params": batch["document"],
         },
+    ]
+    place_id = 2
+    for placement in batch.get("backgroundPlacements") or []:
+        lines.append(
+            {
+                "id": place_id,
+                "method": "doc.place",
+                "params": placement,
+            }
+        )
+        place_id += 1
+    lines.append(
         {
-            "id": 2,
+            "id": place_id,
             "method": "batch",
             "params": {
                 "steps": batch["steps"],
                 "stopOnError": batch.get("stop_on_error", True),
             },
-        },
-    ]
-    place_id = 3
+        }
+    )
+    place_id += 1
     for placement in batch.get("placements") or []:
         lines.append(
             {

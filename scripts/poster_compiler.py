@@ -22,6 +22,9 @@ Engine steps (``batch`` / ``command_batch``):
 Placements (headless ``doc.place`` only — not engine.execute file.placeEmbedded):
   path: str relative to automation read root
   center: [x, y]?; scale: %?; fit: bool?; smartObject: bool?
+
+``backgroundPlacements`` are applied after ``doc.new`` and before the engine ``batch``
+so hero imagery sits under type layers. Foreground ``placements`` run after the batch.
 """
 
 from __future__ import annotations
@@ -91,63 +94,156 @@ def _truncate(text: str, limit: int) -> str:
     return text[: limit - 1].rstrip() + "…"
 
 
+def asset_cache_basename(url: str, prefix: str = "asset") -> str:
+    digest = hashlib.sha256(url.encode("utf-8")).hexdigest()[:16]
+    ext = ".png"
+    lower = url.lower().split("?", 1)[0]
+    for candidate in (".png", ".jpg", ".jpeg", ".webp", ".gif", ".svg"):
+        if lower.endswith(candidate):
+            ext = candidate if candidate != ".jpeg" else ".jpg"
+            break
+    return f"{prefix}-{digest}{ext}"
+
+
+def logo_cache_basename(logo_url: str) -> str:
+    return asset_cache_basename(logo_url, "logo")
+
+
+def hero_cache_basename(hero_url: str) -> str:
+    return asset_cache_basename(hero_url, "hero")
+
+
 def compile_poster_batch(
     kit: dict[str, Any] | None,
     session: dict[str, Any],
     *,
     logo_relative_path: str | None = None,
+    hero_relative_path: str | None = None,
 ) -> dict[str, Any]:
     """Build a PhotoCraft command batch for a LinkedIn 1200×627 poster."""
     kit = kit or session.get("kitSnapshot") or {}
     brief = session.get("brief") or {}
     headline = _truncate(
-        session.get("suggestedHeadline") or brief.get("headline") or "Important update",
+        session.get("suggestedHeadline")
+        or brief.get("headline")
+        or kit.get("headline")
+        or "Important update",
         90,
     )
-    body = _truncate(_body_lines(session), 220)
+    tagline = _truncate(
+        brief.get("tagline") or kit.get("tagline") or "",
+        120,
+    )
+    body = _truncate(_body_lines(session), 200)
     site_name = _truncate(kit.get("siteName") or "Learn more", 48)
 
     primary = _pick_color(kit, 0, "#1a365d")
-    accent = _pick_color(kit, 1, "#2c5282")
-    text_on_primary = _contrast_text_color(primary)
+    secondary = _pick_color(kit, 1, "#2c5282")
+    accent = _pick_color(kit, 2, secondary)
+    text_on_dark = "#ffffff"
+    text_on_light = _contrast_text_color(primary)
     font = _pick_font(kit)
+
+    has_hero = bool(hero_relative_path)
+    bg_color = secondary if has_hero else primary
 
     document = {
         "width": LINKEDIN_WIDTH,
         "height": LINKEDIN_HEIGHT,
         "mode": "rgb",
         "depth": 8,
-        "background": primary,
+        "background": bg_color,
         "resolution": 72,
         "name": f"CommMaker LinkedIn — {site_name}",
     }
 
-    steps: list[dict[str, Any]] = [
+    steps: list[dict[str, Any]] = []
+
+    if has_hero:
+        steps.append(
+            {
+                "command": "layer.newFillLayer.solidColor",
+                "params": {"color": primary, "name": "Gradient overlay"},
+            }
+        )
+        steps.append(
+            {
+                "command": "layer.setProps",
+                "params": {"name": "Gradient overlay", "opacity": 0.55},
+            }
+        )
+    else:
+        steps.append(
+            {
+                "command": "layer.newFillLayer.solidColor",
+                "params": {"color": accent, "name": "Accent panel"},
+            }
+        )
+        steps.append(
+            {
+                "command": "layer.setProps",
+                "params": {"name": "Accent panel", "opacity": 0.35},
+            }
+        )
+
+    steps.append(
+        {
+            "command": "layer.newFillLayer.solidColor",
+            "params": {"color": primary, "name": "Footer strip"},
+        }
+    )
+    steps.append(
+        {
+            "command": "layer.setProps",
+            "params": {"name": "Footer strip", "opacity": 0.92},
+        }
+    )
+
+    text_color = text_on_dark if has_hero else text_on_light
+    headline_y = 96
+    steps.append(
         {
             "command": "type.create",
             "params": {
                 "name": "Headline",
-                "box": [72, 72, 1056, 140],
+                "box": [64, headline_y, 620 if has_hero else 1056, headline_y + 120],
                 "text": headline,
                 "font": font,
-                "size": 44,
-                "color": text_on_primary,
+                "size": 42 if tagline else 46,
+                "color": text_color,
                 "align": "left",
             },
         },
-    ]
+    )
+
+    if tagline:
+        steps.append(
+            {
+                "command": "type.create",
+                "params": {
+                    "name": "Tagline",
+                    "box": [64, headline_y + 118, 620 if has_hero else 1056, headline_y + 200],
+                    "text": tagline,
+                    "font": font,
+                    "size": 22,
+                    "color": text_color,
+                    "align": "left",
+                },
+            }
+        )
 
     if body:
+        body_top = headline_y + (200 if tagline else 130)
         steps.append(
             {
                 "command": "type.create",
                 "params": {
                     "name": "Body",
-                    "box": [72, 220, 1056, 360],
+                    "box": [64, body_top, 620 if has_hero else 1056, 480],
                     "text": body,
                     "font": font,
-                    "size": 22,
-                    "color": text_on_primary,
+                    "size": 20,
+                    "color": text_color,
                     "align": "left",
                 },
             }
@@ -158,24 +254,38 @@ def compile_poster_batch(
             "command": "type.create",
             "params": {
                 "name": "Footer",
-                "box": [72, 548, 1056, 610],
+                "box": [64, 548, 1056, 610],
                 "text": site_name,
                 "font": font,
                 "size": 18,
-                "color": accent if accent != primary else text_on_primary,
+                "color": text_on_dark,
                 "align": "left",
             },
         }
     )
 
-    placements: list[dict[str, Any]] = []
+    background_placements: list[dict[str, Any]] = []
+    if hero_relative_path:
+        background_placements.append(
+            {
+                "path": hero_relative_path.replace("\\", "/"),
+                "center": [LINKEDIN_WIDTH - 300, LINKEDIN_HEIGHT // 2],
+                "scale": 115,
+                "fit": True,
+                "smartObject": True,
+                "name": "Hero image",
+            }
+        )
+
+    foreground_placements: list[dict[str, Any]] = []
     if logo_relative_path:
-        placements.append(
+        foreground_placements.append(
             {
                 "path": logo_relative_path.replace("\\", "/"),
-                "center": [LINKEDIN_WIDTH - 120, 80],
-                "scale": 35,
+                "center": [108, 72],
+                "scale": 28,
                 "smartObject": True,
+                "name": "Logo",
             }
         )
 
@@ -189,23 +299,15 @@ def compile_poster_batch(
         "document": document,
         "stop_on_error": True,
         "steps": steps,
-        "placements": placements,
+        "backgroundPlacements": background_placements,
+        "placements": foreground_placements,
         "output": {"relativePath": f"generated/{filename}"},
         "meta": {
             "headline": headline,
+            "tagline": tagline,
             "siteName": site_name,
             "primaryColor": primary,
             "accentColor": accent,
+            "hasHero": has_hero,
         },
     }
-
-
-def logo_cache_basename(logo_url: str) -> str:
-    digest = hashlib.sha256(logo_url.encode("utf-8")).hexdigest()[:16]
-    ext = ".png"
-    lower = logo_url.lower().split("?", 1)[0]
-    for candidate in (".png", ".jpg", ".jpeg", ".webp", ".gif", ".svg"):
-        if lower.endswith(candidate):
-            ext = candidate if candidate != ".jpeg" else ".jpg"
-            break
-    return f"logo-{digest}{ext}"
