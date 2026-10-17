@@ -1,0 +1,798 @@
+{
+ "url": "https://vercel.com/",
+ "kit": {
+  "sourceUrl": "https://vercel.com",
+  "siteName": "Vercel",
+  "logoUrl": null,
+  "colors": [
+   "#000000",
+   "#10bcec",
+   "#32b279",
+   "#663399",
+   "#dd0031",
+   "#ffffff",
+   "#fef2f2",
+   "#fffbeb"
+  ],
+  "fonts": [
+   "Apple Color Emoji",
+   "Segoe UI Emoji",
+   "Segoe UI Symbol",
+   "Noto Color Emoji\")",
+   "SFMono-Regular",
+   "Menlo"
+  ],
+  "scrapedAt": "2026-10-17T20:39:47.372978+00:00",
+  "heroImageUrl": "https://lishhsx6kmthaacj.public.blob.vercel-storage.com/og-home-not-x.png",
+  "heroBusy": false,
+  "heroImageKind": "og-marketing",
+  "heroBrandMark": true,
+  "logoSvg": "<svg viewBox=\"0 0 115 100\" height=\"18\" width=\"21\" data-slot=\"geist-logo-svg\"><g><path fill=\"currentColor\" fill-rule=\"evenodd\" d=\"M57.5 0 115 100H0z\" clip-rule=\"evenodd\"></path></g></svg>",
+  "logoSource": "inline-svg",
+  "faviconUrl": "https://assets.vercel.com/image/upload/q_auto/front/favicon/vercel/apple-touch-icon-57x57.png",
+  "tagline": "The autonomous stack for every app and agent.",
+  "headline": "Agentic Infrastructure - Vercel",
+  "accentColors": [
+   "#32b279",
+   "#663399",
+   "#dd0031",
+   "#ffffff",
+   "#fef2f2",
+   "#fffbeb"
+  ]
+ },
+ "rendered": {
+  "url": "https://vercel.com/",
+  "title": "Agentic Infrastructure - Vercel",
+  "lang": "en",
+  "meta": {
+   "theme-color": "#FAFAFA",
+   "description": "The autonomous stack for every app and agent.",
+   "og:title": "Agentic Infrastructure - Vercel",
+   "og:description": "The autonomous stack for every app and agent.",
+   "og:site_name": "Vercel",
+   "twitter:title": "Agentic Infrastructure - Vercel"
+  },
+  "body": {
+   "tag": "body",
+   "text": "Skip to content Products Resources Enterprise Pricing Get a Demo Log In Sign Up Agentic Infrastructure Deploy now Talk to sales Backends Age",
+   "color": "#171717",
+   "bg": "#fafafa",
+   "bgImage": "none",
+   "font": "GeistSans",
+   "weight": 400,
+   "size": 16,
+   "radius": "0px",
+   "rect": [
+    0,
+    0,
+    1440,
+    5333
+   ]
+  },
+  "pageBg": "#fafafa",
+  "h1": {
+   "tag": "h1",
+   "text": "Agentic Infrastructure",
+   "color": "#171717",
+   "bg": null,
+   "bgImage": "none",
+   "font": "GeistSans",
+   "weight": 400,
+   "size": 64,
+   "radius": "0px",
+   "rect": [
+    24,
+    328,
+    356,
+    128
+   ]
+  },
+  "h2s": [
+   {
+    "tag": "h2",
+    "text": "Build agents on infrastructure that thinks like them",
+    "color": "#171717",
+    "bg": null,
+    "bgImage": "none",
+    "font": "GeistSans",
+    "weight": 450,
+    "size": 56,
+    "radius": "0px",
+    "rect": [
+     24,
+     1108,
+     673,
+     112
+    ]
+   },
+   {
+    "tag": "h2",
+    "text": "Ship apps that scale from zero to millions instantly",
+    "color": "#171717",
+    "bg": null,
+    "bgImage": "none",
+    "font": "GeistSans",
+    "weight": 450,
+    "size": 56,
+    "radius": "0px",
+    "rect": [
+     495,
+     1981,
+     921,
+     112
+    ]
+   },
+   {
+    "tag": "h2",
+    "text": "Host platforms that serve every customer",
+    "color": "#171717",
+    "bg": null,
+    "bgImage": "none",
+    "font": "GeistSans",
+    "weight": 450,
+    "size": 56,
+    "radius": "0px",
+    "rect": [
+     24,
+     2853,
+     921,
+     112
+    ]
+   },
+   {
+    "tag": "h2",
+    "text": "Recently shipped",
+    "color": "#171717",
+    "bg": null,
+    "bgImage": "none",
+    "font": "GeistSans",
+    "weight": 450,
+    "size": 56,
+    "radius": "0px",
+    "rect": [
+     24,
+     3679,
+     921,
+     56
+    ]
+   },
+   {
+    "tag": "h2",
+    "text": "Built by you, or your agents",
+    "color": "#171717",
+    "bg": null,
+    "bgImage": "none",
+    "font": "GeistSans",
+    "weight": 450,
+    "size": 56,
+    "radius": "0px",
+    "rect": [
+     401,
+     4519,
+     638,
+     56
+    ]
+   },
+   {
+    "tag": "h2",
+    "text": "Agent Stack",
+    "color": "#171717",
+    "bg": null,
+    "bgImage": "none",
+    "font": "GeistSans",
+    "weight": 500,
+    "size": 14,
+    "radius": "0px",
+    "rect": [
+     24,
+     4775,
+     212,
+     20
+    ]
+   },
+   {
+    "tag": "h2",
+    "text": "Core Platform",
+    "color": "#171717",
+    "bg": null,
+    "bgImage": "none",
+    "font": "GeistSans",
+    "weight": 500,
+    "size": 14,
+    "radius": "0px",
+    "rect": [
+     260,
+     4775,
+     212,
+     20
+    ]
+   },
+   {
+    "tag": "h2",
+    "text": "Security",
+    "color": "#171717",
+    "bg": null,
+    "bgImage": "none",
+    "font": "GeistSans",
+    "weight": 500,
+    "size": 14,
+    "radius": "0px",
+    "rect": [
+     496,
+     4775,
+     212,
+     20
+    ]
+   }
+  ],
+  "paragraphs": [
+   "Notion powers millions of agent conversations daily on Vercel.",
+   "Zapier serves over 100 million monthly website visits on Vercel."
+  ],
+  "ctas": [
+   {
+    "tag": "a",
+    "text": "Get a Demo",
+    "color": "#171717",
+    "bg": "#ffffff",
+    "bgImage": "none",
+    "font": "GeistSans",
+    "weight": 500,
+    "size": 14,
+    "radius": "6px",
+    "rect": [
+     1152,
+     16,
+     101,
+     32
+    ],
+    "href": "/contact/sales",
+    "border": null
+   },
+   {
+    "tag": "a",
+    "text": "Log In",
+    "color": "#171717",
+    "bg": "#ffffff",
+    "bgImage": "none",
+    "font": "GeistSans",
+    "weight": 500,
+    "size": 14,
+    "radius": "6px",
+    "rect": [
+     1265,
+     16,
+     64,
+     32
+    ],
+    "href": "/login",
+    "border": null
+   },
+   {
+    "tag": "a",
+    "text": "Sign Up",
+    "color": "#ffffff",
+    "bg": "#171717",
+    "bgImage": "none",
+    "font": "GeistSans",
+    "weight": 500,
+    "size": 14,
+    "radius": "6px",
+    "rect": [
+     1341,
+     16,
+     75,
+     32
+    ],
+    "href": "/signup",
+    "border": null
+   },
+   {
+    "tag": "a",
+    "text": "Deploy now",
+    "color": "#ffffff",
+    "bg": "#171717",
+    "bgImage": "none",
+    "font": "GeistSans",
+    "weight": 500,
+    "size": 16,
+    "radius": "3.35544e+07px",
+    "rect": [
+     24,
+     488,
+     124,
+     40
+    ],
+    "href": "/signup",
+    "border": null
+   },
+   {
+    "tag": "a",
+    "text": "Talk to sales",
+    "color": "#171717",
+    "bg": "#ffffff",
+    "bgImage": "none",
+    "font": "GeistSans",
+    "weight": 500,
+    "size": 16,
+    "radius": "3.35544e+07px",
+    "rect": [
+     160,
+     488,
+     130,
+     40
+    ],
+    "href": "/contact/sales",
+    "border": null
+   },
+   {
+    "tag": "a",
+    "text": "READ THE RECAP",
+    "color": "#171717",
+    "bg": "#fafafa",
+    "bgImage": "none",
+    "font": "Geist Mono",
+    "weight": 400,
+    "size": 14,
+    "radius": "3.35544e+07px",
+    "rect": [
+     636,
+     612,
+     168,
+     34
+    ],
+    "href": "/blog/vercel-ship-2026-recap",
+    "border": "#ebebeb"
+   }
+  ],
+  "navLinks": [
+   "Enterprise",
+   "Pricing",
+   "Get a Demo",
+   "Log In",
+   "Sign Up",
+   "Deploy now",
+   "Talk to sales",
+   "Backends",
+   "Agents"
+  ],
+  "socialLinks": [
+   "https://github.com/vercel",
+   "https://x.com/vercel",
+   "https://linkedin.com/company/vercel",
+   "https://youtube.com/@VercelHQ",
+   "https://www.instagram.com/vercel/"
+  ],
+  "logos": [
+   {
+    "kind": "svg",
+    "rect": [
+     24,
+     23,
+     21,
+     18
+    ],
+    "label": "Vercel cursor-pointer focus-visible:outline-2 outline-[var(--ds-focus-color)] outline-offset-4 inline-flex items-center p-2 -ml-2",
+    "href": "/home",
+    "score": 5,
+    "color": "#171717",
+    "backdrop": "#fafafa",
+    "svg": "<svg viewBox=\"0 0 115 100\" height=\"18\" width=\"21\" data-slot=\"geist-logo-svg\"><g><path fill=\"#171717\" fill-rule=\"evenodd\" d=\"M57.5 0 115 100H0z\" clip-rule=\"evenodd\"></path></g></svg>"
+   },
+   {
+    "kind": "svg",
+    "rect": [
+     137,
+     25,
+     14,
+     14
+    ],
+    "label": "",
+    "href": "",
+    "score": 5,
+    "color": "#4d4d4d",
+    "backdrop": "#fafafa",
+    "svg": "<svg viewBox=\"0 0 16 16\" height=\"14\" width=\"14\" data-slot=\"geist-icon\" style=\"color:currentColor\" aria-hidden=\"true\"><path fill=\"#4d4d4d\" fill-rule=\"evenodd\" d=\"m12.06 6.75-.53.53-2.82 2.82a1 1 0 0 1-1.42 0L4.47 7.28l-.53-.53L5 5.69l.53.53L8 8.69l2.47-2.47.53-.53z\" clip-rule=\"evenodd\"></path></svg>"
+   },
+   {
+    "kind": "svg",
+    "rect": [
+     242,
+     25,
+     14,
+     14
+    ],
+    "label": "",
+    "href": "",
+    "score": 5,
+    "color": "#4d4d4d",
+    "backdrop": "#fafafa",
+    "svg": "<svg viewBox=\"0 0 16 16\" height=\"14\" width=\"14\" data-slot=\"geist-icon\" style=\"color:currentColor\" aria-hidden=\"true\"><path fill=\"#4d4d4d\" fill-rule=\"evenodd\" d=\"m12.06 6.75-.53.53-2.82 2.82a1 1 0 0 1-1.42 0L4.47 7.28l-.53-.53L5 5.69l.53.53L8 8.69l2.47-2.47.53-.53z\" clip-rule=\"evenodd\"></path></svg>"
+   }
+  ],
+  "cssVars": [
+   {
+    "name": "--geist-cyan",
+    "hex": "#50e3c2"
+   },
+   {
+    "name": "--geist-warning",
+    "hex": "#f5a623"
+   },
+   {
+    "name": "--geist-error",
+    "hex": "#ee0000"
+   },
+   {
+    "name": "--ds-black",
+    "hex": "#000000"
+   },
+   {
+    "name": "--ds-white",
+    "hex": "#ffffff"
+   },
+   {
+    "name": "--ds-blue-100",
+    "hex": "#f0f7ff"
+   },
+   {
+    "name": "--ds-blue-200",
+    "hex": "#ebf5ff"
+   },
+   {
+    "name": "--ds-blue-300",
+    "hex": "#e0f0ff"
+   },
+   {
+    "name": "--ds-blue-400",
+    "hex": "#cce6ff"
+   },
+   {
+    "name": "--ds-blue-500",
+    "hex": "#99ceff"
+   },
+   {
+    "name": "--ds-blue-600",
+    "hex": "#52aeff"
+   },
+   {
+    "name": "--ds-blue-700",
+    "hex": "#0072f5"
+   },
+   {
+    "name": "--ds-blue-800",
+    "hex": "#0062d1"
+   },
+   {
+    "name": "--ds-blue-900",
+    "hex": "#0068d6"
+   },
+   {
+    "name": "--ds-blue-1000",
+    "hex": "#00254d"
+   },
+   {
+    "name": "--ds-red-100",
+    "hex": "#fff0f0"
+   },
+   {
+    "name": "--ds-red-200",
+    "hex": "#ffebeb"
+   },
+   {
+    "name": "--ds-red-300",
+    "hex": "#ffe6e6"
+   },
+   {
+    "name": "--ds-red-400",
+    "hex": "#fdd8d8"
+   },
+   {
+    "name": "--ds-red-500",
+    "hex": "#f8b9b9"
+   },
+   {
+    "name": "--ds-red-600",
+    "hex": "#f87275"
+   },
+   {
+    "name": "--ds-red-700",
+    "hex": "#e5484d"
+   },
+   {
+    "name": "--ds-red-800",
+    "hex": "#da2f35"
+   },
+   {
+    "name": "--ds-red-900",
+    "hex": "#cb2a2f"
+   },
+   {
+    "name": "--ds-red-1000",
+    "hex": "#391417"
+   },
+   {
+    "name": "--ds-amber-100",
+    "hex": "#fff6e6"
+   },
+   {
+    "name": "--ds-amber-200",
+    "hex": "#fff4d6"
+   },
+   {
+    "name": "--ds-amber-300",
+    "hex": "#fef0cd"
+   },
+   {
+    "name": "--ds-amber-400",
+    "hex": "#ffdd8f"
+   },
+   {
+    "name": "--ds-amber-500",
+    "hex": "#ffc96b"
+   },
+   {
+    "name": "--ds-amber-600",
+    "hex": "#f5b047"
+   },
+   {
+    "name": "--ds-amber-700",
+    "hex": "#ffb224"
+   },
+   {
+    "name": "--ds-amber-800",
+    "hex": "#ff990a"
+   },
+   {
+    "name": "--ds-amber-900",
+    "hex": "#a35200"
+   },
+   {
+    "name": "--ds-amber-1000",
+    "hex": "#4e2009"
+   },
+   {
+    "name": "--ds-green-100",
+    "hex": "#effbef"
+   },
+   {
+    "name": "--ds-green-200",
+    "hex": "#ebfaeb"
+   },
+   {
+    "name": "--ds-green-300",
+    "hex": "#daf6da"
+   },
+   {
+    "name": "--ds-green-400",
+    "hex": "#c6f1c7"
+   },
+   {
+    "name": "--ds-green-500",
+    "hex": "#99e69e"
+   },
+   {
+    "name": "--ds-green-600",
+    "hex": "#6cda75"
+   },
+   {
+    "name": "--ds-green-700",
+    "hex": "#45a557"
+   },
+   {
+    "name": "--ds-green-800",
+    "hex": "#398e4a"
+   },
+   {
+    "name": "--ds-green-900",
+    "hex": "#297a3a"
+   },
+   {
+    "name": "--ds-green-1000",
+    "hex": "#1b311e"
+   },
+   {
+    "name": "--ds-teal-100",
+    "hex": "#eefcf9"
+   },
+   {
+    "name": "--ds-teal-200",
+    "hex": "#e5faf6"
+   },
+   {
+    "name": "--ds-teal-300",
+    "hex": "#d4f7f0"
+   },
+   {
+    "name": "--ds-teal-400",
+    "hex": "#bef4eb"
+   },
+   {
+    "name": "--ds-teal-500",
+    "hex": "#86ead9"
+   },
+   {
+    "name": "--ds-teal-600",
+    "hex": "#45dec5"
+   },
+   {
+    "name": "--ds-teal-700",
+    "hex": "#12a594"
+   },
+   {
+    "name": "--ds-teal-800",
+    "hex": "#0d8c7d"
+   },
+   {
+    "name": "--ds-teal-900",
+    "hex": "#067a6e"
+   },
+   {
+    "name": "--ds-teal-1000",
+    "hex": "#073c34"
+   },
+   {
+    "name": "--ds-purple-100",
+    "hex": "#f9f0ff"
+   },
+   {
+    "name": "--ds-purple-200",
+    "hex": "#f9f1fe"
+   },
+   {
+    "name": "--ds-purple-300",
+    "hex": "#f4e8fc"
+   },
+   {
+    "name": "--ds-purple-400",
+    "hex": "#eddcf9"
+   },
+   {
+    "name": "--ds-purple-500",
+    "hex": "#d5b1f1"
+   }
+  ],
+  "fontFaces": [
+   {
+    "family": "Geist Mono",
+    "weight": "100 900",
+    "style": "normal"
+   },
+   {
+    "family": "GeistSans",
+    "weight": "100 900",
+    "style": "normal"
+   }
+  ],
+  "colorUsage": [
+   {
+    "hex": "#f9f9f9",
+    "bgArea": 1203840,
+    "textChars": 0,
+    "borderCount": 0,
+    "gradient": 0
+   },
+   {
+    "hex": "#171717",
+    "bgArea": 302181.875,
+    "textChars": 399,
+    "borderCount": 0,
+    "gradient": 0
+   },
+   {
+    "hex": "#4d4d4d",
+    "bgArea": 0,
+    "textChars": 122,
+    "borderCount": 0,
+    "gradient": 0
+   },
+   {
+    "hex": "#ffffff",
+    "bgArea": 13340.375,
+    "textChars": 17,
+    "borderCount": 0,
+    "gradient": 0
+   },
+   {
+    "hex": "#0072f5",
+    "bgArea": 0,
+    "textChars": 15,
+    "borderCount": 0,
+    "gradient": 0
+   },
+   {
+    "hex": "#fafafa",
+    "bgArea": 5698.71875,
+    "textChars": 0,
+    "borderCount": 0,
+    "gradient": 2
+   },
+   {
+    "hex": "#ebebeb",
+    "bgArea": 0,
+    "textChars": 0,
+    "borderCount": 1,
+    "gradient": 0
+   }
+  ],
+  "fontUsage": [
+   {
+    "family": "GeistSans",
+    "chars": 539,
+    "weights": {
+     "400": 87,
+     "450": 252,
+     "500": 200
+    },
+    "tags": {
+     "a": 4,
+     "span": 11,
+     "h1": 1,
+     "h2": 2,
+     "p": 2,
+     "li": 10
+    },
+    "maxSize": 64
+   },
+   {
+    "family": "Geist Mono",
+    "chars": 14,
+    "weights": {
+     "400": 14
+    },
+    "tags": {
+     "span": 1
+    },
+    "maxSize": 14
+   }
+  ],
+  "scrollHeight": 5333,
+  "viewport": [
+   1440,
+   900
+  ]
+ },
+ "pixels": [
+  {
+   "hex": "#fafafa",
+   "share": 0.7276
+  },
+  {
+   "hex": "#232323",
+   "share": 0.0639
+  },
+  {
+   "hex": "#0d0d0d",
+   "share": 0.0615
+  },
+  {
+   "hex": "#fdfdfd",
+   "share": 0.0407
+  },
+  {
+   "hex": "#cccccc",
+   "share": 0.0357
+  },
+  {
+   "hex": "#6b6b6b",
+   "share": 0.0305
+  },
+  {
+   "hex": "#f1f1f1",
+   "share": 0.0183
+  },
+  {
+   "hex": "#fafaf9",
+   "share": 0.0126
+  },
+  {
+   "hex": "#fbfafa",
+   "share": 0.0091
+  },
+  {
+   "hex": "#f9fafb",
+   "share": 0.0001
+  }
+ ]
+}

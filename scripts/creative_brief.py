@@ -213,6 +213,9 @@ def kit_summary_for_prompt(kit: dict[str, Any] | None) -> str:
         f"hasHeroImage: {bool(kit.get('heroImageUrl'))}",
         f"headlineFromSite: {kit.get('headline') or '(none)'}",
     ]
+    from brand_profile import brand_profile_prompt_lines
+
+    lines.extend(brand_profile_prompt_lines(kit))
     return "\n".join(lines)
 
 
