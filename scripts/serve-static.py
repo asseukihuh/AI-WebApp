@@ -39,6 +39,12 @@ from creative_brief import (  # noqa: E402
     effective_ideogram_layers,
 )
 from ideogram_client import generate_layer_image, ideogram_api_key  # noqa: E402
+from brand_profile import (  # noqa: E402
+    analyze_brand,
+    apply_brand_profile_to_kit,
+    augment_ideogram_prompt,
+    playwright_available,
+)
 from poster_compiler import (  # noqa: E402
     compile_poster_batch,
     hero_cache_basename,
@@ -55,6 +61,7 @@ MAX_LOGO_BYTES = 4_000_000
 FETCH_TIMEOUT_SEC = 20
 GENERATED_DIR = os.path.join(ROOT, "generated")
 ASSETS_DIR = os.path.join(GENERATED_DIR, "assets")
+BRAND_PROFILE_DIR = os.path.join(GENERATED_DIR, "brand-profiles")
 
 mimetypes.add_type("application/wasm", ".wasm")
 mimetypes.add_type("text/javascript", ".js")
@@ -70,6 +77,7 @@ def dev_status_payload() -> dict:
         "anthropicKeyLoaded": bool(anthropic_key),
         "anthropicKeyLen": len(anthropic_key),
         "ideogramKeyLoaded": bool(ideogram_key),
+        "playwrightAvailable": playwright_available()[0],
         "creativeBriefStack": CREATIVE_BRIEF_STACK,
     }
 
@@ -107,6 +115,9 @@ class CommMakerHandler(http.server.SimpleHTTPRequestHandler):
         if path == "/api/creative-brief":
             self._handle_creative_brief()
             return
+        if path == "/api/brand-profile":
+            self._handle_brand_profile()
+            return
         if path == "/api/generate-poster":
             self._handle_generate_poster()
             return
@@ -142,6 +153,49 @@ class CommMakerHandler(http.server.SimpleHTTPRequestHandler):
             raise ValueError("Page too large to scrape")
         charset = "utf-8"
         return data.decode(charset, errors="replace")
+
+    def _scrape_kit_for_url(self, url: str) -> dict:
+        html = self._fetch_html(url)
+
+        def _css_fetcher(css_url: str) -> bytes:
+            req = urllib.request.Request(
+                css_url,
+                headers={
+                    "User-Agent": "CommMaker-KitScraper/0.2 (+https://github.com/asseukihuh/AI-WebApp)",
+                    "Accept": "text/css,*/*",
+                },
+                method="GET",
+            )
+            with urllib.request.urlopen(req, timeout=FETCH_TIMEOUT_SEC) as resp:
+                data = resp.read(MAX_STYLESHEET_BYTES + 1)
+            return data[:MAX_STYLESHEET_BYTES]
+
+        return scrape_kit_from_page(html, url, fetcher=_css_fetcher)
+
+    def _handle_brand_profile(self) -> None:
+        try:
+            body = self._read_json_body()
+            url = validate_fetch_url(str(body.get("url", "")))
+            result = analyze_brand(
+                url,
+                cache_dir=BRAND_PROFILE_DIR,
+                scrape_fn=self._scrape_kit_for_url,
+                refresh=bool(body.get("refresh")),
+                mobile=body.get("mobile", True) is not False,
+                use_capture=body.get("capture", True) is not False,
+                repo_root=ROOT,
+            )
+            self._send_json(200, result)
+        except ValueError as exc:
+            self._send_json(400, {"error": str(exc)})
+        except urllib.error.HTTPError as exc:
+            self._send_json(502, {"error": f"Upstream HTTP {exc.code}"})
+        except urllib.error.URLError as exc:
+            self._send_json(502, {"error": f"Could not fetch URL: {exc.reason}"})
+        except json.JSONDecodeError:
+            self._send_json(400, {"error": "Invalid JSON body"})
+        except Exception as exc:  # noqa: BLE001 — MVP API
+            self._send_json(500, {"error": str(exc)})
 
     def _handle_scrape_kit(self) -> None:
         try:
@@ -298,7 +352,7 @@ class CommMakerHandler(http.server.SimpleHTTPRequestHandler):
     def _handle_creative_brief(self) -> None:
         try:
             body = self._read_json_body(MAX_POSTER_BODY_BYTES)
-            kit = body.get("kit") or {}
+            kit = apply_brand_profile_to_kit(body.get("kit") or {})
             crisis_message = str(body.get("crisisMessage") or "").strip()
             crisis_facts = body.get("crisisFacts")
             crisis: dict = {
@@ -343,7 +397,7 @@ class CommMakerHandler(http.server.SimpleHTTPRequestHandler):
                 raise ValueError("Request must include session (or brief) JSON")
             if not kit:
                 kit = session.get("kitSnapshot")
-            kit = dict(kit or {})
+            kit = apply_brand_profile_to_kit(kit)
             if isinstance(kit.get("logoSvg"), str) and kit["logoSvg"].strip().startswith(
                 "<svg"
             ):
@@ -372,9 +426,13 @@ class CommMakerHandler(http.server.SimpleHTTPRequestHandler):
                 isinstance(creative_brief, dict)
                 and creative_brief.get("heroStrategy") == "ideogram_generate"
             ):
-                prompt = str(creative_brief.get("heroImagePrompt") or "").strip()
+                prompt = augment_ideogram_prompt(
+                    str(creative_brief.get("heroImagePrompt") or ""), kit, role="background"
+                )
                 layers_mode = effective_ideogram_layers(creative_brief)
-                accent_prompt = str(creative_brief.get("accentImagePrompt") or "").strip()
+                accent_prompt = augment_ideogram_prompt(
+                    str(creative_brief.get("accentImagePrompt") or ""), kit, role="accent"
+                )
                 if ideogram_api_key() and prompt:
                     try:
                         hero_rel, _bytes, bg_meta = generate_layer_image(
@@ -646,6 +704,7 @@ def main() -> None:
         if args.coop_coep:
             print("COOP/COEP enabled (optional; PhotoCraft does not need SharedArrayBuffer)")
         print("PhotoCraft embed: http://localhost:{}/photocraft/".format(args.port))
+        print("Brand profile: POST http://localhost:{}/api/brand-profile".format(args.port))
         print("Creative brief: POST http://localhost:{}/api/creative-brief".format(args.port))
         print("Poster API: POST http://localhost:{}/api/generate-poster".format(args.port))
         print("Dev status: GET http://localhost:{}/api/dev-status".format(args.port))
