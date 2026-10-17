@@ -38,12 +38,18 @@ LINKEDIN_WIDTH = 1200
 LINKEDIN_HEIGHT = 627
 BATCH_FORMAT = "photocraft-command-batch-v1"
 
-
-def _pick_color(kit: dict[str, Any] | None, index: int = 0, default: str = "#1a365d") -> str:
-    colors = (kit or {}).get("colors") or []
-    if index < len(colors):
-        return _normalize_hex(colors[index], default)
-    return default
+_NEUTRAL_HEX = frozenset(
+    {
+        "#000000",
+        "#ffffff",
+        "#fff",
+        "#000",
+        "#abb8c3",
+        "#e2e8f0",
+        "#f8fafc",
+        "#1a202c",
+    }
+)
 
 
 def _normalize_hex(value: str, default: str) -> str:
@@ -57,6 +63,53 @@ def _normalize_hex(value: str, default: str) -> str:
     return default
 
 
+def _is_neutral(hex_color: str) -> bool:
+    hex6 = _normalize_hex(hex_color, "")
+    if hex6 in _NEUTRAL_HEX:
+        return True
+    if not hex6.startswith("#") or len(hex6) != 7:
+        return True
+    body = hex6[1:]
+    r, g, b = (int(body[i : i + 2], 16) for i in (0, 2, 4))
+    spread = max(r, g, b) - min(r, g, b)
+    avg = (r + g + b) / 3
+    return spread < 18 and (avg < 40 or avg > 230)
+
+
+def _palette_from_kit(kit: dict[str, Any] | None) -> list[str]:
+    kit = kit or {}
+    ordered: list[str] = []
+    for key in ("accentColors", "colors"):
+        raw = kit.get(key) or []
+        if isinstance(raw, list):
+            for item in raw:
+                if isinstance(item, str):
+                    ordered.append(_normalize_hex(item, ""))
+    seen: set[str] = set()
+    palette: list[str] = []
+    for color in ordered:
+        if not color or not color.startswith("#") or color in seen:
+            continue
+        seen.add(color)
+        palette.append(color)
+    return palette
+
+
+def _pick_color(
+    kit: dict[str, Any] | None,
+    index: int = 0,
+    default: str = "#1a365d",
+) -> str:
+    palette = _palette_from_kit(kit)
+    vivid = [c for c in palette if not _is_neutral(c)]
+    pool = vivid if vivid else palette
+    if index < len(pool):
+        return pool[index]
+    if index < len(palette):
+        return palette[index]
+    return default
+
+
 def _contrast_text_color(bg_hex: str) -> str:
     hex6 = bg_hex.lstrip("#")
     if len(hex6) != 6:
@@ -66,7 +119,16 @@ def _contrast_text_color(bg_hex: str) -> str:
     return "#0f172a" if luminance > 0.6 else "#ffffff"
 
 
-def _body_lines(session: dict[str, Any], max_lines: int = 3) -> str:
+def _normalize_compare(text: str) -> str:
+    return re.sub(r"\s+", " ", (text or "").strip()).casefold()
+
+
+def _body_lines(
+    session: dict[str, Any],
+    *,
+    skip_headline: str = "",
+    max_lines: int = 3,
+) -> str:
     facts = (session.get("brief") or {}).get("facts") or ""
     lines = [ln.strip() for ln in facts.splitlines() if ln.strip()]
     if not lines and session.get("captionDraft"):
@@ -75,6 +137,11 @@ def _body_lines(session: dict[str, Any], max_lines: int = 3) -> str:
             for ln in str(session["captionDraft"]).splitlines()
             if ln.strip()
         ][1:4]
+    skip = _normalize_compare(skip_headline)
+    if skip and lines and _normalize_compare(lines[0]) == skip:
+        lines = lines[1:]
+    elif skip:
+        lines = [ln for ln in lines if _normalize_compare(ln) != skip]
     return "\n".join(lines[:max_lines])
 
 
@@ -92,6 +159,53 @@ def _truncate(text: str, limit: int) -> str:
     if len(text) <= limit:
         return text
     return text[: limit - 1].rstrip() + "…"
+
+
+def _pick_site_name(kit: dict[str, Any] | None) -> str:
+    kit = kit or {}
+    raw = kit.get("siteName") or "Learn more"
+    name = re.sub(r"\s+", " ", str(raw)).strip()
+    if re.match(r"^accueil\s*[-–|]\s*", name, re.I):
+        name = re.sub(r"^accueil\s*[-–|]\s*", "", name, flags=re.I).strip()
+    generic = name.casefold() in {"accueil", "home", "welcome", "untitled site", "learn more"}
+    if generic or len(name) < 3:
+        for src in (kit.get("headline"), kit.get("tagline")):
+            if not src:
+                continue
+            parts = [p.strip() for p in re.split(r"[\-–|]", str(src)) if p.strip()]
+            if len(parts) >= 2:
+                candidate = parts[-1]
+                if candidate.casefold() not in {"accueil", "home"}:
+                    name = candidate
+                    break
+    return _truncate(name or "Learn more", 48)
+
+
+def _resolve_headline_hierarchy(
+    kit: dict[str, Any] | None,
+    session: dict[str, Any],
+) -> tuple[str, str]:
+    """Crisis headline (large) + optional subhead (smaller), without duplicating copy."""
+    brief = session.get("brief") or {}
+    crisis = _truncate(
+        session.get("suggestedHeadline")
+        or brief.get("headline")
+        or "",
+        90,
+    )
+    kit_head = _truncate((kit or {}).get("headline") or "", 90)
+    kit_tag = _truncate((kit or {}).get("tagline") or brief.get("tagline") or "", 120)
+
+    if not crisis:
+        crisis = kit_head or "Important update"
+
+    subhead = ""
+    if kit_tag and _normalize_compare(kit_tag) != _normalize_compare(crisis):
+        subhead = kit_tag
+    elif kit_head and _normalize_compare(kit_head) != _normalize_compare(crisis):
+        subhead = kit_head
+
+    return crisis, subhead
 
 
 def asset_cache_basename(url: str, prefix: str = "asset") -> str:
@@ -122,20 +236,9 @@ def compile_poster_batch(
 ) -> dict[str, Any]:
     """Build a PhotoCraft command batch for a LinkedIn 1200×627 poster."""
     kit = kit or session.get("kitSnapshot") or {}
-    brief = session.get("brief") or {}
-    headline = _truncate(
-        session.get("suggestedHeadline")
-        or brief.get("headline")
-        or kit.get("headline")
-        or "Important update",
-        90,
-    )
-    tagline = _truncate(
-        brief.get("tagline") or kit.get("tagline") or "",
-        120,
-    )
-    body = _truncate(_body_lines(session), 200)
-    site_name = _truncate(kit.get("siteName") or "Learn more", 48)
+    headline, tagline = _resolve_headline_hierarchy(kit, session)
+    body = _truncate(_body_lines(session, skip_headline=headline), 200)
+    site_name = _pick_site_name(kit)
 
     primary = _pick_color(kit, 0, "#1a365d")
     secondary = _pick_color(kit, 1, "#2c5282")
@@ -163,13 +266,13 @@ def compile_poster_batch(
         steps.append(
             {
                 "command": "layer.newFillLayer.solidColor",
-                "params": {"color": primary, "name": "Gradient overlay"},
+                "params": {"color": primary, "name": "Hero scrim"},
             }
         )
         steps.append(
             {
                 "command": "layer.setProps",
-                "params": {"name": "Gradient overlay", "opacity": 0.55},
+                "params": {"name": "Hero scrim", "opacity": 0.38},
             }
         )
     else:
@@ -186,27 +289,15 @@ def compile_poster_batch(
             }
         )
 
-    steps.append(
-        {
-            "command": "layer.newFillLayer.solidColor",
-            "params": {"color": primary, "name": "Footer strip"},
-        }
-    )
-    steps.append(
-        {
-            "command": "layer.setProps",
-            "params": {"name": "Footer strip", "opacity": 0.92},
-        }
-    )
-
     text_color = text_on_dark if has_hero else text_on_light
+    text_column_right = 640 if has_hero else 1056
     headline_y = 96
     steps.append(
         {
             "command": "type.create",
             "params": {
                 "name": "Headline",
-                "box": [64, headline_y, 620 if has_hero else 1056, headline_y + 120],
+                "box": [64, headline_y, text_column_right, headline_y + 120],
                 "text": headline,
                 "font": font,
                 "size": 42 if tagline else 46,
@@ -222,7 +313,7 @@ def compile_poster_batch(
                 "command": "type.create",
                 "params": {
                     "name": "Tagline",
-                    "box": [64, headline_y + 118, 620 if has_hero else 1056, headline_y + 200],
+                    "box": [64, headline_y + 118, text_column_right, headline_y + 200],
                     "text": tagline,
                     "font": font,
                     "size": 22,
@@ -239,7 +330,7 @@ def compile_poster_batch(
                 "command": "type.create",
                 "params": {
                     "name": "Body",
-                    "box": [64, body_top, 620 if has_hero else 1056, 480],
+                    "box": [64, body_top, text_column_right, 480],
                     "text": body,
                     "font": font,
                     "size": 20,
@@ -258,7 +349,7 @@ def compile_poster_batch(
                 "text": site_name,
                 "font": font,
                 "size": 18,
-                "color": text_on_dark,
+                "color": text_on_dark if has_hero else text_on_light,
                 "align": "left",
             },
         }
@@ -269,8 +360,8 @@ def compile_poster_batch(
         background_placements.append(
             {
                 "path": hero_relative_path.replace("\\", "/"),
-                "center": [LINKEDIN_WIDTH - 300, LINKEDIN_HEIGHT // 2],
-                "scale": 115,
+                "center": [LINKEDIN_WIDTH // 2, LINKEDIN_HEIGHT // 2],
+                "scale": 100,
                 "fit": True,
                 "smartObject": True,
                 "name": "Hero image",

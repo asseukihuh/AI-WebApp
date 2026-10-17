@@ -153,13 +153,19 @@ class CommMakerHandler(http.server.SimpleHTTPRequestHandler):
         return rel_path
 
     def _maybe_cache_remote_asset(
-        self, url: str | None, basename_fn: Callable[[str], str]
+        self,
+        url: str | None,
+        basename_fn: Callable[[str], str],
+        errors: list[dict[str, str]] | None = None,
+        role: str = "asset",
     ) -> str | None:
         if not url or not isinstance(url, str):
             return None
         try:
             url = validate_fetch_url(url)
-        except ValueError:
+        except ValueError as exc:
+            if errors is not None:
+                errors.append({"role": role, "url": url, "error": str(exc)})
             return None
         basename = basename_fn(url)
         rel_path = f"generated/assets/{basename}"
@@ -167,12 +173,36 @@ class CommMakerHandler(http.server.SimpleHTTPRequestHandler):
         if not os.path.isfile(abs_path):
             try:
                 data = self._fetch_binary(url)
-            except (urllib.error.HTTPError, urllib.error.URLError, ValueError):
+            except urllib.error.HTTPError as exc:
+                if errors is not None:
+                    errors.append(
+                        {
+                            "role": role,
+                            "url": url,
+                            "error": f"HTTP {exc.code}",
+                        }
+                    )
+                return None
+            except urllib.error.URLError as exc:
+                if errors is not None:
+                    errors.append(
+                        {
+                            "role": role,
+                            "url": url,
+                            "error": f"Fetch failed: {exc.reason}",
+                        }
+                    )
+                return None
+            except ValueError as exc:
+                if errors is not None:
+                    errors.append({"role": role, "url": url, "error": str(exc)})
                 return None
             self._write_cached_asset(basename, data)
         return rel_path
 
-    def _maybe_cache_logo(self, kit: dict) -> str | None:
+    def _maybe_cache_logo(
+        self, kit: dict, errors: list[dict[str, str]] | None = None
+    ) -> str | None:
         if not kit:
             return None
         logo_svg = kit.get("logoSvg")
@@ -182,12 +212,17 @@ class CommMakerHandler(http.server.SimpleHTTPRequestHandler):
                 f"logo-{digest}.svg", logo_svg.encode("utf-8")
             )
         return self._maybe_cache_remote_asset(
-            kit.get("logoUrl"), logo_cache_basename
+            kit.get("logoUrl"), logo_cache_basename, errors, role="logo"
         )
 
-    def _maybe_cache_hero(self, kit: dict) -> str | None:
+    def _maybe_cache_hero(
+        self, kit: dict, errors: list[dict[str, str]] | None = None
+    ) -> str | None:
         return self._maybe_cache_remote_asset(
-            kit.get("heroImageUrl") if kit else None, hero_cache_basename
+            kit.get("heroImageUrl") if kit else None,
+            hero_cache_basename,
+            errors,
+            role="hero",
         )
 
     def _handle_generate_poster(self) -> None:
@@ -201,8 +236,9 @@ class CommMakerHandler(http.server.SimpleHTTPRequestHandler):
                 raise ValueError("Request must include session (or brief) JSON")
             if not kit:
                 kit = session.get("kitSnapshot")
-            logo_rel = self._maybe_cache_logo(kit or {})
-            hero_rel = self._maybe_cache_hero(kit or {})
+            asset_errors: list[dict[str, str]] = []
+            logo_rel = self._maybe_cache_logo(kit or {}, asset_errors)
+            hero_rel = self._maybe_cache_hero(kit or {}, asset_errors)
             batch = compile_poster_batch(
                 kit,
                 session,
@@ -224,6 +260,16 @@ class CommMakerHandler(http.server.SimpleHTTPRequestHandler):
                     {"error": f"PhotoCraft CLI download failed: {exc.reason}"},
                 )
                 return
+            placement_errors = list(result.get("placementErrors") or [])
+            if asset_errors:
+                for item in asset_errors:
+                    placement_errors.append(
+                        {
+                            "role": item.get("role", "asset"),
+                            "error": item.get("error", "asset download failed"),
+                            "url": item.get("url"),
+                        }
+                    )
             payload = {
                 "ok": result.get("ok", False),
                 "commandBatch": result.get("commandBatch"),
@@ -231,6 +277,7 @@ class CommMakerHandler(http.server.SimpleHTTPRequestHandler):
                 "openUrl": result.get("openUrl"),
                 "cliAvailable": result.get("cliAvailable", False),
                 "cliPath": result.get("cliPath"),
+                "placementErrors": placement_errors,
             }
             if result.get("error"):
                 payload["cliError"] = result["error"]
