@@ -7,6 +7,7 @@ import json
 import os
 import sys
 import unittest
+import urllib.error
 from unittest.mock import patch
 
 ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
@@ -15,11 +16,13 @@ if SCRIPTS not in sys.path:
     sys.path.insert(0, SCRIPTS)
 
 from creative_brief import (  # noqa: E402
+    _safe_error_detail,
     build_creative_brief,
     build_fallback_brief,
     default_model_for_provider,
     resolve_llm_model,
 )
+import urllib.error  # noqa: E402
 from poster_compiler import compile_poster_batch  # noqa: E402
 
 
@@ -56,6 +59,8 @@ class TestCreativeBriefFallback(unittest.TestCase):
         }
         result = build_creative_brief(kit, crisis)
         self.assertEqual(result["source"], "fallback")
+        self.assertEqual(result["fallbackReason"], "no_provider")
+        self.assertEqual(result["errorDetail"], "ConfigurationError")
         brief = result["brief"]
         self.assertEqual(brief["heroStrategy"], "gradient_from_palette")
         self.assertEqual(brief["layoutRecipe"], "gradient-brand")
@@ -103,6 +108,25 @@ class TestCreativeBriefFallback(unittest.TestCase):
         self.assertEqual(result["model"], "gpt-4.1")
         self.assertEqual(result["provider"], "openai")
         mock_llm.assert_called_once()
+
+    @patch.dict(os.environ, {"OPENAI_API_KEY": "test-key"})
+    @patch("creative_brief._call_llm")
+    def test_llm_error_fallback_metadata(self, mock_llm) -> None:
+        mock_llm.side_effect = urllib.error.HTTPError(
+            url="https://api.openai.com/v1/chat/completions",
+            code=401,
+            msg="Unauthorized",
+            hdrs=None,
+            fp=None,
+        )
+        result = build_creative_brief({}, {"crisisFacts": "x"})
+        self.assertEqual(result["source"], "fallback")
+        self.assertEqual(result["fallbackReason"], "llm_error")
+        self.assertEqual(result["errorDetail"], "HTTP 401")
+        self.assertEqual(result["provider"], "openai")
+
+    def test_safe_error_detail_uses_exception_class(self) -> None:
+        self.assertEqual(_safe_error_detail(TimeoutError()), "TimeoutError")
 
 
 class TestPosterWithBrief(unittest.TestCase):

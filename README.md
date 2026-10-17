@@ -247,7 +247,7 @@ Use the dev server (required for website kit scrape API):
 python3 scripts/serve-static.py --port 8000
 ```
 
-On Windows, prefer `.\scripts\dev-commmaker.ps1` (same server, auto vendor install).
+On Windows, prefer `.\scripts\dev-commmaker.ps1` (same server, auto vendor install). Copy `.env.example` to `.env` in the repo root for local API keys (Windows dev script loads it automatically).
 
 | Step | URL | What it does |
 |------|-----|----------------|

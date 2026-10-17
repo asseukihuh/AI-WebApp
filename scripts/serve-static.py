@@ -281,6 +281,10 @@ class CommMakerHandler(http.server.SimpleHTTPRequestHandler):
                 payload["model"] = result["model"]
             if result.get("provider"):
                 payload["provider"] = result["provider"]
+            if result.get("fallbackReason"):
+                payload["fallbackReason"] = result["fallbackReason"]
+            if result.get("errorDetail"):
+                payload["errorDetail"] = result["errorDetail"]
             self._send_json(200, payload)
         except ValueError as exc:
             self._send_json(400, {"error": str(exc)})
