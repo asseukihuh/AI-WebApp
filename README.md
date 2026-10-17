@@ -278,7 +278,7 @@ Before compile, Crisis calls **`POST /api/creative-brief`**: a frontier LLM choo
 
 #### Ideogram 4 hero (optional)
 
-When the creative brief uses `heroStrategy: ideogram_generate`, CommMaker generates hero art via Ideogram 4.0 before poster compile. See [`docs/ideogram-hero.md`](docs/ideogram-hero.md).
+When the creative brief uses `heroStrategy: ideogram_generate`, CommMaker generates background (and optional accent) raster layers via Ideogram before poster compile. See [`docs/ideogram-layers.md`](docs/ideogram-layers.md).
 
 | Variable | Purpose |
 |----------|---------|

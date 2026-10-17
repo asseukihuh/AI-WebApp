@@ -44,6 +44,9 @@ from typing import Any
 
 LINKEDIN_WIDTH = 1200
 LINKEDIN_HEIGHT = 627
+ACCENT_MAX_WIDTH_FRACTION = 0.45
+ACCENT_CENTER_X = LINKEDIN_WIDTH * 0.72
+ACCENT_CENTER_Y = LINKEDIN_HEIGHT * 0.48
 SAFE_PAD = 48
 TEXT_BLOCK_MAX_WIDTH = 900
 LOGO_MARGIN = 56
@@ -618,13 +621,14 @@ def _hero_background_placement(
     *,
     img_width: int | None = None,
     img_height: int | None = None,
+    layer_name: str = "Hero image",
 ) -> dict[str, Any]:
     placement: dict[str, Any] = {
         "path": hero_relative_path.replace("\\", "/"),
         "center": [LINKEDIN_WIDTH / 2, LINKEDIN_HEIGHT / 2],
         "fit": False,
         "smartObject": True,
-        "name": "Hero image",
+        "name": layer_name,
         "cover": True,
     }
     if img_width and img_height:
@@ -632,6 +636,27 @@ def _hero_background_placement(
             cover_scale_percent(img_width, img_height), 2
         )
     return placement
+
+
+def _accent_background_placement(
+    accent_relative_path: str,
+    *,
+    img_width: int | None = None,
+    img_height: int | None = None,
+) -> dict[str, Any]:
+    max_w = LINKEDIN_WIDTH * ACCENT_MAX_WIDTH_FRACTION
+    max_h = LINKEDIN_HEIGHT * 0.58
+    scale = 45.0
+    if img_width and img_height and img_width > 0 and img_height > 0:
+        scale = min((max_w / img_width) * 100.0, (max_h / img_height) * 100.0)
+    return {
+        "path": accent_relative_path.replace("\\", "/"),
+        "center": [ACCENT_CENTER_X, ACCENT_CENTER_Y],
+        "scale": round(scale, 2),
+        "fit": True,
+        "smartObject": True,
+        "name": "Accent illustration",
+    }
 
 
 def _logo_knockback_placement(
@@ -794,6 +819,9 @@ def compile_poster_batch(
     hero_relative_path: str | None = None,
     hero_width: int | None = None,
     hero_height: int | None = None,
+    accent_relative_path: str | None = None,
+    accent_width: int | None = None,
+    accent_height: int | None = None,
     logo_width: int | None = None,
     logo_height: int | None = None,
     fonts_resolved: dict[str, Any] | None = None,
@@ -998,6 +1026,13 @@ def compile_poster_batch(
             }
         )
 
+    ideogram_layers = None
+    if creative_brief and creative_brief.get("heroStrategy") == "ideogram_generate":
+        ideogram_layers = creative_brief.get("ideogramLayers") or "background-only"
+    background_layer_name = (
+        "Background" if ideogram_layers else "Hero image"
+    )
+
     background_placements: list[dict[str, Any]] = []
     if hero_relative_path:
         background_placements.append(
@@ -1005,8 +1040,18 @@ def compile_poster_batch(
                 hero_relative_path,
                 img_width=hero_width,
                 img_height=hero_height,
+                layer_name=background_layer_name,
             )
         )
+    if accent_relative_path:
+        background_placements.append(
+            _accent_background_placement(
+                accent_relative_path,
+                img_width=accent_width,
+                img_height=accent_height,
+            )
+        )
+    if hero_relative_path or accent_relative_path:
         background_placements.append(_type_scrim_placement())
 
     logo_layout = _logo_layout(logo_width or 0, logo_height or 0)
@@ -1047,6 +1092,8 @@ def compile_poster_batch(
             "primaryColor": primary,
             "accentColor": accent,
             "hasHero": has_photo_hero,
+            "hasAccentLayer": bool(accent_relative_path),
+            "ideogramLayers": ideogram_layers,
             "heroBusy": hero_busy,
             "heroBrandMark": hero_brand_mark,
             "logoOnDark": logo_on_dark,

@@ -20,6 +20,7 @@ HeroStrategy = Literal[
     "solid",
     "none",
 ]
+IdeogramLayers = Literal["background-only", "background-plus-accent"]
 LogoTreatment = Literal["wordmark-white", "wordmark-dark", "symbol-only"]
 Emphasis = Literal["calm", "urgent", "celebratory"]
 BriefSource = Literal["llm", "fallback"]
@@ -63,6 +64,11 @@ CREATIVE_BRIEF_JSON_SCHEMA: dict[str, Any] = {
             ],
         },
         "heroImagePrompt": {"type": "string"},
+        "accentImagePrompt": {"type": "string"},
+        "ideogramLayers": {
+            "type": "string",
+            "enum": ["background-only", "background-plus-accent"],
+        },
         "logoTreatment": {
             "type": "string",
             "enum": ["wordmark-white", "wordmark-dark", "symbol-only"],
@@ -237,6 +243,9 @@ def build_fallback_brief(
     }
     if hero_strategy == "ideogram_generate":
         brief["heroImagePrompt"] = _fallback_ideogram_prompt(kit, crisis)
+        brief["ideogramLayers"] = effective_ideogram_layers(brief)
+        if brief["ideogramLayers"] == "background-plus-accent":
+            brief["accentImagePrompt"] = _fallback_accent_prompt(kit, crisis)
     return _normalize_brief(brief)
 
 
@@ -266,6 +275,7 @@ def _normalize_brief(raw: dict[str, Any]) -> dict[str, Any]:
     if cta and str(cta).strip():
         out["cta"] = _truncate(str(cta), 48)
     hero_prompt = raw.get("heroImagePrompt")
+    accent_prompt = raw.get("accentImagePrompt")
     if hero == "ideogram_generate":
         if hero_prompt and str(hero_prompt).strip():
             out["heroImagePrompt"] = _truncate(str(hero_prompt), 480)
@@ -274,6 +284,19 @@ def _normalize_brief(raw: dict[str, Any]) -> dict[str, Any]:
                 str(raw.get("heroImagePrompt") or "Professional brand scene for LinkedIn update."),
                 480,
             )
+        layers = effective_ideogram_layers(raw)
+        out["ideogramLayers"] = layers
+        if layers == "background-plus-accent":
+            if accent_prompt and str(accent_prompt).strip():
+                out["accentImagePrompt"] = _truncate(str(accent_prompt), 480)
+            else:
+                out["accentImagePrompt"] = _truncate(
+                    str(
+                        raw.get("accentImagePrompt")
+                        or "Isolated brand illustration, no text or logo."
+                    ),
+                    480,
+                )
     elif hero_prompt and str(hero_prompt).strip():
         out["heroImagePrompt"] = _truncate(str(hero_prompt), 480)
     return out
@@ -285,6 +308,24 @@ def _kit_color_phrase(kit: dict[str, Any] | None) -> str:
     if not colors:
         return "brand-appropriate colors"
     return ", ".join(str(c) for c in colors[:4])
+
+
+def effective_ideogram_layers(
+    brief: dict[str, Any] | None,
+    *,
+    ideogram_key_set: bool | None = None,
+) -> IdeogramLayers:
+    """Layer mode for ``ideogram_generate`` briefs."""
+    if not brief or brief.get("heroStrategy") != "ideogram_generate":
+        return "background-only"
+    raw = brief.get("ideogramLayers")
+    if raw in ("background-only", "background-plus-accent"):
+        return raw  # type: ignore[return-value]
+    if ideogram_key_set is None:
+        ideogram_key_set = bool((os.environ.get("IDEOGRAM_API_KEY") or "").strip())
+    if ideogram_key_set:
+        return "background-plus-accent"
+    return "background-only"
 
 
 def _fallback_ideogram_prompt(
@@ -300,7 +341,23 @@ def _fallback_ideogram_prompt(
     return (
         f"Editorial marketing photograph for {site}, calm {tone} corporate communications, "
         f"abstract professional scene (no UI screenshots, no homepage mockups), "
-        f"palette accents {colors}, subtle depth, space for headline overlay, context: {context}"
+        f"palette accents {colors}, subtle depth, negative space in lower-left for headline text, "
+        f"context: {context}"
+    )
+
+
+def _fallback_accent_prompt(
+    kit: dict[str, Any] | None,
+    crisis: dict[str, Any],
+) -> str:
+    kit = kit or {}
+    site = kit.get("siteName") or "the organization"
+    colors = _kit_color_phrase(kit)
+    tone = (crisis.get("tone") or "factual").strip()
+    return (
+        f"Single editorial illustration subject for {site}, calm {tone} corporate tone, "
+        f"no text, no logo, no wordmarks, palette accents {colors}, "
+        f"isolated focal subject suitable for right side of a poster"
     )
 
 
@@ -332,8 +389,13 @@ Confirmed crisis facts:
 Choose layoutRecipe, heroStrategy, and logoTreatment so the poster feels on-brand and readable at 1200×627.
 Avoid full-bleed competitor OG artwork when heroBrandMark is true or heroBusy is true.
 For LinkedIn crisis/update posts when the scraped kit hero is busy UI chrome or a brand-mark OG image, prefer heroStrategy ideogram_generate with layoutRecipe photo-hero-type.
-When heroStrategy is ideogram_generate, set heroImagePrompt to a vivid on-brand marketing scene (include siteName and kit color hex values). Never describe homepage screenshots, browser chrome, or literal OG triangles.
-When heroStrategy is not ideogram_generate, omit heroImagePrompt or leave it empty.
+When heroStrategy is ideogram_generate:
+- Set ideogramLayers to background-plus-accent when a distinct subject helps the story; background-only for abstract texture-only heroes.
+- heroImagePrompt: full-bleed background scene (include siteName and kit color hex values). Always leave the lower-left third clear/uncluttered for headline type. No text in the image.
+- When ideogramLayers is background-plus-accent, set accentImagePrompt to a single illustration or photo subject for the right/center (no text, no logo — the scraped SVG logo is added separately).
+- The accent must not duplicate the brand logo or wordmark.
+Never describe homepage screenshots, browser chrome, or literal OG triangles.
+When heroStrategy is not ideogram_generate, omit heroImagePrompt, accentImagePrompt, and ideogramLayers.
 Headline should state the update clearly; subhead supports with brand context or next step."""
 
 
@@ -373,7 +435,9 @@ def _call_openai_compatible(
                 "role": "system",
                 "content": (
                     "You produce concise marketing creative briefs as strict JSON. "
-                    "No markdown, no commentary outside JSON."
+                    "No markdown, no commentary outside JSON. "
+                    "For ideogram_generate heroes, always leave the lower-left clear for type; "
+                    "accent illustrations must not include logos or duplicate the wordmark."
                 ),
             },
             {"role": "user", "content": _llm_prompt(kit, crisis, format)},
