@@ -84,8 +84,12 @@ CREATIVE_BRIEF_JSON_SCHEMA: dict[str, Any] = {
     "required": [
         "headline",
         "subhead",
+        "cta",
         "layoutRecipe",
         "heroStrategy",
+        "heroImagePrompt",
+        "accentImagePrompt",
+        "ideogramLayers",
         "logoTreatment",
         "emphasis",
         "rationale",
@@ -457,7 +461,8 @@ When heroStrategy is ideogram_generate:
 - When ideogramLayers is background-plus-accent, set accentImagePrompt to a single illustration or photo subject for the right/center (no text, no logo — the scraped SVG logo is added separately).
 - The accent must not duplicate the brand logo or wordmark.
 Never describe homepage screenshots, browser chrome, or literal OG triangles.
-When heroStrategy is not ideogram_generate, omit heroImagePrompt, accentImagePrompt, and ideogramLayers.
+When heroStrategy is not ideogram_generate, set heroImagePrompt and accentImagePrompt to empty strings and ideogramLayers to background-only.
+When cta is not needed, set cta to an empty string.
 Headline should state the update clearly; subhead supports with brand context or next step."""
 
 
@@ -473,9 +478,8 @@ def _parse_llm_json(content: str) -> dict[str, Any]:
 
 
 def _anthropic_tool_schema() -> dict[str, Any]:
-    schema = dict(CREATIVE_BRIEF_JSON_SCHEMA)
-    schema.pop("additionalProperties", None)
-    return schema
+    """Anthropic ``strict`` tools require ``additionalProperties: false`` on every object."""
+    return CREATIVE_BRIEF_JSON_SCHEMA
 
 
 def _anthropic_submit_tool() -> dict[str, Any]:
