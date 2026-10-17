@@ -12,6 +12,8 @@ $Version = $env:PHOTOCRAFT_WEB_VERSION
 
 $ForkRepo = if ($env:PHOTOCRAFT_FORK_REPO) { $env:PHOTOCRAFT_FORK_REPO } else { "asseukihuh/photocraft" }
 $UpstreamRepo = if ($env:PHOTOCRAFT_UPSTREAM_REPO) { $env:PHOTOCRAFT_UPSTREAM_REPO } else { "storytold/photocraft" }
+$FallbackVersion = if ($env:PHOTOCRAFT_WEB_FALLBACK_VERSION) { $env:PHOTOCRAFT_WEB_FALLBACK_VERSION } else { "0.9.0" }
+$FallbackAssetUrl = "https://github.com/storytold/photocraft/releases/download/v$FallbackVersion/photocraft-web-$FallbackVersion.zip"
 
 function Get-LatestReleaseTag([string]$Repo) {
     try {
@@ -55,15 +57,10 @@ function Install-PhotocraftZip([string]$AssetUrl, [string]$DestDir, [string]$Sou
     $tmp = Join-Path ([System.IO.Path]::GetTempPath()) ("commmaker-pc-" + [guid]::NewGuid().ToString("n"))
     New-Item -ItemType Directory -Path $tmp -Force | Out-Null
     $zipPath = Join-Path $tmp "photocraft-web.zip"
+    $stageDir = Join-Path $tmp "stage"
 
     try {
         Invoke-WebRequest -Uri $AssetUrl -OutFile $zipPath -Headers @{ "User-Agent" = "CommMaker-Windows-Install" }
-
-        if (Test-Path $DestDir) {
-            Get-ChildItem -Path $DestDir -Force | Remove-Item -Recurse -Force
-        } else {
-            New-Item -ItemType Directory -Path $DestDir -Force | Out-Null
-        }
 
         $extractRoot = Join-Path $tmp "extract"
         Expand-Archive -Path $zipPath -DestinationPath $extractRoot -Force
@@ -71,13 +68,24 @@ function Install-PhotocraftZip([string]$AssetUrl, [string]$DestDir, [string]$Sou
         if (-not $inner) {
             throw "Unexpected zip layout (no top-level folder)"
         }
-        Copy-Item -Path (Join-Path $inner.FullName "*") -Destination $DestDir -Recurse -Force
 
-        if (-not (Test-Path (Join-Path $DestDir "index.html"))) {
+        New-Item -ItemType Directory -Path $stageDir -Force | Out-Null
+        Copy-Item -Path (Join-Path $inner.FullName "*") -Destination $stageDir -Recurse -Force
+
+        if (-not (Test-Path (Join-Path $stageDir "index.html"))) {
             throw "index.html missing after extract"
         }
 
-        Write-CommmakerSourceJson -DestDir $DestDir -Repo $SourceRepo -Ref $Ref -Method "release"
+        Write-CommmakerSourceJson -DestDir $stageDir -Repo $SourceRepo -Ref $Ref -Method "release"
+
+        $parent = Split-Path -Parent $DestDir
+        if (-not (Test-Path $parent)) {
+            New-Item -ItemType Directory -Path $parent -Force | Out-Null
+        }
+        if (Test-Path $DestDir) {
+            Remove-Item -Path $DestDir -Recurse -Force
+        }
+        Move-Item -Path $stageDir -Destination $DestDir
     } finally {
         if (Test-Path $tmp) {
             Remove-Item -Path $tmp -Recurse -Force -ErrorAction SilentlyContinue
@@ -90,10 +98,10 @@ if (-not $Version) {
     if (-not $Version) {
         $Version = Get-LatestReleaseTag $UpstreamRepo
     }
-}
-
-if (-not $Version) {
-    Write-Error "Could not resolve latest photocraft-web release tag."
+    if (-not $Version) {
+        $Version = $FallbackVersion
+        Write-Host "note: using fallback photocraft-web version v$FallbackVersion (GitHub API unavailable or fork has no release)" -ForegroundColor Yellow
+    }
 }
 
 $pick = Get-WebZipUrl $ForkRepo $Version
@@ -102,7 +110,12 @@ if (-not $pick) {
 }
 
 if (-not $pick) {
-    Write-Error "No photocraft-web zip for version $Version on $ForkRepo or $UpstreamRepo."
+    if ($Version -eq $FallbackVersion) {
+        $pick = @{ Url = $FallbackAssetUrl; Repo = $UpstreamRepo }
+        Write-Host "note: using upstream fallback release zip (v$FallbackVersion)" -ForegroundColor Yellow
+    } else {
+        Write-Error "No photocraft-web zip for version $Version on $ForkRepo or $UpstreamRepo."
+    }
 }
 
 Write-Host "Fetching photocraft-web $Version from $($pick.Repo) ..."

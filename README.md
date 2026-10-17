@@ -215,6 +215,15 @@ Open **http://localhost:8000/home.html** → **Onboard** → **Crisis** → **Ed
 
 **Generate poster:** the dev server can download `photocraft-cli` on the first `POST /api/generate-poster`; allow the binary in Windows Defender if prompted. You can smoke-test the CLI with `python scripts\photocraft_cli.py --self-test`.
 
+**Windows troubleshooting**
+
+- **Git Bash `fetch-photocraft-web.sh`:** downloads go to a temp file under `%TEMP%` / `$TMPDIR` before extract (avoids `curl: (23) Failure writing output` from piping API JSON into Python). If the fork has no GitHub release yet (API 404), the script falls back to [storytold/photocraft v0.9.0 `photocraft-web` zip](https://github.com/storytold/photocraft/releases/download/v0.9.0/photocraft-web-0.9.0.zip).
+- **`fatal: detected dubious ownership` / `safe.directory`:** after cloning to a folder owned by another Windows user or WSL path, tell Git the repo is trusted (use your real clone path):
+
+  ```bash
+  git config --global --add safe.directory 'C:/Users/You/Projects/AI-WebApp'
+  ```
+
 ### CommMaker MVP flows
 
 Use the dev server (required for website kit scrape API):
