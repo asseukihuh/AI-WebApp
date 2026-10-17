@@ -131,6 +131,16 @@ export function renderKitSummary(target, kit, session) {
             `<p><strong>Poster:</strong> <a href="${escapeHtml(path)}">Open generated .pcraft</a></p>`
         );
     }
+    if (session?.poster?.previewUrl) {
+        const meta = [session.poster.layoutTemplate, session.poster.designScore != null ? `design score ${session.poster.designScore}/100` : ""]
+            .filter(Boolean)
+            .join(" · ");
+        parts.push(
+            `<figure class="poster-preview"><img src="${escapeHtml(session.poster.previewUrl)}" alt="Poster preview" loading="lazy" />${
+                meta ? `<figcaption>${escapeHtml(meta)}</figcaption>` : ""
+            }</figure>`
+        );
+    }
 
     target.innerHTML = parts.join("");
 }
