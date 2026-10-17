@@ -3,15 +3,20 @@
 import {
     escapeHtml,
     mountCommMakerNav,
+    sanitizeInlineSvg,
     saveKit,
     KIT_STORAGE_KEY,
 } from "./commmaker-common.js";
+import { renderBrandProfile } from "./brand-profile.js";
 
 const form = document.getElementById("scrape-form");
 const urlInput = document.getElementById("site-url");
 const submitBtn = document.getElementById("scrape-submit");
 const statusEl = document.getElementById("scrape-status");
 const previewEl = document.getElementById("kit-preview");
+const profileEl = document.getElementById("brand-profile");
+const deepToggle = document.getElementById("deep-analysis");
+const refreshToggle = document.getElementById("refresh-analysis");
 const saveBtn = document.getElementById("save-kit-btn");
 const continueBtn = document.getElementById("continue-crisis-btn");
 
@@ -23,28 +28,6 @@ function setStatus(message, isError = false) {
     }
     statusEl.textContent = message;
     statusEl.classList.toggle("is-error", isError);
-}
-
-function sanitizeInlineSvg(svgText) {
-    if (!svgText || typeof svgText !== "string") {
-        return null;
-    }
-    const doc = new DOMParser().parseFromString(svgText, "image/svg+xml");
-    const svg = doc.querySelector("svg");
-    if (!svg) {
-        return null;
-    }
-    svg.querySelectorAll("script, foreignObject, iframe, object, embed").forEach((node) => {
-        node.remove();
-    });
-    for (const el of svg.querySelectorAll("*")) {
-        for (const attr of [...el.attributes]) {
-            if (attr.name.toLowerCase().startsWith("on")) {
-                el.removeAttribute(attr.name);
-            }
-        }
-    }
-    return svg;
 }
 
 function svgDataUri(svgText) {
@@ -165,7 +148,7 @@ function renderPreview(kit) {
         : "";
 
     previewEl.innerHTML = `
-        <h2>Kit preview</h2>
+        <h2>${kit.brandProfile ? "Scraped kit signals" : "Kit preview"}</h2>
         <div class="kit-visual-row">
             <figure class="kit-thumb-block">
                 <figcaption>Logo</figcaption>
@@ -231,6 +214,29 @@ async function scrapeUrl(url) {
     return data.kit;
 }
 
+async function analyzeBrand(url, { refresh }) {
+    const res = await fetch("/api/brand-profile", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ url, refresh: Boolean(refresh), mobile: true }),
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok || !data.brandProfile) {
+        throw new Error(data.error || `Brand profile failed (${res.status})`);
+    }
+    return data;
+}
+
+function profileStatus(result) {
+    if (result.source === "llm") {
+        const cost = typeof result.costUsd === "number" ? ` (~$${result.costUsd.toFixed(3)})` : "";
+        return `Brand profile ready — analysed with ${result.model}${cost}${result.cached ? ", from cache" : ""}. Edit anything, then save.`;
+    }
+    return "Brand profile ready (procedural fallback — add ANTHROPIC_API_KEY for AI vision). Edit anything, then save.";
+}
+
+const inputs = () => [submitBtn, urlInput, deepToggle, refreshToggle, saveBtn, continueBtn];
+
 form?.addEventListener("submit", async (event) => {
     event.preventDefault();
     const url = urlInput?.value?.trim();
@@ -238,15 +244,46 @@ form?.addEventListener("submit", async (event) => {
         setStatus("Enter a website URL.", true);
         return;
     }
-    submitBtn.disabled = true;
-    setStatus("Fetching and analyzing site…");
+    inputs().forEach((node) => {
+        if (node) {
+            node.disabled = true;
+        }
+    });
+    const deep = deepToggle ? deepToggle.checked : true;
+    setStatus(
+        deep
+            ? "Rendering the site, capturing screenshots and analysing the brand (≈15–45 s)…"
+            : "Fetching and analyzing site…"
+    );
     try {
+        if (deep) {
+            try {
+                const result = await analyzeBrand(url, { refresh: refreshToggle?.checked });
+                pendingKit = result.kit;
+                renderBrandProfile(profileEl, result, {
+                    onChange: (profile) => {
+                        pendingKit.brandProfile = profile;
+                    },
+                });
+                renderPreview(pendingKit);
+                setStatus(profileStatus(result));
+                return;
+            } catch (err) {
+                setStatus(`${err.message || "Brand profile failed"} — falling back to quick scrape…`, true);
+            }
+        }
         pendingKit = await scrapeUrl(url);
+        if (profileEl) {
+            profileEl.hidden = true;
+        }
         renderPreview(pendingKit);
         setStatus("Preview ready. Save to continue the flow.");
     } catch (err) {
         setStatus(err.message || "Scrape failed.", true);
         previewEl.hidden = true;
+        if (profileEl) {
+            profileEl.hidden = true;
+        }
         pendingKit = null;
         if (saveBtn) {
             saveBtn.disabled = true;
@@ -255,7 +292,17 @@ form?.addEventListener("submit", async (event) => {
             continueBtn.disabled = true;
         }
     } finally {
-        submitBtn.disabled = false;
+        inputs().forEach((node) => {
+            if (node) {
+                node.disabled = false;
+            }
+        });
+        if (saveBtn) {
+            saveBtn.disabled = !pendingKit;
+        }
+        if (continueBtn) {
+            continueBtn.disabled = !pendingKit;
+        }
     }
 });
 
@@ -264,7 +311,9 @@ saveBtn?.addEventListener("click", () => {
         return;
     }
     saveKit(pendingKit);
-    setStatus(`Saved to localStorage (${KIT_STORAGE_KEY}).`);
+    setStatus(
+        `Saved to localStorage (${KIT_STORAGE_KEY})${pendingKit.brandProfile ? " with your edited brand profile" : ""}.`
+    );
 });
 
 continueBtn?.addEventListener("click", () => {

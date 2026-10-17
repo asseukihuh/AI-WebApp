@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>CommMaker — Onboard (Communication Kit)</title>
+    <title>CommMaker — Onboard (Brand Profile)</title>
     <link rel="stylesheet" href="src/css/commmaker.css">
     <script type="module" src="src/js/onboard.js"></script>
 </head>
@@ -11,7 +11,7 @@
     <div class="commmaker-shell">
         <header class="commmaker-header">
             <h1>Communication Kit</h1>
-            <p>Import brand signals from a public website (Pomelli-style MVP scrape).</p>
+            <p>Enter your website — CommMaker renders it, reads the CSS and analyses the screenshots to build an editable Brand Profile.</p>
         </header>
         <div id="commmaker-nav"></div>
 
@@ -22,10 +22,16 @@
                     <label for="site-url">Company or organization URL</label>
                     <input type="url" id="site-url" name="url" required placeholder="https://example.com" autocomplete="url" />
                 </div>
-                <button type="submit" id="scrape-submit">Scrape kit</button>
+                <div class="field field-inline">
+                    <label><input type="checkbox" id="deep-analysis" checked /> AI vision brand profile (screenshots + Claude)</label>
+                    <label><input type="checkbox" id="refresh-analysis" /> Re-analyse (ignore cache)</label>
+                </div>
+                <button type="submit" id="scrape-submit">Analyze brand</button>
             </form>
             <p id="scrape-status" role="status"></p>
         </section>
+
+        <section id="brand-profile" class="brand-profile" aria-label="Brand profile" hidden></section>
 
         <section id="kit-preview" class="commmaker-card" hidden></section>
 
@@ -33,7 +39,7 @@
             <button type="button" id="save-kit-btn" class="secondary" disabled>Save kit to browser</button>
             <button type="button" id="continue-crisis-btn" disabled>Continue to crisis wizard →</button>
         </div>
-        <p class="muted">Saved kits use localStorage key <code>commmaker.kit</code>. Use <code>python3 scripts/serve-static.py</code> so the scrape API is available.</p>
+        <p class="muted">Saved kits use localStorage key <code>commmaker.kit</code> (edited profile in <code>kit.brandProfile</code>). Use <code>python3 scripts/serve-static.py</code> so the analysis API is available.</p>
     </div>
 </body>
 </html>

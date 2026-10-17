@@ -11,6 +11,28 @@ export function escapeHtml(text) {
     return div.innerHTML;
 }
 
+export function sanitizeInlineSvg(svgText) {
+    if (!svgText || typeof svgText !== "string") {
+        return null;
+    }
+    const doc = new DOMParser().parseFromString(svgText, "image/svg+xml");
+    const svg = doc.querySelector("svg");
+    if (!svg) {
+        return null;
+    }
+    svg.querySelectorAll("script, foreignObject, iframe, object, embed").forEach((node) => {
+        node.remove();
+    });
+    for (const el of svg.querySelectorAll("*")) {
+        for (const attr of [...el.attributes]) {
+            if (attr.name.toLowerCase().startsWith("on")) {
+                el.removeAttribute(attr.name);
+            }
+        }
+    }
+    return svg;
+}
+
 export function loadKit() {
     try {
         const raw = localStorage.getItem(KIT_STORAGE_KEY);
