@@ -147,6 +147,30 @@ def sanitize_scene_description(text: str, brand_terms: list[str] | None = None) 
     return out
 
 
+_TEXT_PRONE_MEDIA = frozenset({"product-ui", "typographic", "mixed"})
+
+
+def imagery_style_phrase(imagery: object) -> str:
+    """``brandProfile.imageryStyle`` (string, or object with ``primaryMedium`` / ``motifs`` /
+    ``colorTreatment``) → short art-style phrase. UI and typographic media are skipped because
+    they invite rendered text."""
+    if isinstance(imagery, str):
+        return imagery.strip()
+    if not isinstance(imagery, dict):
+        return ""
+    parts: list[str] = []
+    medium = str(imagery.get("primaryMedium") or "").strip()
+    if medium and medium not in _TEXT_PRONE_MEDIA:
+        parts.append(medium.replace("-", " "))
+    motifs = [str(m).strip() for m in imagery.get("motifs") or [] if str(m).strip()]
+    if motifs:
+        parts.append(", ".join(motifs[:3]))
+    treatment = str(imagery.get("colorTreatment") or "").strip()
+    if treatment:
+        parts.append(treatment)
+    return "; ".join(parts)
+
+
 def build_structured_prompt(
     scene: str,
     *,
@@ -173,7 +197,7 @@ def build_structured_prompt(
     if isinstance(aesthetic, list) and aesthetic:
         mood = ", ".join(str(a) for a in aesthetic[:4]) + (f", {mood}" if mood else "")
     tone = sanitize_scene_description(mood or "", brand_terms) or "calm, premium, modern"
-    imagery = sanitize_scene_description(str(profile.get("imageryStyle") or ""), brand_terms)
+    imagery = sanitize_scene_description(imagery_style_phrase(profile.get("imageryStyle")), brand_terms)
     art_style = (
         f"{imagery}, plain unmarked surfaces"
         if imagery

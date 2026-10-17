@@ -219,7 +219,7 @@ def kit_palette(kit: dict[str, Any] | None) -> list[str]:
 
 _PROFILE_ROLE_KEYS: dict[str, tuple[str, ...]] = {
     "brand": ("primary", "brand", "main"),
-    "dark": ("dark", "ink", "text", "secondary"),
+    "dark": ("dark", "ink", "text"),
     "accent": ("accent", "highlight", "cta"),
     "light": ("background", "light", "surface", "neutral"),
 }
@@ -255,10 +255,28 @@ def profile_palette_roles(brand_profile: dict[str, Any] | None) -> dict[str, str
     return roles
 
 
+_PROFILE_ROLE_RANK = {"primary": 0, "brand": 0, "accent": 1, "secondary": 2, "text": 3, "surface": 4, "background": 5}
+
+
 def profile_palette_list(brand_profile: dict[str, Any] | None) -> list[str]:
+    """Profile colours, most brand-defining first (primary, accent, secondary … background)."""
     raw = (brand_profile or {}).get("palette")
-    values = raw.values() if isinstance(raw, dict) else raw if isinstance(raw, list) else []
-    return [c for c in (_profile_color(v) for v in values) if c]
+    if isinstance(raw, dict):
+        entries = [{"role": k, "hex": v} for k, v in raw.items()]
+    elif isinstance(raw, list):
+        entries = [e if isinstance(e, dict) else {"hex": e} for e in raw]
+    else:
+        return []
+    ranked = sorted(
+        enumerate(entries),
+        key=lambda item: (_PROFILE_ROLE_RANK.get(str(item[1].get("role") or "").casefold(), 3), item[0]),
+    )
+    out: list[str] = []
+    for _, entry in ranked:
+        hex6 = _profile_color(entry)
+        if hex6 and hex6 not in out:
+            out.append(hex6)
+    return out
 
 
 def brand_roles(
@@ -277,10 +295,13 @@ def brand_roles(
     if not dark or relative_luminance(hex_to_rgb(dark)) > 0.1:
         dark = brand if monochrome else mix_hex(brand, "#0b1020", 0.8)
     accent = override.get("accent") or (None if monochrome else brand)
+    light = override.get("light", "")
+    if not light or relative_luminance(hex_to_rgb(light)) < 0.6:
+        light = roles.light
     return BrandRoles(
         brand=brand,
         dark=dark,
-        light=override.get("light", roles.light),
+        light=light,
         accent=accent,
         monochrome=monochrome,
         palette=roles.palette,
@@ -491,6 +512,8 @@ _LAYOUT_TRAIT_HINTS: tuple[tuple[str, str], ...] = (
     ("centre", "centered-statement"),
     ("symmetr", "centered-statement"),
     ("statement", "centered-statement"),
+    ("left-aligned", "full-bleed-scrim"),
+    ("left aligned", "full-bleed-scrim"),
     ("full-bleed", "full-bleed-scrim"),
     ("full bleed", "full-bleed-scrim"),
     ("immersive", "full-bleed-scrim"),
@@ -498,36 +521,56 @@ _LAYOUT_TRAIT_HINTS: tuple[tuple[str, str], ...] = (
 
 
 def template_hint_from_profile(brand_profile: dict[str, Any] | None) -> str | None:
-    """Optional ``brandProfile.layoutTraits`` (list of strings) → preferred template."""
+    """Optional ``brandProfile.layoutTraits`` → preferred template.
+
+    Accepts the brand-profile object (``composition`` free text is matched; ``density`` /
+    ``whitespace`` / ``cornerRadius`` enums carry no template signal) or a list of trait strings.
+    Within each text, the earliest matching cue wins.
+    """
     traits = (brand_profile or {}).get("layoutTraits")
-    if not isinstance(traits, list):
+    if isinstance(traits, dict):
+        texts = [traits.get("composition")]
+    elif isinstance(traits, list):
+        texts = list(traits)
+    else:
         return None
-    for trait in traits:
-        lowered = str(trait).casefold()
-        for needle, template in _LAYOUT_TRAIT_HINTS:
-            if needle in lowered:
-                return template
+    for text in texts:
+        lowered = str(text or "").casefold()
+        hits = [(lowered.find(needle), template) for needle, template in _LAYOUT_TRAIT_HINTS if needle in lowered]
+        if hits:
+            return min(hits)[1]
     return None
 
 
 def profile_fonts(brand_profile: dict[str, Any] | None) -> dict[str, Any]:
-    """Optional ``brandProfile.typography`` → ``{"headline", "body", "headlineWeight"}`` overrides."""
+    """Optional ``brandProfile.typography`` → ``{"headline", "body", "headlineWeight"}`` overrides.
+
+    Reads the brand-profile shape (``display`` / ``body`` objects with ``family`` and ``weights``) as
+    well as ``headline`` aliases. A display face whose heaviest weight is 600–700 maps to ``bold``;
+    lighter faces leave the design-system minimum (700) in place.
+    """
     typo = (brand_profile or {}).get("typography")
     out: dict[str, Any] = {}
     if not isinstance(typo, dict):
         return out
-    for role in ("headline", "body"):
-        entry = typo.get(role)
+    head = typo.get("display") or typo.get("headline")
+    for role, entry in (("headline", head), ("body", typo.get("body"))):
         family = entry.get("family") if isinstance(entry, dict) else entry
         if isinstance(family, str) and family.strip():
             out[role] = family.strip()
-    head = typo.get("headline")
-    weight = head.get("weight") if isinstance(head, dict) else None
-    try:
-        if weight is not None and 600 <= int(weight) <= 900:
-            out["headlineWeight"] = "extrabold" if int(weight) >= 800 else "bold"
-    except (TypeError, ValueError):
-        pass
+    weights: list[int] = []
+    for raw in (
+        (head.get("weight") if isinstance(head, dict) else None),
+        *((head.get("weights") or []) if isinstance(head, dict) else []),
+        typo.get("headlineWeight"),
+    ):
+        try:
+            weights.append(int(raw))
+        except (TypeError, ValueError):
+            continue
+    heaviest = max(weights, default=0)
+    if 600 <= heaviest <= 900:
+        out["headlineWeight"] = "extrabold" if heaviest >= 800 else "bold"
     return out
 
 

@@ -653,7 +653,9 @@ def _llm_prompt(
     facts = crisis.get("crisisFacts") or crisis.get("facts") or ""
     message = crisis.get("crisisMessage") or crisis.get("message") or ""
     tone = crisis.get("tone") or "factual"
-    profile = brand_profile_summary_for_prompt(brand_profile)
+    kit_profile = (kit or {}).get("brandProfile") if isinstance(kit, dict) else None
+    # kit_summary_for_prompt already renders kit.brandProfile (brand_profile_prompt_lines).
+    profile = "" if brand_profile == kit_profile else brand_profile_summary_for_prompt(brand_profile)
     profile_block = f"\nBrand profile (AI vision analysis; prefer over scraped signals):\n{profile}\n" if profile else ""
     return f"""You are a senior brand marketing strategist and art director drafting a LinkedIn crisis/update poster brief.
 

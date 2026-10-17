@@ -1,14 +1,39 @@
 {
-  "aesthetic": ["minimal", "premium", "technical", "luminous"],
-  "imageryStyle": "abstract luminous light ribbons and soft glass forms on deep navy",
-  "toneOfVoice": ["confident", "clear", "optimistic"],
-  "palette": {
-    "primary": "#635bff",
-    "dark": "#0a2540",
-    "accent": "#00d4b2",
-    "background": "#ffffff",
-    "highlight": "#ffc000"
+  "version": 1,
+  "name": "Stripe",
+  "sourceUrl": "https://stripe.com/",
+  "tagline": "Financial infrastructure to grow your revenue.",
+  "businessOverview": "Stripe builds programmable financial infrastructure for the internet.",
+  "brandValues": ["Speed and Craft", "First Principles", "Economic Growth", "Customer Obsession"],
+  "aesthetic": ["Chromatic Fluidity", "Architectural Draughtsmanship", "Modular Layering", "Kinetic Geometry"],
+  "toneOfVoice": ["Professional", "Authoritative", "Technical", "Innovative"],
+  "keywords": ["payments", "billing", "financial infrastructure"],
+  "palette": [
+    {"role": "background", "hex": "#fefefe", "candidateId": "", "name": "Paper White", "usage": "Page background"},
+    {"role": "primary", "hex": "#533afd", "candidateId": "c2", "name": "Blurple", "usage": "Primary CTAs"},
+    {"role": "secondary", "hex": "#11ddaa", "candidateId": "", "name": "Mint", "usage": "Illustration highlights"},
+    {"role": "text", "hex": "#071c32", "candidateId": "", "name": "Downriver", "usage": "Headlines"},
+    {"role": "accent", "hex": "#ff9a44", "candidateId": "", "name": "Sunset Orange", "usage": "Hero ribbon gradient"}
+  ],
+  "typography": {
+    "display": {"family": "Söhne", "candidateId": "", "weights": [300, 400, 700], "usage": "Hero headlines"},
+    "body": {"family": "sohne-var", "candidateId": "f1", "weights": [300, 400], "usage": "Body copy"}
   },
-  "typography": {"headline": "Inter", "body": "Inter", "headlineWeight": 700},
-  "layoutTraits": ["generous whitespace", "split image and text"]
+  "logo": {"candidateId": "L1", "backdropHex": "#ffffff", "variant": "dark-on-light", "notes": "Wordmark top-left"},
+  "imageryStyle": {
+    "primaryMedium": "gradients",
+    "secondaryMedia": ["product-ui", "3d-render"],
+    "motifs": ["flowing ribbon gradients", "layered translucent planes", "diagonal stripes"],
+    "colorTreatment": "Saturated warm-to-violet gradients on white",
+    "ideogramPrompt": "Flowing translucent ribbon gradient sweeping diagonally from violet #533afd through magenta to orange #ff9a44 on a clean white field, soft light, generous negative space, no text, no logos",
+    "avoid": ["stock photos of handshakes", "clip-art"]
+  },
+  "layoutTraits": {
+    "density": "airy",
+    "cornerRadius": "subtle",
+    "whitespace": "generous",
+    "composition": "Left-aligned hero type over a diagonal gradient ribbon, modular product cards below."
+  },
+  "doNots": ["Do not use heavy drop shadows", "Do not crowd the gradient with text"],
+  "visualSummary": "Airy white pages with saturated violet-to-orange ribbon gradients and crisp left-aligned type."
 }
