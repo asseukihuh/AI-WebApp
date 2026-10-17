@@ -27,6 +27,18 @@
     color: #a8a8b0;
 }
 
+.photocraft-source-badge {
+    display: inline-block;
+    margin-top: 0.5rem;
+    padding: 0.2rem 0.5rem;
+    font-size: 0.75rem;
+    font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+    color: #c8e6ff;
+    background: #1e3a4f;
+    border: 1px solid #3d6b8a;
+    border-radius: 4px;
+}
+
 .photocraft-nav {
     margin-top: 0.5rem;
 }

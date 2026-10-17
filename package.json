@@ -1,0 +1,8 @@
+{
+  "name": "ai-webapp",
+  "private": true,
+  "description": "CommMaker shell and Ollama chat (static site)",
+  "scripts": {
+    "commmaker:dev": "./scripts/dev-commmaker.sh"
+  }
+}

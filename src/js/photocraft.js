@@ -9,6 +9,8 @@ import {
 
 const EDITOR_SRC = "../vendor/photocraft-web/index.html";
 const PROBE_SRC = "../vendor/photocraft-web/index.html";
+const SOURCE_META_SRC = "../vendor/photocraft-web/.commmaker-source.json";
+const FORK_REPO = "asseukihuh/photocraft";
 
 async function assetsPresent() {
     try {
@@ -16,6 +18,29 @@ async function assetsPresent() {
         return res.ok;
     } catch {
         return false;
+    }
+}
+
+async function mountSourceBadge() {
+    const el = document.getElementById("photocraft-source-badge");
+    if (!el) {
+        return;
+    }
+    try {
+        const res = await fetch(SOURCE_META_SRC, { cache: "no-store" });
+        if (!res.ok) {
+            return;
+        }
+        const meta = await res.json();
+        const repo = String(meta.repo || "");
+        const ref = String(meta.ref || "unknown");
+        const isFork = repo === FORK_REPO;
+        el.textContent = isFork
+            ? `PhotoCraft: your fork @ ${ref}`
+            : `PhotoCraft: ${repo || "upstream"} @ ${ref}`;
+        el.hidden = false;
+    } catch {
+        /* optional metadata */
     }
 }
 
@@ -27,8 +52,8 @@ function showMissing() {
     wrap.innerHTML = `
         <div class="photocraft-missing">
             <p>PhotoCraft web assets are not installed yet.</p>
-            <pre>./scripts/fetch-photocraft-web.sh
-python3 scripts/serve-static.py --port 8000</pre>
+            <pre>./scripts/install-photocraft-from-fork.sh
+./scripts/dev-commmaker.sh</pre>
             <p>See <code>vendor/photocraft-web/README.md</code> and the README CommMaker section.</p>
         </div>`;
 }
@@ -74,6 +99,7 @@ function mountSessionBanner() {
 document.addEventListener("DOMContentLoaded", async () => {
     mountCommMakerNav(document.getElementById("commmaker-nav"), "photocraft/");
     mountSessionBanner();
+    await mountSourceBadge();
     if (await assetsPresent()) {
         mountEditor();
     } else {

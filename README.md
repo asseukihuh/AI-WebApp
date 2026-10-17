@@ -144,10 +144,27 @@ A lightweight, dependency-free web application to interact with local Large Lang
 2. Add remote `upstream` → `https://github.com/storytold/photocraft.git` and merge periodically.
 3. Build or download the **web static site** (`photocraft-web-<version>.zip` from your fork’s releases, or upstream until the fork publishes assets).
 
-### Local editor embed (POC)
+### Run CommMaker pre-MVP
+
+One-command dev (installs PhotoCraft from **your fork** when `vendor/photocraft-web/` is missing):
 
 ```bash
-./scripts/fetch-photocraft-web.sh    # installs vendor/photocraft-web/ (gitignored)
+git clone https://github.com/asseukihuh/AI-WebApp.git
+cd AI-WebApp
+./scripts/install-photocraft-from-fork.sh   # needs Rust if building from source
+./scripts/dev-commmaker.sh
+```
+
+Equivalent: `npm run commmaker:dev`
+
+Flow: **home** → **onboard** → **crisis** → **photocraft** (fork WASM in `/photocraft/`).
+
+`install-photocraft-from-fork.sh` tries a `photocraft-web-*.zip` **release on [asseukihuh/photocraft](https://github.com/asseukihuh/photocraft)** first, then builds with `packaging/web/package.sh` if needed. Set `PHOTOCRAFT_FORK_DIR` to an existing clone, or the script uses `../photocraft` or `.photocraft-fork` (gitignored). Writes `vendor/photocraft-web/.commmaker-source.json`; the editor page shows a small **fork @ ref** badge.
+
+### Local editor embed (manual)
+
+```bash
+./scripts/fetch-photocraft-web.sh    # fork-first zip, upstream fallback
 python3 scripts/serve-static.py --port 8000
 ```
 
@@ -202,7 +219,8 @@ ai-webapp/
 ├── chatbot.html       # Ollama chat interface
 ├── photocraft/        # CommMaker PhotoCraft embed (POC)
 ├── vendor/photocraft-web/  # Downloaded WASM site (gitignored; see README there)
-├── scripts/           # fetch-photocraft-web.sh, serve-static.py
+├── scripts/           # dev-commmaker.sh, install-photocraft-from-fork.sh, serve-static.py
+├── package.json       # npm run commmaker:dev
 ├── imageGen.html      # Experimental generation web interface
 ├── src/
 │   ├── css/

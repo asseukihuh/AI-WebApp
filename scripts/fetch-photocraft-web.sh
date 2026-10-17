@@ -1,75 +1,49 @@
 #!/usr/bin/env bash
-# Download photocraft-web-<version>.zip into vendor/photocraft-web/
+# Download photocraft-web-<version>.zip into vendor/photocraft-web/ (fork-first).
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-DEST="$ROOT/vendor/photocraft-web"
+# shellcheck source=lib/photocraft-vendor.sh
+source "$ROOT/scripts/lib/photocraft-vendor.sh"
+
+DEST="$(photocraft_vendor_dest)"
 VERSION="${PHOTOCRAFT_WEB_VERSION:-}"
-
-resolve_latest() {
-  local repo="$1"
-  local url="https://api.github.com/repos/${repo}/releases/latest"
-  local tag
-  tag="$(curl -fsSL "$url" | python3 -c "import sys,json; print(json.load(sys.stdin).get('tag_name',''))" 2>/dev/null || true)"
-  if [ -z "$tag" ]; then
-    return 1
-  fi
-  tag="${tag#v}"
-  echo "$tag"
-}
-
-pick_asset_url() {
-  local repo="$1" ver="$2"
-  local body
-  body="$(curl -fsSL "https://api.github.com/repos/${repo}/releases/tags/v${ver}" 2>/dev/null || true)"
-  [ -n "$body" ] || return 0
-  printf '%s' "$body" | python3 -c "
-import sys, json
-try:
-    data = json.load(sys.stdin)
-except json.JSONDecodeError:
-    raise SystemExit(0)
-for a in data.get('assets', []):
-    n = a.get('name', '')
-    if n.startswith('photocraft-web-') and n.endswith('.zip'):
-        print(a['browser_download_url'])
-        break
-" || true
-}
+FORK_REPO="$PHOTOCRAFT_FORK_REPO"
 
 if [ -z "$VERSION" ]; then
-  VERSION="$(resolve_latest asseukihuh/photocraft)" || VERSION="$(resolve_latest storytold/photocraft)" || {
+  VERSION="$(resolve_latest_release_tag "$FORK_REPO" 2>/dev/null || true)"
+fi
+if [ -z "$VERSION" ]; then
+  VERSION="$(resolve_latest_release_tag "$PHOTOCRAFT_UPSTREAM_REPO")" || {
     echo "error: could not resolve latest photocraft-web release" >&2
     exit 1
   }
 fi
 
-ASSET_URL="$(pick_asset_url asseukihuh/photocraft "$VERSION")"
-if [ -z "$ASSET_URL" ]; then
-  ASSET_URL="$(pick_asset_url storytold/photocraft "$VERSION")"
+ASSET_URL=""
+SOURCE_REPO=""
+ASSET_URL="$(pick_asset_url_for_version "$FORK_REPO" "$VERSION")"
+if [ -n "$ASSET_URL" ]; then
+  SOURCE_REPO="$FORK_REPO"
+else
+  ASSET_URL="$(pick_asset_url_for_version "$PHOTOCRAFT_UPSTREAM_REPO" "$VERSION")"
+  if [ -n "$ASSET_URL" ]; then
+    SOURCE_REPO="$PHOTOCRAFT_UPSTREAM_REPO"
+    echo "note: no photocraft-web zip on ${FORK_REPO} for v${VERSION}; using upstream ${PHOTOCRAFT_UPSTREAM_REPO}" >&2
+  fi
 fi
+
 if [ -z "$ASSET_URL" ]; then
   echo "error: no photocraft-web zip for version ${VERSION}" >&2
   exit 1
 fi
 
-TMP="$(mktemp -d)"
-ZIP="$TMP/photocraft-web.zip"
-echo "Fetching photocraft-web ${VERSION} ..."
-curl -fsSL -o "$ZIP" "$ASSET_URL"
-
-rm -rf "$DEST"/*
-mkdir -p "$DEST"
-unzip -q "$ZIP" -d "$TMP/extract"
-INNER="$(find "$TMP/extract" -mindepth 1 -maxdepth 1 -type d | head -1)"
-if [ -z "$INNER" ]; then
-  echo "error: unexpected zip layout" >&2
-  exit 1
-fi
-cp -R "$INNER/." "$DEST/"
-rm -rf "$TMP"
+echo "Fetching photocraft-web ${VERSION} from ${SOURCE_REPO} ..."
+install_photocraft_zip_to_dest "$ASSET_URL" "$DEST"
+write_commmaker_source_json "$DEST" "$SOURCE_REPO" "v${VERSION}" "release"
 
 echo "Installed to $DEST (version ${VERSION})"
+echo "Source: ${SOURCE_REPO} @ v${VERSION} (release zip)"
 if [ -f "$DEST/index.html" ]; then
   echo "OK: $DEST/index.html"
 else
