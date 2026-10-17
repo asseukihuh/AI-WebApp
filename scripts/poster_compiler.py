@@ -45,6 +45,7 @@ from typing import Any
 
 import communication_kit as kit_design
 import poster_design as design
+from creative_brief import clean_composition, default_composition
 
 LINKEDIN_WIDTH = 1200
 LINKEDIN_HEIGHT = 627
@@ -981,7 +982,15 @@ def compile_poster_batch(
             logo_size=logo_size,
         )
 
-    gradient_stops = design.brand_gradient_stops(roles)
+    composition = clean_composition(brief.get("composition")) or default_composition(kit, brand_profile)
+    if composition.get("showCta") and cta and cta_style == "none":
+        cta_style = "pill"
+    identity_stops = design.identity_gradient_stops(brand_profile, roles)
+    wants_gradient = any(
+        item.get("source") == "palette-gradient" for item in composition.get("visuals") or []
+    ) or composition.get("field") in ("ideogram", "palette-gradient")
+    gradient_stops = identity_stops if wants_gradient and identity_stops else design.brand_gradient_stops(roles)
+    identity_field = bool(identity_stops) and gradient_stops is identity_stops
     if has_photo_hero and hero_grid:
         def _sampler_for(tpl: design.LayoutTemplate) -> design.Sampler:
             return design.raster_sampler(hero_grid, region=tpl.image_region, align=tpl.image_align)
@@ -1052,7 +1061,7 @@ def compile_poster_batch(
             background_placements.append(_brand_gradient_background_placement(brand_gradient_rel))
         else:
             steps.extend(_native_brand_gradient_steps(gradient_stops))
-        if not force_solid_bg:
+        if not force_solid_bg and not identity_field:
             steps.extend(_brand_glow_steps(design.glow_color(kit, roles)))
 
     ideogram_layers = None
@@ -1089,26 +1098,25 @@ def compile_poster_batch(
             scrim_meta = {"kind": kind, "alpha": scrim_alpha, "color": scrim_color, "hold": geometry["hold"]}
 
     if plan.panel and surface:
-        block = kit_design.colour_block_step(comm_kit, surface=surface) if tpl.name == "device-stage" else None
+        block = None
+        diagonal = composition.get("colourBlock") == "diagonal-crop" or (
+            tpl.name == "device-stage" and (comm_kit.get("layoutMotif") or {}).get("blocking") == "diagonal-crop"
+        )
+        skip_panel = tpl.name == "device-stage" and composition.get("colourBlock") == "none"
+        if diagonal and not skip_panel:
+            block = kit_design.colour_block_step(
+                {"layoutMotif": {"blocking": "diagonal-crop"}},
+                surface=surface,
+            )
         if block:
             steps.append(block)
-        else:
+        elif not skip_panel:
             steps.append(
                 {
                     "command": "shape.create",
                     "params": {"kind": "rect", "rect": [round(v, 1) for v in plan.panel], "fill": surface, "name": "Brand panel"},
                 }
             )
-    if comm_kit.get("devices"):
-        steps.extend(
-            kit_design.shape_steps(
-                kit_design.poster_vectors(
-                    comm_kit,
-                    template_name=tpl.name,
-                    logo_svg=str(kit.get("logoSvg") or ""),
-                )
-            )
-        )
     if plan.card and surface:
         r, g, b = design.hex_to_rgb(surface)
         steps.append(
@@ -1189,6 +1197,7 @@ def compile_poster_batch(
     foreground_placements: list[dict[str, Any]] = []
     logo_variant = None
     logo_on_dark = False
+    mark_share = 0.0
     if has_logo and "logo" in els:
         lx, ly, lw, lh = els["logo"]["box"]
         if plan.panel and lx + lw <= plan.panel[0] + plan.panel[2]:
@@ -1231,13 +1240,35 @@ def compile_poster_batch(
                 "name": "Logo",
             }
         )
+        wants_mark = any(item.get("source") == "logo-geometry" for item in composition.get("visuals") or [])
+        symbol = bool(logo_width and logo_height and logo_width / logo_height < 2.2)
+        if wants_mark and symbol:
+            target_w = 460.0
+            mark_h = target_w * (logo_height / logo_width)
+            mark_share = (target_w * mark_h) / (design.CANVAS_W * design.CANVAS_H)
+            foreground_placements.append(
+                {
+                    "path": logo_paths[logo_variant or "original"].replace("\\", "/"),
+                    "center": [980, 300],
+                    "scale": round(logo_scale_percent(logo_width or 0, target_width=int(target_w)), 2),
+                    "smartObject": True,
+                    "name": "Mark geometry",
+                }
+            )
+
+    if has_photo_hero or identity_field:
+        visual_share = 1.0
+    else:
+        visual_share = mark_share
 
     audit = design.audit_plan(
         plan,
         contrast=contrast,
         scrim_alpha=scrim_meta["alpha"] if scrim_meta["kind"] != "none" else None,
-        logo_count=len(foreground_placements),
+        logo_count=sum(1 for item in foreground_placements if item.get("name") == "Logo"),
         devices=comm_kit.get("devices") or None,
+        visual_share=visual_share,
+        cta_required=bool(composition.get("showCta")),
     )
 
     document = {
@@ -1283,6 +1314,9 @@ def compile_poster_batch(
             "heroBusy": hero_busy,
             "heroBrandMark": hero_brand_mark,
             "layoutTemplate": tpl.name,
+            "composition": composition,
+            "identityField": identity_field,
+            "visualShare": round(visual_share, 3),
             "communicationKit": {
                 "sector": comm_kit.get("sector"),
                 "thinSite": bool(comm_kit.get("thinSite")),

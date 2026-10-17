@@ -383,42 +383,14 @@ def _triangular_logo(svg: str) -> bool:
 
 
 def _device_plan(sector: str, logo_svg: str, thin: bool) -> list[tuple[str, str, str, float, str, int, float, float]]:
-    """kind, role, colorRole, scale, anchor, count, opacity, rotation."""
-    if sector == "sport":
-        rows = [
-            ("mark-crop", "focal", "surface", 1.15, "center-right", 1, 0.95, -8),
-            ("climbing-holds", "support", "surface", 0.72, "bottom-right", 5, 0.85, 0),
-            ("swoosh", "texture", "tint", 0.85, "edge-top", 1, 0.7, -12),
-            ("confetti", "texture", "accent", 0.5, "top-right", 7, 0.9, 0),
-        ]
-    elif _triangular_logo(logo_svg) or sector == "developer":
-        focal = "mark-crop" if _triangular_logo(logo_svg) else "slash"
-        rows = [
-            (focal, "focal", "ink", 1.05, "center-right", 1, 0.9, 0),
-            ("grid-dots", "texture", "tint", 0.6, "bottom-right", 12, 0.45, 0),
-            ("corner-pin", "frame", "accent", 0.42, "top-right", 1, 0.85, 0),
-            ("bar", "support", "accent", 0.55, "edge-bottom", 1, 0.95, 0),
-        ]
-    elif sector == "payments":
-        rows = [
-            ("swoosh", "focal", "accent", 1.1, "center-right", 1, 0.92, -6),
-            ("stripe", "support", "primary", 0.7, "bottom-right", 3, 0.8, 18),
-            ("blob", "texture", "tint", 0.66, "edge-top", 1, 0.4, 0),
-            ("arc", "frame", "surface", 0.48, "top-right", 1, 0.7, 0),
-        ]
-    else:
-        rows = [
-            ("block", "focal", "primary", 1.0, "center-right", 1, 0.9, 0),
-            ("wave", "support", "accent", 0.75, "bottom-right", 1, 0.85, 0),
-            ("corner-pin", "frame", "ink", 0.4, "top-right", 1, 0.8, 0),
-            ("ring", "texture", "tint", 0.5, "edge-top", 1, 0.5, 0),
-        ]
-    if not thin:
-        quiet = []
-        for kind, role, color, scale, anchor, count, opacity, rotation in rows[:3]:
-            quiet.append((kind, role, color, min(scale, 0.85), anchor, count, min(opacity, 0.34), rotation))
-        return quiet
-    return rows
+    """Catalog kinds are not stamped onto a brand.
+
+    Poster imagery comes from the captured palette, the real logo geometry, or a
+    usable photograph (see creative_brief.default_composition). A fixed ribbon,
+    bar, or dot grid does not become a Stripe device just because the sector is payments.
+    """
+    del sector, logo_svg, thin
+    return []
 
 
 def _colours_from_roles(roles: Any) -> list[dict[str, str]]:
@@ -656,10 +628,10 @@ def reconcile_kit(raw: dict[str, Any] | None, kit: dict[str, Any] | None, profil
                 "count": int(_clamp(entry.get("count"), 1, 16, 1)),
             }
         )
-    if len(devices) < 3:
+    if len(devices) < 3 and len(base["devices"]) >= 3:
         devices = base["devices"]
     focals = [d for d in devices if d["role"] == "focal"]
-    if not focals:
+    if devices and not focals:
         devices[0]["role"] = "focal"
     elif len(focals) > 1:
         seen = False

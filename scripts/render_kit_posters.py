@@ -65,6 +65,49 @@ def bds_kit() -> dict:
     return kit
 
 
+def render_stripe_identity(cli: str, dest: str) -> dict:
+    """Stripe poster from the captured palette and copy, with no catalog devices."""
+    from creative_brief import default_composition
+    from render_poster_samples import STRIPE_SESSION, render_case
+
+    with open(os.path.join(SCRIPT_DIR, "fixtures", "kit-stripe.json"), encoding="utf-8") as handle:
+        kit = json.load(handle)
+    with open(os.path.join(SCRIPT_DIR, "fixtures", "brand-profile-stripe.json"), encoding="utf-8") as handle:
+        profile = json.load(handle)
+    composition = default_composition(kit, profile)
+    brief = {
+        "headline": "New student plan",
+        "subhead": "Reduced fees for student founders.",
+        "cta": "See pricing",
+        "eyebrow": "New",
+        "layoutRecipe": "photo-hero-type",
+        "heroStrategy": "gradient_from_palette",
+        "logoTreatment": "wordmark-white",
+        "emphasis": "celebratory",
+        "layoutTemplate": "full-bleed-scrim",
+        "headlineScale": "lg",
+        "headlineWeight": "extrabold",
+        "ctaStyle": "pill",
+        "rationale": "Identity field from the Stripe palette.",
+        "composition": composition,
+    }
+    case = {
+        "name": "stripe-identity",
+        "kit": kit,
+        "session": STRIPE_SESSION,
+        "brief": brief,
+        "background": None,
+        "brandProfile": profile,
+        "before": True,
+    }
+    out_dir = os.path.dirname(dest) or "."
+    rendered = render_case(ROOT, case, cli=cli, out_dir=out_dir, label="kit", use_ideogram=False)
+    if os.path.abspath(rendered["png"]) != os.path.abspath(dest):
+        os.replace(rendered["png"], dest)
+    rendered["png"] = dest
+    return rendered
+
+
 def main() -> None:
     out_dir = sys.argv[1] if len(sys.argv) > 1 else os.path.join(ROOT, "generated", "kit-v7")
     os.makedirs(out_dir, exist_ok=True)
@@ -115,7 +158,7 @@ def main() -> None:
         ("vercel-after", vercel_after, VERCEL_SESSION, {**VERCEL_BRIEF_BASE, "layoutTemplate": "centered-statement"}, None),
     ]
     # design_fallback is what ensure uses without a key; keep the import live for the name check.
-    assert design_fallback({"siteName": "x"})["devices"]
+    assert design_fallback({"siteName": "x"})["sector"]
     results = []
     for name, kit, session, brief, background in cases:
         case = {

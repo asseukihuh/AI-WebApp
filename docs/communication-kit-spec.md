@@ -36,13 +36,15 @@ developer, general) so a poster still gets devices.
 
 ## 3. Devices
 
-Nineteen kinds the renderer knows: block, crop, corner-pin, swoosh, confetti,
-climbing-holds, mark-crop, arc, stripe, blob, grid-dots, chevron, shield, wave, bar, ring,
-slash, burst, ribbon. Each brand receives a few of them.
+A poster does not pick from a fixed shape catalog. The composition plan (`composition` on the
+creative brief) may only use what was captured:
 
-- Sport (BDS): a crest-like `mark-crop`, climbing holds, a swoosh, confetti.
-- Payments: swoosh, stripes, a blob, an arc.
-- A triangular mark (Vercel): the triangle as a crop, a dot grid, corner pins, a bar.
+- `palette-gradient` — the site's own multi-hue palette (Stripe: blurple into the orange ribbon).
+- `logo-geometry` — the scraped symbol, enlarged. Wordmarks stay a single logo, not a second giant word.
+- `kit-photo` — a scraped photograph that does not already contain text.
+
+A kind that is not one of those, or that the capture does not support, is not drawn. Offer and
+proof lines are copied from the crisis facts, the tagline or the brand profile, or they are left empty.
 
 Each device is a reusable SVG and, on the poster, PhotoCraft `shape.create` geometry
 (bezier `path` knots, ellipses, polygons, rects, lines, RGBA and strokes).

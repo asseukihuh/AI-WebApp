@@ -12,6 +12,30 @@ import urllib.request
 from typing import Literal
 
 IDEOGRAM_GENERATE_URL = "https://api.ideogram.ai/v2/image/generate/ideogram-4"
+IDEOGRAM_REMIX_URL = "https://api.ideogram.ai/v2/image/remix/ideogram-4"
+
+
+def ideogram_conditioning() -> dict[str, str | bool]:
+    """How a poster field is conditioned on the website.
+
+    Ideogram 4 generate (the endpoint CommMaker calls) takes a prompt and a resolution.
+    It has no style-reference, character-reference, or image input. Remix accepts one
+    image, but the prompt is an edit instruction and the source is preserved, so a page
+    screenshot would come back with its text and logos. Screenshots are therefore shown
+    to the brief model, and only the text-free prompt plus the palette are sent here.
+    """
+    return {
+        "generateUrl": IDEOGRAM_GENERATE_URL,
+        "generateAcceptsReferenceImage": False,
+        "remixUrl": IDEOGRAM_REMIX_URL,
+        "remixKeepsSourceText": True,
+        "mode": "vision-prompt",
+        "note": (
+            "Ideogram 4 generate has no image reference. Remix would keep page text, so it is not "
+            "used. Website screenshots are vision input when the brief model writes the prompt; "
+            "the generate call sends that text-free prompt and the brand palette."
+        ),
+    }
 IDEOGRAM_REMOVE_BG_URL = "https://api.ideogram.ai/v2/image/remove-background/ideogram-1"
 IDEOGRAM_TIMEOUT_SEC = 120
 MAX_LAYER_BYTES = 8_000_000

@@ -13,7 +13,7 @@ Target bar: Google Pomelli–class marketing visuals, built on Adobe's core desi
 | **Contrast** | WCAG 2.2 measured against the **sampled** background (p90 luminance under light text, p10 under dark text): headline, subline, CTA label ≥ **4.5:1**; logo and CTA chip edge ≥ **3:1** (non-text, SC 1.4.11). |
 | **Alignment / grid** | 12-col grid; every text block, the logo and the CTA share one left edge (or one centre axis in the centred template). No free-floating coordinates. |
 | **Balance** | Text mass on one side, visual mass (image subject) on the other. Ideogram gets a bounding box for the subject that stays out of the text zone. |
-| **Whitespace / negative space** | ≥ 35 % of the canvas free of text, logo and chip boxes. Text block ≤ 8 columns wide. Outer margins are never encroached. |
+| **Whitespace / negative space** | ≥ 18 % of the canvas free of text, logo and chip boxes, so a full-bleed brand image can carry the poster. A flat single-colour field with no imagery fails visual-mass (imagery must cover ≥ 25 %). |
 | **Repetition / brand consistency** | Brand fonts (Google Fonts fetch → Inter fallback), brand palette roles (brand / dark / accent) reused for panel, CTA, eyebrow; one real logo (scraped SVG), never a generated one. |
 | **Emphasis / focal point** | One focal point per poster: the headline (statement layouts) or the image subject (split / full-bleed). CTA is the only saturated UI element. |
 | **Legibility** | Min sizes at 1200 px: headline 44, subline 24, CTA 20, eyebrow 15 (caps + tracking). LinkedIn mobile renders at ~0.3×, so nothing smaller. |
@@ -112,7 +112,7 @@ places its devices with PhotoCraft `shape.create` and the audit scores these rul
 | Asymmetry | Text sits on the left with an open field opposite, or a centred statement keeps imagery at the edges |
 | Layered depth | A panel, card, scrim, or kit device sits behind the type |
 | Colour blocking | A panel, card, or full-bleed brand field |
-| Deliberate whitespace | ≥ 35 % of the canvas free of text, logo and chip (existing rule) |
+| Deliberate whitespace | ≥ 18 % free of text, logo and chip. Visual mass ≥ 25 % from a multi-hue palette, a symbol mark, or a photograph |
 | Thumbnail readability | Headline ≥ 44 px, subline ≥ 24 px |
 | Logo size | Height ≥ 28 px (kit icons target 48), width ≤ 3 columns, on the safe margin |
 

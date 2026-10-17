@@ -16,6 +16,7 @@ if SCRIPTS not in sys.path:
     sys.path.insert(0, SCRIPTS)
 
 from ideogram_client import (  # noqa: E402
+    ideogram_conditioning,
     closest_ideogram_resolution,
     generate_hero_image,
     generate_layer_image,
@@ -23,6 +24,15 @@ from ideogram_client import (  # noqa: E402
     resolve_layer_resolution,
 )
 from creative_brief import CREATIVE_BRIEF_JSON_SCHEMA, _normalize_brief  # noqa: E402
+
+
+class TestIdeogramConditioning(unittest.TestCase):
+    def test_generate_has_no_style_reference(self) -> None:
+        note = ideogram_conditioning()
+        self.assertFalse(note["generateAcceptsReferenceImage"])
+        self.assertTrue(note["remixKeepsSourceText"])
+        self.assertIn("no image reference", str(note["note"]).lower())
+        self.assertIn("palette", str(note["note"]).lower())
 
 
 class TestIdeogramResolution(unittest.TestCase):
