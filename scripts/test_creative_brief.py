@@ -18,8 +18,11 @@ if SCRIPTS not in sys.path:
 
 from creative_brief import (  # noqa: E402
     _anthropic_messages_body,
+    _anthropic_request_headers,
     _call_anthropic,
+    _post_anthropic_messages,
     _safe_error_detail,
+    api_key_for_provider,
     build_creative_brief,
     build_fallback_brief,
     default_model_for_provider,
@@ -163,6 +166,37 @@ class TestCreativeBriefFallback(unittest.TestCase):
         self.assertTrue(tool.get("strict"))
         self.assertEqual(tool["name"], "submit_creative_brief")
         self.assertIn("MUST call submit_creative_brief", body["system"])
+
+    def test_anthropic_console_usr_key_sends_bearer_and_x_api_key(self) -> None:
+        key = "sk-ant-usr-test-key"
+        headers = _anthropic_request_headers(key)
+        self.assertEqual(headers["x-api-key"], key)
+        self.assertEqual(headers["Authorization"], f"Bearer {key}")
+
+    @patch.dict(os.environ, {"ANTHROPIC_WORKSPACE_ID": "ws_abc123"})
+    def test_anthropic_workspace_id_header(self) -> None:
+        headers = _anthropic_request_headers("sk-ant-usr-test-key")
+        self.assertEqual(headers["anthropic-workspace-id"], "ws_abc123")
+
+    @patch.dict(os.environ, {"ANTHROPIC_API_KEY": "\ufeffsk-ant-usr-secret\n"})
+    def test_api_key_for_provider_strips_bom_and_whitespace(self) -> None:
+        self.assertEqual(api_key_for_provider("anthropic"), "sk-ant-usr-secret")
+
+    @patch("urllib.request.urlopen")
+    def test_post_anthropic_messages_console_key_headers(self, mock_urlopen: MagicMock) -> None:
+        mock_resp = MagicMock()
+        mock_resp.read.return_value = json.dumps({"content": []}).encode("utf-8")
+        mock_resp.__enter__ = lambda self: self
+        mock_resp.__exit__ = MagicMock(return_value=False)
+        mock_urlopen.return_value = mock_resp
+
+        usr_key = "sk-ant-usr-mock-key"
+        _post_anthropic_messages({"model": "claude-sonnet-5-5"}, api_key=usr_key)
+
+        req = mock_urlopen.call_args[0][0]
+        header_map = {k.lower(): v for k, v in req.header_items()}
+        self.assertEqual(header_map["x-api-key"], usr_key)
+        self.assertEqual(header_map["authorization"], f"Bearer {usr_key}")
 
     @patch("creative_brief._post_anthropic_messages")
     def test_anthropic_retries_once_without_tool_use(self, mock_post: MagicMock) -> None:
