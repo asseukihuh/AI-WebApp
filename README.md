@@ -134,12 +134,51 @@ A lightweight, dependency-free web application to interact with local Large Lang
 
 ---
 
+## CommMaker / PhotoCraft
+
+**CommMaker** (prototype) uses this repo as the **web shell** (onboarding, AI chat, crisis flows) and embeds **[PhotoCraft](https://github.com/asseukihuh/photocraft)** as the image editor (WASM / WebGPU).
+
+### Fork workflow
+
+1. **Fork** [storytold/photocraft](https://github.com/storytold/photocraft) on GitHub (CommMaker editor fork: [asseukihuh/photocraft](https://github.com/asseukihuh/photocraft)).
+2. Add remote `upstream` → `https://github.com/storytold/photocraft.git` and merge periodically.
+3. Build or download the **web static site** (`photocraft-web-<version>.zip` from your fork’s releases, or upstream until the fork publishes assets).
+
+### Local editor embed (POC)
+
+```bash
+./scripts/fetch-photocraft-web.sh    # installs vendor/photocraft-web/ (gitignored)
+python3 scripts/serve-static.py --port 8000
+```
+
+Open **http://localhost:8000/photocraft/** — an iframe loads `vendor/photocraft-web/index.html`.
+
+**COOP / COEP:** PhotoCraft does **not** require `Cross-Origin-Opener-Policy` or `Cross-Origin-Embedder-Policy` (no `SharedArrayBuffer`). If you enable COEP on the shell for other reasons, set `Cross-Origin-Resource-Policy` on editor static files; test with `python3 scripts/serve-static.py --coop-coep`.
+
+**Build from source** (on your fork clone):
+
+```bash
+git clone https://github.com/asseukihuh/photocraft.git
+cd photocraft
+rustup target add wasm32-unknown-unknown
+cargo install trunk --locked
+packaging/web/package.sh          # release-style zip layout under target/
+# or dev: cd apps/photocraft-web && trunk serve --release
+```
+
+See [packaging/web/README.md](https://github.com/asseukihuh/photocraft/blob/main/packaging/web/README.md) on the fork for hosting, iframe embedding, and Docker.
+
+---
+
 ## 📁 Project Architecture
 
 ```
 ai-webapp/
 ├── index.html         # Entry point (auto-redirects to chatbot)
 ├── chatbot.html       # Main chat web interface
+├── photocraft/        # CommMaker PhotoCraft embed (POC)
+├── vendor/photocraft-web/  # Downloaded WASM site (gitignored; see README there)
+├── scripts/           # fetch-photocraft-web.sh, serve-static.py
 ├── imageGen.html      # Experimental generation web interface
 ├── src/
 │   ├── css/
