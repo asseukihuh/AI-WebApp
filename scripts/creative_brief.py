@@ -24,6 +24,7 @@ IdeogramLayers = Literal["background-only", "background-plus-accent"]
 LogoTreatment = Literal["wordmark-white", "wordmark-dark", "symbol-only"]
 Emphasis = Literal["calm", "urgent", "celebratory"]
 BriefSource = Literal["llm", "fallback"]
+FallbackReason = Literal["no_provider", "no_api_key", "llm_error"]
 LlmProvider = Literal["openai", "anthropic", "openrouter"]
 
 # Frontier defaults — never mini/nano (quality for marketing copy + layout decisions).
@@ -122,6 +123,13 @@ def api_key_for_provider(provider: LlmProvider) -> str:
     if provider == "openrouter":
         return (os.environ.get("OPENROUTER_API_KEY") or "").strip()
     return (os.environ.get("OPENAI_API_KEY") or "").strip()
+
+
+def _safe_error_detail(exc: BaseException) -> str:
+    """Short, non-secret diagnostic for UI when LLM call fails."""
+    if isinstance(exc, urllib.error.HTTPError):
+        return f"HTTP {exc.code}"
+    return type(exc).__name__
 
 
 def _truncate(text: str, limit: int) -> str:
@@ -566,12 +574,16 @@ def build_creative_brief(
         return {
             "brief": build_fallback_brief(kit, crisis, format),
             "source": "fallback",
+            "fallbackReason": "no_provider",
+            "errorDetail": "ConfigurationError",
         }
     api_key = api_key_for_provider(provider)
     if not api_key:
         return {
             "brief": build_fallback_brief(kit, crisis, format),
             "source": "fallback",
+            "fallbackReason": "no_api_key",
+            "errorDetail": "MissingApiKeyError",
         }
     model = resolve_llm_model(provider)
     try:
@@ -596,8 +608,11 @@ def build_creative_brief(
         ValueError,
         TimeoutError,
         OSError,
-    ):
+    ) as exc:
         return {
             "brief": build_fallback_brief(kit, crisis, format),
             "source": "fallback",
+            "fallbackReason": "llm_error",
+            "errorDetail": _safe_error_detail(exc),
+            "provider": provider,
         }

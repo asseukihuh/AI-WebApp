@@ -7,6 +7,8 @@ vendor/photocraft-web/*
 .photocraft-upstream/
 .photocraft-fork/
 
+.env
+
 __pycache__/
 *.pyc
 

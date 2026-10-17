@@ -140,7 +140,18 @@ function renderCreativeBriefPanel(apiResult) {
             parts.push(`(${apiResult.provider})`);
         }
     } else if (source === "fallback") {
-        parts.push("(no API key or LLM error — rule-based brief)");
+        parts.push("(rule-based brief)");
+        const reason = apiResult.fallbackReason;
+        const detail = apiResult.errorDetail;
+        if (reason) {
+            parts.push(`Reason: ${reason}`);
+        }
+        if (detail) {
+            parts.push(`Detail: ${detail}`);
+        }
+        if (!reason && !detail) {
+            parts.push("(no API key or LLM error)");
+        }
     }
     if (briefMeta) {
         briefMeta.textContent = parts.join(" ");

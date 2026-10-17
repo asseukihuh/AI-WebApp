@@ -10,6 +10,38 @@ $Root = Split-Path -Parent $PSScriptRoot
 $Dest = Join-Path $Root "vendor\photocraft-web"
 $Port = if ($env:COMMMAKER_PORT) { $env:COMMMAKER_PORT } else { "8000" }
 
+function Import-RepoDotEnv {
+    $dotEnv = Join-Path $Root ".env"
+    if (-not (Test-Path -LiteralPath $dotEnv)) {
+        return
+    }
+    Get-Content -LiteralPath $dotEnv -Encoding UTF8 | ForEach-Object {
+        $line = $_.Trim()
+        if (-not $line -or $line.StartsWith("#")) {
+            return
+        }
+        $eq = $line.IndexOf("=")
+        if ($eq -lt 1) {
+            return
+        }
+        $name = $line.Substring(0, $eq).Trim()
+        $value = $line.Substring($eq + 1).Trim()
+        if ($value.Length -ge 2) {
+            if (
+                ($value.StartsWith('"') -and $value.EndsWith('"')) -or
+                ($value.StartsWith("'") -and $value.EndsWith("'"))
+            ) {
+                $value = $value.Substring(1, $value.Length - 2)
+            }
+        }
+        if ($name) {
+            Set-Item -Path "Env:$name" -Value $value
+        }
+    }
+}
+
+Import-RepoDotEnv
+
 function Test-TruthyEnv([string]$Name) {
     $v = [Environment]::GetEnvironmentVariable($Name)
     if (-not $v) { return $false }
