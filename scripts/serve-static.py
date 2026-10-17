@@ -32,12 +32,14 @@ from kit_scraper import (  # noqa: E402
 )
 from image_probe import image_dimensions, raster_dimensions, svg_dimensions_from_text  # noqa: E402
 from font_fetcher import resolve_poster_fonts  # noqa: E402
+from creative_brief import build_creative_brief  # noqa: E402
 from poster_compiler import (  # noqa: E402
     compile_poster_batch,
     hero_cache_basename,
     logo_cache_basename,
     logo_svg_dimensions_oversized,
     should_recolor_logo_light,
+    should_skip_hero_for_brief,
 )
 from photocraft_cli import run_poster_batch, _cli_missing_user_message  # noqa: E402
 
@@ -61,6 +63,9 @@ class CommMakerHandler(http.server.SimpleHTTPRequestHandler):
         path = self.path.split("?", 1)[0]
         if path == "/api/scrape-kit":
             self._handle_scrape_kit()
+            return
+        if path == "/api/creative-brief":
+            self._handle_creative_brief()
             return
         if path == "/api/generate-poster":
             self._handle_generate_poster()
@@ -250,6 +255,39 @@ class CommMakerHandler(http.server.SimpleHTTPRequestHandler):
             role="hero",
         )
 
+    def _handle_creative_brief(self) -> None:
+        try:
+            body = self._read_json_body(MAX_POSTER_BODY_BYTES)
+            kit = body.get("kit") or {}
+            crisis_message = str(body.get("crisisMessage") or "").strip()
+            crisis_facts = body.get("crisisFacts")
+            crisis: dict = {
+                "crisisMessage": crisis_message,
+                "crisisFacts": crisis_facts if crisis_facts is not None else "",
+                "tone": body.get("tone"),
+            }
+            if body.get("brief") and isinstance(body["brief"], dict):
+                brief_form = body["brief"]
+                crisis.setdefault("crisisFacts", brief_form.get("facts") or "")
+                crisis.setdefault("tone", brief_form.get("tone"))
+            fmt = str(body.get("format") or "linkedin-1200x627")
+            result = build_creative_brief(kit, crisis, fmt)
+            payload = {
+                "brief": result["brief"],
+                "source": result["source"],
+            }
+            if result.get("model"):
+                payload["model"] = result["model"]
+            if result.get("provider"):
+                payload["provider"] = result["provider"]
+            self._send_json(200, payload)
+        except ValueError as exc:
+            self._send_json(400, {"error": str(exc)})
+        except json.JSONDecodeError:
+            self._send_json(400, {"error": "Invalid JSON body"})
+        except Exception as exc:  # noqa: BLE001 — MVP API
+            self._send_json(500, {"error": str(exc)})
+
     def _handle_generate_poster(self) -> None:
         try:
             body = self._read_json_body(MAX_POSTER_BODY_BYTES)
@@ -266,18 +304,25 @@ class CommMakerHandler(http.server.SimpleHTTPRequestHandler):
                 "<svg"
             ):
                 kit.pop("logoUrl", None)
+            creative_brief = body.get("creativeBrief")
             asset_errors: list[dict[str, str]] = []
             hero_busy = bool(kit.get("heroBusy"))
             hero_brand_mark = bool(kit.get("heroBrandMark"))
             hero_rel = None
-            if not hero_busy and not hero_brand_mark:
+            if not should_skip_hero_for_brief(kit, creative_brief):
                 hero_rel = self._maybe_cache_hero(kit, asset_errors)
-            logo_recolor_light = should_recolor_logo_light(
-                kit,
-                has_photo_hero=bool(hero_rel),
-                hero_busy=hero_busy,
-                hero_brand_mark=hero_brand_mark,
-            )
+            logo_treatment = (creative_brief or {}).get("logoTreatment")
+            if logo_treatment == "wordmark-white":
+                logo_recolor_light = True
+            elif logo_treatment == "wordmark-dark":
+                logo_recolor_light = False
+            else:
+                logo_recolor_light = should_recolor_logo_light(
+                    kit,
+                    has_photo_hero=bool(hero_rel),
+                    hero_busy=hero_busy,
+                    hero_brand_mark=hero_brand_mark,
+                )
             logo_rel = self._maybe_cache_logo(
                 kit,
                 asset_errors,
@@ -327,6 +372,7 @@ class CommMakerHandler(http.server.SimpleHTTPRequestHandler):
                 logo_width=logo_width,
                 logo_height=logo_height,
                 fonts_resolved=fonts_resolved,
+                creative_brief=creative_brief,
             )
             os.makedirs(GENERATED_DIR, exist_ok=True)
             try:
@@ -413,6 +459,7 @@ def main() -> None:
         if args.coop_coep:
             print("COOP/COEP enabled (optional; PhotoCraft does not need SharedArrayBuffer)")
         print("PhotoCraft embed: http://localhost:{}/photocraft/".format(args.port))
+        print("Creative brief: POST http://localhost:{}/api/creative-brief".format(args.port))
         print("Poster API: POST http://localhost:{}/api/generate-poster".format(args.port))
         os.makedirs(GENERATED_DIR, exist_ok=True)
         httpd.serve_forever()

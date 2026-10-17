@@ -317,6 +317,36 @@ button.secondary,
     color: #b91c1c;
 }
 
+.creative-brief-panel {
+    margin: 1rem 0;
+    padding: 1rem;
+    background: #f0f9ff;
+    border: 1px solid #bae6fd;
+    border-radius: 8px;
+}
+
+.creative-brief-panel h3 {
+    margin: 0 0 0.5rem;
+    font-size: 1rem;
+}
+
+.brief-headline {
+    margin: 0.35rem 0;
+    font-size: 1.2rem;
+    font-weight: 700;
+    line-height: 1.25;
+}
+
+.brief-rationale {
+    margin: 0.5rem 0 0;
+    font-size: 0.9rem;
+    color: #475569;
+}
+
+.brief-meta.is-fallback {
+    color: #b45309;
+}
+
 .home-grid {
     display: grid;
     gap: 1rem;

@@ -680,6 +680,97 @@ def _show_footer(site_name: str, *, has_logo: bool) -> bool:
     return False
 
 
+def _brief_wants_photo_hero(creative_brief: dict[str, Any] | None) -> bool:
+    if not creative_brief:
+        return True
+    layout = creative_brief.get("layoutRecipe")
+    hero = creative_brief.get("heroStrategy")
+    if layout in ("gradient-brand", "minimal-wordmark"):
+        return False
+    if hero in ("gradient_from_palette", "solid", "none"):
+        return False
+    return hero == "use_kit_photo" or layout == "photo-hero-type"
+
+
+def _apply_creative_brief_to_compile(
+    kit: dict[str, Any],
+    *,
+    headline: str,
+    subline: str,
+    creative_brief: dict[str, Any] | None,
+    hero_relative_path: str | None,
+) -> tuple[str, str, str | None, bool, bool, bool, bool | None]:
+    """Return headline, subline, hero path, brand_mark_grad, solid_bg, skip_std_gradient, logo_recolor_override."""
+    hero_brand_mark = bool(kit.get("heroBrandMark"))
+    force_solid = False
+    skip_std_gradient = False
+    logo_recolor: bool | None = None
+    if not creative_brief:
+        return headline, subline, hero_relative_path, hero_brand_mark, force_solid, skip_std_gradient, logo_recolor
+
+    if creative_brief.get("headline"):
+        headline = _truncate(str(creative_brief["headline"]), 90)
+    if creative_brief.get("subhead"):
+        subline = _truncate(str(creative_brief["subhead"]), SUBLINE_CHAR_LIMIT)
+
+    layout = creative_brief.get("layoutRecipe") or ""
+    hero = creative_brief.get("heroStrategy") or ""
+    logo = creative_brief.get("logoTreatment") or ""
+
+    if not _brief_wants_photo_hero(creative_brief):
+        hero_relative_path = None
+
+    if layout == "minimal-wordmark":
+        hero_brand_mark = True
+        hero_relative_path = None
+    elif layout == "gradient-brand":
+        hero_brand_mark = False
+        hero_relative_path = None
+    elif layout == "photo-hero-type" and hero == "use_kit_photo":
+        hero_brand_mark = False
+
+    if hero == "solid":
+        hero_relative_path = None
+        hero_brand_mark = False
+        force_solid = True
+        skip_std_gradient = True
+    elif hero == "gradient_from_palette":
+        hero_relative_path = None
+    elif hero == "none":
+        hero_relative_path = None
+        hero_brand_mark = False
+
+    if logo == "wordmark-white":
+        logo_recolor = True
+    elif logo == "wordmark-dark":
+        logo_recolor = False
+    elif logo == "symbol-only":
+        logo_recolor = True
+
+    return (
+        headline,
+        subline,
+        hero_relative_path,
+        hero_brand_mark,
+        force_solid,
+        skip_std_gradient,
+        logo_recolor,
+    )
+
+
+def should_skip_hero_for_brief(
+    kit: dict[str, Any] | None,
+    creative_brief: dict[str, Any] | None,
+) -> bool:
+    """Whether asset download should skip kit hero image for this brief."""
+    if not creative_brief:
+        return bool((kit or {}).get("heroBusy") or (kit or {}).get("heroBrandMark"))
+    if not _brief_wants_photo_hero(creative_brief):
+        return True
+    kit = kit or {}
+    return bool(kit.get("heroBusy") or kit.get("heroBrandMark"))
+
+
 def _first_fact_sentence(session: dict[str, Any], skip: str) -> str:
     facts = (session.get("brief") or {}).get("facts") or ""
     for line in facts.splitlines():
@@ -704,6 +795,7 @@ def compile_poster_batch(
     logo_width: int | None = None,
     logo_height: int | None = None,
     fonts_resolved: dict[str, Any] | None = None,
+    creative_brief: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Build a PhotoCraft command batch for a LinkedIn 1200×627 poster."""
     kit = kit or session.get("kitSnapshot") or {}
@@ -729,9 +821,24 @@ def compile_poster_batch(
         subline = ""
 
     hero_busy = bool(kit.get("heroBusy"))
-    hero_brand_mark = bool(kit.get("heroBrandMark"))
-    if hero_busy or hero_brand_mark:
+    (
+        headline,
+        subline,
+        hero_relative_path,
+        hero_brand_mark,
+        force_solid_bg,
+        skip_std_gradient,
+        brief_logo_recolor,
+    ) = _apply_creative_brief_to_compile(
+        kit,
+        headline=headline,
+        subline=subline,
+        creative_brief=creative_brief,
+        hero_relative_path=hero_relative_path,
+    )
+    if hero_busy and not creative_brief:
         hero_relative_path = None
+        hero_brand_mark = bool(kit.get("heroBrandMark"))
 
     if not hero_width or not hero_height:
         kit_w = (kit or {}).get("heroWidth")
@@ -761,6 +868,8 @@ def compile_poster_batch(
         hero_busy=hero_busy,
         hero_brand_mark=hero_brand_mark,
     )
+    if brief_logo_recolor is not None:
+        logo_on_dark = brief_logo_recolor
     use_knockback = _use_logo_knockback(
         kit,
         has_hero=has_photo_hero,
@@ -795,9 +904,16 @@ def compile_poster_batch(
                 "params": {"name": "Hero scrim", "opacity": scrim_opacity},
             }
         )
+    elif force_solid_bg:
+        steps.append(
+            {
+                "command": "layer.newFillLayer.solidColor",
+                "params": {"color": primary, "name": "Brand solid"},
+            }
+        )
     elif hero_brand_mark:
         steps.extend(_brand_mark_gradient_steps(kit, primary, secondary, accent))
-    else:
+    elif not skip_std_gradient:
         steps.extend(_brand_gradient_steps(primary, secondary, accent))
 
     uses_dark_type = has_photo_hero or hero_brand_mark or _hex_luminance(primary) < 0.45
@@ -948,5 +1064,6 @@ def compile_poster_batch(
                 "headline": headline_font,
                 "body": body_font,
             },
+            "creativeBrief": creative_brief,
         },
     }

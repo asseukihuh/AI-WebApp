@@ -253,12 +253,44 @@ On Windows, prefer `.\scripts\dev-commmaker.ps1` (same server, auto vendor insta
 |------|-----|----------------|
 | Home | `/home.html` | Flow overview and links |
 | Onboard | `/onboard.html` | POST scrape via `/api/scrape-kit` → preview → `localStorage` `commmaker.kit` |
-| Crisis | `/crisis.html` | Facts, tone, legal flag → caption draft → **Generate poster in PhotoCraft** (`POST /api/generate-poster`) |
+| Crisis | `/crisis.html` | Facts → caption draft → **creative brief** (`POST /api/creative-brief`) → **Generate poster** (`POST /api/generate-poster`) |
 | Editor | `/photocraft/` | PhotoCraft iframe; opens generated `.pcraft` from `/generated/` when available (**1200×627**) |
 
 ### Personalized poster (PhotoCraft CLI)
 
 The dev server compiles kit + crisis session into a PhotoCraft **command batch**, then runs **`photocraft-cli serve`** with `--automation-read-root` / `--automation-write-root` set to the repo so output lands in `generated/`.
+
+Before compile, Crisis calls **`POST /api/creative-brief`**: a frontier LLM chooses on-brand headline, layout recipe, and hero/logo treatment; `poster_compiler.py` stays the deterministic renderer. If no API key is set (or the model call fails), the same endpoint returns a **rule-based fallback** brief (`source: fallback`).
+
+#### Creative brief LLM (Phase B)
+
+**Default model (when `COMMMAKER_LLM_MODEL` is unset):** provider-specific **frontier** IDs — not mini/nano. We default to **Claude Sonnet 4** on Anthropic (`claude-sonnet-4-20250514`) and matching IDs on other providers because Sonnet-class models balance strong marketing reasoning, reliable JSON structured output, and latency for a single brief per poster. Override with `COMMMAKER_LLM_MODEL` for Opus, o3, GPT-4.1, or OpenRouter routes.
+
+| Variable | Purpose |
+|----------|---------|
+| `COMMMAKER_LLM_PROVIDER` | Optional: `openai`, `anthropic`, or `openrouter`. If unset, the first matching key wins: Anthropic → OpenRouter → OpenAI. |
+| `ANTHROPIC_API_KEY` | Direct Anthropic Messages API |
+| `OPENAI_API_KEY` | OpenAI Chat Completions (also used when `OPENAI_API_BASE` points at a compatible proxy) |
+| `OPENROUTER_API_KEY` | One key for many models via [OpenRouter](https://openrouter.ai/) |
+| `COMMMAKER_LLM_MODEL` | Override model id (see table below) |
+| `OPENROUTER_HTTP_REFERER` | Optional OpenRouter attribution URL |
+| `OPENROUTER_APP_TITLE` | Optional OpenRouter app name (default `CommMaker`) |
+
+| Model | Use case | Example env |
+|-------|----------|-------------|
+| `claude-sonnet-4-20250514` | **Default (Anthropic)** — best balance of quality, speed, structured briefs | `COMMMAKER_LLM_PROVIDER=anthropic` + `ANTHROPIC_API_KEY=…` |
+| `claude-opus-4-20250514` | Maximum copy/layout reasoning when latency cost is acceptable | `COMMMAKER_LLM_MODEL=claude-opus-4-20250514` |
+| `gpt-4.1` | **Default (OpenAI)** — strong general marketing reasoning | `OPENAI_API_KEY=…` |
+| `o3` | Harder tradeoffs (legal tone, crowded layouts) | `COMMMAKER_LLM_MODEL=o3` |
+| `anthropic/claude-sonnet-4` | **Default (OpenRouter)** — Sonnet via single OpenRouter key | `OPENROUTER_API_KEY=…` |
+| `google/gemini-2.5-pro-preview` | Alternative frontier via OpenRouter | `COMMMAKER_LLM_MODEL=google/gemini-2.5-pro-preview` |
+
+```bash
+export ANTHROPIC_API_KEY=sk-ant-…
+# optional: export COMMMAKER_LLM_MODEL=claude-opus-4-20250514
+python3 scripts/serve-static.py --port 8000
+python3 scripts/test_creative_brief.py
+```
 
 Hero images use **cover** placement (`fit: false` + scale to fill **1200×627**); verify with `python3 scripts/test_poster_cover.py`. Typography uses separate **headline** and **body** kit fonts when available; Google Fonts links from scrape are cached under `generated/fonts/` and reported as **`fontsResolved`** on the generate-poster response (`python3 scripts/test_poster_fonts.py`). LinkedIn layout tokens: logo **~280px** wide (220–320) with **56px** margin and knockback sized to the mark; crisis headline **52–56px**, kit tagline **24px** (footer site name omitted when a logo is placed).
 

@@ -17,6 +17,11 @@ const generateBtn = document.getElementById("generate-btn");
 const openEditorBtn = document.getElementById("open-editor-btn");
 const generatePosterBtn = document.getElementById("generate-poster-btn");
 const posterStatus = document.getElementById("poster-status");
+const creativeBriefPanel = document.getElementById("creative-brief-panel");
+const briefMeta = document.getElementById("brief-meta");
+const briefHeadlinePreview = document.getElementById("brief-headline-preview");
+const briefHeroStrategy = document.getElementById("brief-hero-strategy");
+const briefRationale = document.getElementById("brief-rationale");
 
 /**
  * Optional LLM hook — replace or wrap to call Ollama / remote API.
@@ -98,6 +103,70 @@ function setPosterStatus(message, { error = false, success = false } = {}) {
     posterStatus.setAttribute("role", message ? "alert" : "status");
 }
 
+function formatHeroStrategyLabel(strategy) {
+    const labels = {
+        use_kit_photo: "Hero: kit marketing photo",
+        gradient_from_palette: "Hero: brand gradient from palette",
+        solid: "Hero: solid brand color",
+        none: "Hero: none (type-focused)",
+    };
+    return labels[strategy] || `Hero strategy: ${strategy || "—"}`;
+}
+
+function renderCreativeBriefPanel(apiResult) {
+    const brief = apiResult?.brief;
+    if (!brief || !creativeBriefPanel) {
+        return;
+    }
+    creativeBriefPanel.hidden = false;
+    const source = apiResult.source || "fallback";
+    const parts = [`Source: ${source}`];
+    if (source === "llm" && apiResult.model) {
+        parts.push(`Model: ${apiResult.model}`);
+        if (apiResult.provider) {
+            parts.push(`(${apiResult.provider})`);
+        }
+    } else if (source === "fallback") {
+        parts.push("(no API key or LLM error — rule-based brief)");
+    }
+    if (briefMeta) {
+        briefMeta.textContent = parts.join(" ");
+        briefMeta.classList.toggle("is-fallback", source === "fallback");
+    }
+    if (briefHeadlinePreview) {
+        const sub = brief.subhead ? ` — ${brief.subhead}` : "";
+        briefHeadlinePreview.textContent = `${brief.headline || ""}${sub}`;
+    }
+    if (briefHeroStrategy) {
+        const layout = brief.layoutRecipe ? ` · Layout: ${brief.layoutRecipe}` : "";
+        briefHeroStrategy.textContent =
+            formatHeroStrategyLabel(brief.heroStrategy) + layout;
+    }
+    if (briefRationale) {
+        briefRationale.textContent = brief.rationale || "";
+    }
+}
+
+async function fetchCreativeBrief(kit, session) {
+    const formBrief = session.brief || {};
+    const res = await fetch("/api/creative-brief", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+            kit,
+            crisisMessage: formBrief.headline || session.suggestedHeadline || "",
+            crisisFacts: formBrief.facts || "",
+            tone: formBrief.tone,
+            format: "linkedin-1200x627",
+        }),
+    });
+    const data = await res.json();
+    if (!res.ok) {
+        throw new Error(data.error || `Creative brief HTTP ${res.status}`);
+    }
+    return data;
+}
+
 function triggerPosterDownload(docPath) {
     if (!docPath) {
         return;
@@ -161,13 +230,19 @@ async function generatePosterInPhotoCraft() {
 
     generatePosterBtn.disabled = true;
     openEditorBtn.disabled = true;
-    setPosterStatus("Compiling poster and running PhotoCraft CLI…", {});
+    setPosterStatus("Building creative brief…", {});
 
     try {
+        const briefResult = await fetchCreativeBrief(kit, session);
+        renderCreativeBriefPanel(briefResult);
+        const creativeBrief = briefResult.brief;
+
+        setPosterStatus("Compiling poster and running PhotoCraft CLI…", {});
+
         const res = await fetch("/api/generate-poster", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ kit, session }),
+            body: JSON.stringify({ kit, session, creativeBrief }),
         });
         const data = await res.json();
         if (!res.ok) {
@@ -177,6 +252,10 @@ async function generatePosterInPhotoCraft() {
         const posterOk = Boolean(data.ok);
         const updated = {
             ...session,
+            creativeBrief: {
+                ...briefResult,
+                fetchedAt: new Date().toISOString(),
+            },
             poster: {
                 ok: posterOk,
                 documentPath: data.documentPath,
