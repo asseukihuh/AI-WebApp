@@ -35,6 +35,7 @@ from font_fetcher import resolve_poster_fonts  # noqa: E402
 from creative_brief import (  # noqa: E402
     _normalize_api_key,
     build_creative_brief,
+    coerce_ideogram_for_unsuitable_kit_hero,
     effective_ideogram_layers,
 )
 from ideogram_client import generate_layer_image, ideogram_api_key  # noqa: E402
