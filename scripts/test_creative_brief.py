@@ -22,7 +22,6 @@ from creative_brief import (  # noqa: E402
     default_model_for_provider,
     resolve_llm_model,
 )
-import urllib.error  # noqa: E402
 from poster_compiler import compile_poster_batch  # noqa: E402
 
 
