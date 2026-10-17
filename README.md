@@ -260,7 +260,7 @@ On Windows, prefer `.\scripts\dev-commmaker.ps1` (same server, auto vendor insta
 
 The dev server compiles kit + crisis session into a PhotoCraft **command batch**, then runs **`photocraft-cli serve`** with `--automation-read-root` / `--automation-write-root` set to the repo so output lands in `generated/`.
 
-Hero images use **cover** placement (`fit: false` + scale to fill **1200×627**); verify with `python3 scripts/test_poster_cover.py`.
+Hero images use **cover** placement (`fit: false` + scale to fill **1200×627**); verify with `python3 scripts/test_poster_cover.py`. Typography uses separate **headline** and **body** kit fonts when available; Google Fonts links from scrape are cached under `generated/fonts/` and reported as **`fontsResolved`** on the generate-poster response (`python3 scripts/test_poster_fonts.py`).
 
 ```bash
 python3 scripts/serve-static.py --port 8000

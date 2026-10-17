@@ -74,6 +74,13 @@ function renderPreview(kit) {
             <dt>Source</dt><dd><a href="${escapeHtml(kit.sourceUrl)}" target="_blank" rel="noopener noreferrer">${escapeHtml(kit.sourceUrl)}</a></dd>
             <dt>Colors</dt><dd class="kit-colors">${colors}</dd>
             <dt>Fonts</dt><dd>${escapeHtml((kit.fonts || []).join(", ") || "—")}</dd>
+            ${
+                kit.googleFonts?.length
+                    ? `<dt>Google Fonts</dt><dd>${escapeHtml(
+                          kit.googleFonts.map((g) => g.family).join(", ")
+                      )}</dd>`
+                    : ""
+            }
             <dt>Scraped</dt><dd>${escapeHtml(kit.scrapedAt || "")}</dd>
         </dl>`;
     previewEl.hidden = false;

@@ -354,7 +354,31 @@ def _pick_hero_url(base_url: str, collector: _PageCollector) -> str | None:
     return best[1] if best else None
 
 
+def _google_fonts_from_blob(text: str) -> list[dict[str, Any]]:
+    from font_fetcher import parse_google_font_links
+
+    return parse_google_font_links(text)
+
+
 def _pick_logo_url(base_url: str, collector: _PageCollector) -> str | None:
+    for img in collector.images:
+        if img.get("in_header") != "1":
+            continue
+        src = img.get("src", "")
+        if not src.lower().split("?", 1)[0].endswith(".svg"):
+            continue
+        blob = " ".join((img.get("alt", ""), img.get("class", ""), src))
+        if _LOGO_HINTS.search(blob) or "wordmark" in blob.lower():
+            normalized = _normalize_url(base_url, src)
+            if normalized:
+                return normalized
+    for rel, href in collector.link_rels:
+        rel_l = rel.lower()
+        if "image_src" in rel_l or "logo" in rel_l:
+            if href.lower().split("?", 1)[0].endswith(".svg"):
+                normalized = _normalize_url(base_url, href)
+                if normalized:
+                    return normalized
     icon_candidates: list[str] = []
     for rel, href in collector.link_rels:
         rel_l = rel.lower()
@@ -527,6 +551,7 @@ def scrape_kit_from_html(
 
     font_blob = html + "\n" + css_blob
     fonts = _fonts_from_text(font_blob)
+    google_fonts = _google_fonts_from_blob(font_blob)
 
     logo_url = _pick_logo_url(source_url, collector)
     logo_svg = _pick_logo_svg(collector)
@@ -556,6 +581,8 @@ def scrape_kit_from_html(
         kit["headline"] = headline
     if accent_colors:
         kit["accentColors"] = accent_colors
+    if google_fonts:
+        kit["googleFonts"] = google_fonts[:8]
     return kit
 
 

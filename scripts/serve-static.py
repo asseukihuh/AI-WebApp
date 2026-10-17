@@ -31,6 +31,7 @@ from kit_scraper import (  # noqa: E402
     validate_fetch_url,
 )
 from image_probe import raster_dimensions  # noqa: E402
+from font_fetcher import resolve_poster_fonts  # noqa: E402
 from poster_compiler import (  # noqa: E402
     compile_poster_batch,
     hero_cache_basename,
@@ -251,6 +252,24 @@ class CommMakerHandler(http.server.SimpleHTTPRequestHandler):
                 logo_dims = raster_dimensions(os.path.join(ROOT, logo_rel))
                 if logo_dims:
                     logo_width = logo_dims[0]
+
+            def _font_fetch(url: str) -> bytes:
+                req = urllib.request.Request(
+                    url,
+                    headers={
+                        "User-Agent": "CommMaker-FontFetcher/0.1 (+https://github.com/asseukihuh/AI-WebApp)",
+                        "Accept": "text/css,font/woff2,*/*",
+                    },
+                    method="GET",
+                )
+                with urllib.request.urlopen(req, timeout=FETCH_TIMEOUT_SEC) as resp:
+                    return resp.read()
+
+            fonts_resolved = resolve_poster_fonts(
+                kit or {},
+                ROOT,
+                fetcher=_font_fetch,
+            )
             batch = compile_poster_batch(
                 kit,
                 session,
@@ -259,6 +278,7 @@ class CommMakerHandler(http.server.SimpleHTTPRequestHandler):
                 hero_width=hero_width,
                 hero_height=hero_height,
                 logo_width=logo_width,
+                fonts_resolved=fonts_resolved,
             )
             os.makedirs(GENERATED_DIR, exist_ok=True)
             try:
@@ -293,6 +313,7 @@ class CommMakerHandler(http.server.SimpleHTTPRequestHandler):
                 "cliAvailable": result.get("cliAvailable", False),
                 "cliPath": result.get("cliPath"),
                 "placementErrors": placement_errors,
+                "fontsResolved": fonts_resolved,
             }
             if result.get("error"):
                 payload["cliError"] = result["error"]
