@@ -21,6 +21,10 @@ const creativeBriefPanel = document.getElementById("creative-brief-panel");
 const briefMeta = document.getElementById("brief-meta");
 const briefHeadlinePreview = document.getElementById("brief-headline-preview");
 const briefHeroStrategy = document.getElementById("brief-hero-strategy");
+const briefImagePrompts = document.getElementById("brief-image-prompts");
+const briefBackgroundPrompt = document.getElementById("brief-background-prompt");
+const briefAccentLabel = document.getElementById("brief-accent-label");
+const briefAccentPrompt = document.getElementById("brief-accent-prompt");
 const briefRationale = document.getElementById("brief-rationale");
 
 /**
@@ -148,8 +152,29 @@ function renderCreativeBriefPanel(apiResult) {
     }
     if (briefHeroStrategy) {
         const layout = brief.layoutRecipe ? ` · Layout: ${brief.layoutRecipe}` : "";
+        const layers =
+            brief.heroStrategy === "ideogram_generate" && brief.ideogramLayers
+                ? ` · Layers: ${brief.ideogramLayers}`
+                : "";
         briefHeroStrategy.textContent =
-            formatHeroStrategyLabel(brief.heroStrategy, brief) + layout;
+            formatHeroStrategyLabel(brief.heroStrategy, brief) + layout + layers;
+    }
+    if (briefImagePrompts && briefBackgroundPrompt) {
+        const showIdeogram =
+            brief.heroStrategy === "ideogram_generate" && brief.heroImagePrompt;
+        briefImagePrompts.hidden = !showIdeogram;
+        if (showIdeogram) {
+            briefBackgroundPrompt.textContent = brief.heroImagePrompt;
+            const accentMode =
+                brief.ideogramLayers === "background-plus-accent" && brief.accentImagePrompt;
+            if (briefAccentLabel) {
+                briefAccentLabel.hidden = !accentMode;
+            }
+            if (briefAccentPrompt) {
+                briefAccentPrompt.hidden = !accentMode;
+                briefAccentPrompt.textContent = accentMode ? brief.accentImagePrompt : "";
+            }
+        }
     }
     if (briefRationale) {
         briefRationale.textContent = brief.rationale || "";

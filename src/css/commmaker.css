@@ -347,6 +347,21 @@ button.secondary,
     color: #b45309;
 }
 
+.brief-image-prompts {
+    margin: 0.5rem 0 0;
+    font-size: 0.88rem;
+}
+
+.brief-image-prompts dt {
+    margin-top: 0.35rem;
+    font-weight: 600;
+    color: #334155;
+}
+
+.brief-image-prompts dd {
+    margin: 0.15rem 0 0;
+}
+
 .home-grid {
     display: grid;
     gap: 1rem;

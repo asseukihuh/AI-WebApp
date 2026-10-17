@@ -32,8 +32,8 @@ from kit_scraper import (  # noqa: E402
 )
 from image_probe import image_dimensions, raster_dimensions, svg_dimensions_from_text  # noqa: E402
 from font_fetcher import resolve_poster_fonts  # noqa: E402
-from creative_brief import build_creative_brief  # noqa: E402
-from ideogram_client import generate_hero_image, ideogram_api_key  # noqa: E402
+from creative_brief import build_creative_brief, effective_ideogram_layers  # noqa: E402
+from ideogram_client import generate_layer_image, ideogram_api_key  # noqa: E402
 from poster_compiler import (  # noqa: E402
     compile_poster_batch,
     hero_cache_basename,
@@ -310,21 +310,62 @@ class CommMakerHandler(http.server.SimpleHTTPRequestHandler):
             hero_busy = bool(kit.get("heroBusy"))
             hero_brand_mark = bool(kit.get("heroBrandMark"))
             hero_rel = None
+            accent_rel = None
             hero_meta: dict = {}
+            generated_assets: list[dict[str, str]] = []
             ideogram_fallback_message: str | None = None
             if (
                 isinstance(creative_brief, dict)
                 and creative_brief.get("heroStrategy") == "ideogram_generate"
             ):
                 prompt = str(creative_brief.get("heroImagePrompt") or "").strip()
+                layers_mode = effective_ideogram_layers(creative_brief)
+                accent_prompt = str(creative_brief.get("accentImagePrompt") or "").strip()
                 if ideogram_api_key() and prompt:
                     try:
-                        hero_rel, _bytes, hero_meta = generate_hero_image(
+                        hero_rel, _bytes, bg_meta = generate_layer_image(
                             prompt,
+                            "background",
                             "1200x627",
                             assets_dir=ASSETS_DIR,
                         )
+                        generated_assets.append(
+                            {
+                                "role": "background",
+                                "path": hero_rel,
+                                "source": "ideogram-4",
+                            }
+                        )
+                        hero_meta = {
+                            "heroSource": "ideogram-4",
+                            "heroImagePrompt": prompt,
+                            "ideogramResolution": bg_meta.get("ideogramResolution"),
+                            "ideogramLayers": layers_mode,
+                        }
+                        if bg_meta.get("resolutionNote"):
+                            hero_meta["resolutionNote"] = (
+                                f"{bg_meta['resolutionNote']} "
+                                "Poster compiler cover-fills 1200×627."
+                            )
                         kit["heroImageUrl"] = f"/{hero_rel}"
+                        if (
+                            layers_mode == "background-plus-accent"
+                            and accent_prompt
+                        ):
+                            accent_rel, _accent_bytes, accent_meta = generate_layer_image(
+                                accent_prompt,
+                                "accent",
+                                "1024x1024",
+                                assets_dir=ASSETS_DIR,
+                                remove_bg=True,
+                            )
+                            generated_assets.append(
+                                {
+                                    "role": "accent",
+                                    "path": accent_rel,
+                                    "source": accent_meta.get("source", "ideogram-4"),
+                                }
+                            )
                     except (
                         urllib.error.URLError,
                         urllib.error.HTTPError,
@@ -338,6 +379,9 @@ class CommMakerHandler(http.server.SimpleHTTPRequestHandler):
                         asset_errors.append(
                             {"role": "ideogram", "error": str(exc), "url": ""}
                         )
+                        hero_rel = None
+                        accent_rel = None
+                        generated_assets = []
                         patched = dict(creative_brief)
                         if kit.get("heroImageUrl") and not (
                             kit.get("heroBusy") or kit.get("heroBrandMark")
@@ -390,12 +434,18 @@ class CommMakerHandler(http.server.SimpleHTTPRequestHandler):
             )
             hero_width: int | None = None
             hero_height: int | None = None
+            accent_width: int | None = None
+            accent_height: int | None = None
             logo_width: int | None = None
             logo_height: int | None = None
             if hero_rel:
                 hero_dims = raster_dimensions(os.path.join(ROOT, hero_rel))
                 if hero_dims:
                     hero_width, hero_height = hero_dims
+            if accent_rel:
+                accent_dims = raster_dimensions(os.path.join(ROOT, accent_rel))
+                if accent_dims:
+                    accent_width, accent_height = accent_dims
             if logo_rel:
                 logo_dims = image_dimensions(os.path.join(ROOT, logo_rel))
                 if logo_dims:
@@ -429,6 +479,9 @@ class CommMakerHandler(http.server.SimpleHTTPRequestHandler):
                 hero_relative_path=hero_rel,
                 hero_width=hero_width,
                 hero_height=hero_height,
+                accent_relative_path=accent_rel,
+                accent_width=accent_width,
+                accent_height=accent_height,
                 logo_width=logo_width,
                 logo_height=logo_height,
                 fonts_resolved=fonts_resolved,
@@ -469,10 +522,14 @@ class CommMakerHandler(http.server.SimpleHTTPRequestHandler):
                 "placementErrors": placement_errors,
                 "fontsResolved": fonts_resolved,
             }
+            if generated_assets:
+                payload["generatedAssets"] = generated_assets
             if hero_meta:
                 payload["heroSource"] = hero_meta.get("heroSource")
                 payload["heroImagePrompt"] = hero_meta.get("heroImagePrompt")
                 payload["ideogramResolution"] = hero_meta.get("ideogramResolution")
+                if hero_meta.get("ideogramLayers"):
+                    payload["ideogramLayers"] = hero_meta.get("ideogramLayers")
                 if hero_meta.get("resolutionNote"):
                     payload["resolutionNote"] = hero_meta["resolutionNote"]
             if ideogram_fallback_message:
