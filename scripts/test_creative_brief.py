@@ -3,12 +3,13 @@
 
 from __future__ import annotations
 
+import io
 import json
 import os
 import sys
 import unittest
 import urllib.error
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
 SCRIPTS = os.path.dirname(os.path.abspath(__file__))
@@ -16,6 +17,8 @@ if SCRIPTS not in sys.path:
     sys.path.insert(0, SCRIPTS)
 
 from creative_brief import (  # noqa: E402
+    _anthropic_messages_body,
+    _call_anthropic,
     _safe_error_detail,
     build_creative_brief,
     build_fallback_brief,
@@ -138,6 +141,91 @@ class TestCreativeBriefFallback(unittest.TestCase):
         detail = _safe_error_detail(err, provider="anthropic")
         self.assertIn("COMMMAKER_LLM_MODEL", detail)
         self.assertIn("Sonnet 4 IDs retired", detail)
+
+    def test_safe_error_detail_includes_truncated_body(self) -> None:
+        err = urllib.error.HTTPError(
+            url="https://api.anthropic.com/v1/messages",
+            code=400,
+            msg="Bad Request",
+            hdrs=None,
+            fp=io.BytesIO(
+                b'{"error":{"message":"tool_choice type tool is not supported on this model"}}'
+            ),
+        )
+        detail = _safe_error_detail(err, provider="anthropic")
+        self.assertTrue(detail.startswith("HTTP 400:"))
+        self.assertIn("tool_choice", detail)
+
+    def test_anthropic_request_uses_auto_tool_choice_and_strict(self) -> None:
+        body = _anthropic_messages_body({}, {"crisisFacts": "x"}, "linkedin-1200x627", model="claude-sonnet-5-5")
+        self.assertEqual(body["tool_choice"], {"type": "auto"})
+        tool = body["tools"][0]
+        self.assertTrue(tool.get("strict"))
+        self.assertEqual(tool["name"], "submit_creative_brief")
+        self.assertIn("MUST call submit_creative_brief", body["system"])
+
+    @patch("creative_brief._post_anthropic_messages")
+    def test_anthropic_retries_once_without_tool_use(self, mock_post: MagicMock) -> None:
+        tool_brief = {
+            "headline": "Update",
+            "subhead": "More",
+            "layoutRecipe": "gradient-brand",
+            "heroStrategy": "gradient_from_palette",
+            "logoTreatment": "wordmark-white",
+            "emphasis": "calm",
+            "rationale": "Clear gradient layout.",
+        }
+        mock_post.side_effect = [
+            {"content": [{"type": "text", "text": "thinking…"}]},
+            {
+                "content": [
+                    {
+                        "type": "tool_use",
+                        "name": "submit_creative_brief",
+                        "input": tool_brief,
+                    }
+                ]
+            },
+        ]
+        brief = _call_anthropic(
+            {},
+            {"crisisFacts": "x"},
+            "linkedin-1200x627",
+            api_key="key",
+            model="claude-sonnet-5-5",
+        )
+        self.assertEqual(brief["headline"], "Update")
+        self.assertEqual(mock_post.call_count, 2)
+
+    @patch("creative_brief._post_anthropic_messages")
+    def test_anthropic_text_json_fallback(self, mock_post: MagicMock) -> None:
+        mock_post.return_value = {
+            "content": [
+                {
+                    "type": "text",
+                    "text": json.dumps(
+                        {
+                            "headline": "From text",
+                            "subhead": "",
+                            "layoutRecipe": "minimal-wordmark",
+                            "heroStrategy": "none",
+                            "logoTreatment": "wordmark-dark",
+                            "emphasis": "calm",
+                            "rationale": "Parsed from assistant text.",
+                        }
+                    ),
+                }
+            ]
+        }
+        brief = _call_anthropic(
+            {},
+            {"crisisFacts": "x"},
+            "linkedin-1200x627",
+            api_key="key",
+            model="claude-sonnet-5-5",
+        )
+        self.assertEqual(brief["headline"], "From text")
+        self.assertEqual(mock_post.call_count, 2)
 
     @patch.dict(os.environ, {"ANTHROPIC_API_KEY": "test-key"})
     @patch("creative_brief._call_llm")

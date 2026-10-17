@@ -126,6 +126,17 @@ def api_key_for_provider(provider: LlmProvider) -> str:
     return (os.environ.get("OPENAI_API_KEY") or "").strip()
 
 
+def _http_error_body(exc: urllib.error.HTTPError, limit: int = 240) -> str:
+    try:
+        if exc.fp is None:
+            return ""
+        raw = exc.fp.read()
+        text = raw.decode("utf-8", errors="replace") if isinstance(raw, bytes) else str(raw)
+    except Exception:
+        return ""
+    return _truncate(text, limit)
+
+
 def _safe_error_detail(
     exc: BaseException,
     *,
@@ -133,11 +144,12 @@ def _safe_error_detail(
 ) -> str:
     """Short, non-secret diagnostic for UI when LLM call fails."""
     if isinstance(exc, urllib.error.HTTPError):
+        body = _http_error_body(exc)
         if exc.code == 404 and provider == "anthropic":
-            return (
-                "HTTP 404 — check COMMMAKER_LLM_MODEL (Sonnet 4 IDs retired)"
-            )
-        return f"HTTP {exc.code}"
+            hint = "HTTP 404 — check COMMMAKER_LLM_MODEL (Sonnet 4 IDs retired)"
+            return f"{hint}: {body}" if body else hint
+        detail = f"HTTP {exc.code}"
+        return f"{detail}: {body}" if body else detail
     return type(exc).__name__
 
 
@@ -433,6 +445,68 @@ def _anthropic_tool_schema() -> dict[str, Any]:
     return schema
 
 
+def _anthropic_submit_tool() -> dict[str, Any]:
+    return {
+        "name": "submit_creative_brief",
+        "description": "Submit the poster creative brief JSON fields.",
+        "input_schema": _anthropic_tool_schema(),
+        "strict": True,
+    }
+
+
+def _anthropic_messages_body(
+    kit: dict[str, Any] | None,
+    crisis: dict[str, Any],
+    format: str,
+    *,
+    model: str,
+) -> dict[str, Any]:
+    return {
+        "model": model,
+        "max_tokens": 1200,
+        "system": (
+            "You produce concise marketing creative briefs. "
+            "You MUST call submit_creative_brief exactly once with complete structured fields."
+        ),
+        "messages": [{"role": "user", "content": _llm_prompt(kit, crisis, format)}],
+        "tools": [_anthropic_submit_tool()],
+        "tool_choice": {"type": "auto"},
+    }
+
+
+def _brief_from_anthropic_payload(payload: dict[str, Any]) -> dict[str, Any] | None:
+    for block in payload.get("content") or []:
+        if block.get("type") == "tool_use" and block.get("name") == "submit_creative_brief":
+            tool_input = block.get("input")
+            if isinstance(tool_input, dict):
+                return _normalize_brief(tool_input)
+    return None
+
+
+def _text_from_anthropic_payload(payload: dict[str, Any]) -> str:
+    parts: list[str] = []
+    for block in payload.get("content") or []:
+        if block.get("type") == "text":
+            parts.append(str(block.get("text") or ""))
+    return "\n".join(parts).strip()
+
+
+def _post_anthropic_messages(body: dict[str, Any], *, api_key: str) -> dict[str, Any]:
+    url = f"{ANTHROPIC_API_BASE}/messages"
+    req = urllib.request.Request(
+        url,
+        data=json.dumps(body).encode("utf-8"),
+        headers={
+            "x-api-key": api_key,
+            "anthropic-version": "2023-06-01",
+            "Content-Type": "application/json",
+        },
+        method="POST",
+    )
+    with urllib.request.urlopen(req, timeout=LLM_TIMEOUT_SEC) as resp:
+        return json.loads(resp.read().decode("utf-8"))
+
+
 def _call_openai_compatible(
     kit: dict[str, Any] | None,
     crisis: dict[str, Any],
@@ -498,41 +572,16 @@ def _call_anthropic(
     api_key: str,
     model: str,
 ) -> dict[str, Any]:
-    url = f"{ANTHROPIC_API_BASE}/messages"
-    body = {
-        "model": model,
-        "max_tokens": 1200,
-        "system": (
-            "You produce concise marketing creative briefs. "
-            "Use the submit_creative_brief tool with complete structured fields."
-        ),
-        "messages": [{"role": "user", "content": _llm_prompt(kit, crisis, format)}],
-        "tools": [
-            {
-                "name": "submit_creative_brief",
-                "description": "Submit the poster creative brief JSON fields.",
-                "input_schema": _anthropic_tool_schema(),
-            }
-        ],
-        "tool_choice": {"type": "tool", "name": "submit_creative_brief"},
-    }
-    req = urllib.request.Request(
-        url,
-        data=json.dumps(body).encode("utf-8"),
-        headers={
-            "x-api-key": api_key,
-            "anthropic-version": "2023-06-01",
-            "Content-Type": "application/json",
-        },
-        method="POST",
-    )
-    with urllib.request.urlopen(req, timeout=LLM_TIMEOUT_SEC) as resp:
-        payload = json.loads(resp.read().decode("utf-8"))
-    for block in payload.get("content") or []:
-        if block.get("type") == "tool_use" and block.get("name") == "submit_creative_brief":
-            tool_input = block.get("input")
-            if isinstance(tool_input, dict):
-                return _normalize_brief(tool_input)
+    body = _anthropic_messages_body(kit, crisis, format, model=model)
+    payload: dict[str, Any] = {}
+    for _ in range(2):
+        payload = _post_anthropic_messages(body, api_key=api_key)
+        brief = _brief_from_anthropic_payload(payload)
+        if brief is not None:
+            return brief
+    text = _text_from_anthropic_payload(payload)
+    if text:
+        return _parse_llm_json(text)
     raise ValueError("Anthropic response missing creative brief tool output")
 
 
