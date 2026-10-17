@@ -185,6 +185,36 @@ Kit JSON may include optional fields: `heroImageUrl`, `logoSvg`, `tagline`, `hea
 
 Test URLs: see Project docs `docs/kit-scrape-test-sites.md` in the CommMaker agent store, or scrape the sites listed there directly.
 
+### Windows (PowerShell)
+
+**Prerequisites**
+
+- [Git for Windows](https://git-scm.com/download/win) (optional **Git Bash** to run existing `.sh` helpers such as `fetch-photocraft-web.sh` or `install-photocraft-from-fork.sh` when present)
+- [Python 3.11+](https://www.python.org/downloads/) — check **Add python.exe to PATH** during setup
+- Ollama (optional) — only if you use the legacy chat pages
+
+**Clone and run** (example path `C:\Users\You\Projects\AI-WebApp`):
+
+```powershell
+cd $HOME\Projects
+git clone https://github.com/asseukihuh/AI-WebApp.git
+cd AI-WebApp
+git pull
+.\scripts\dev-commmaker.ps1
+```
+
+Open **http://localhost:8000/home.html** → **Onboard** → **Crisis** → **Editor** (`/photocraft/`).
+
+`dev-commmaker.ps1` installs `vendor/photocraft-web/` via `install-photocraft-windows.ps1` when assets are missing (fork-first GitHub release zip). To install web assets only:
+
+```powershell
+.\scripts\install-photocraft-windows.ps1
+# optional: pre-download Windows photocraft-cli portable (~130 MB)
+.\scripts\install-photocraft-windows.ps1 -IncludeCli
+```
+
+**Generate poster:** the dev server can download `photocraft-cli` on the first `POST /api/generate-poster`; allow the binary in Windows Defender if prompted. You can smoke-test the CLI with `python scripts\photocraft_cli.py --self-test`.
+
 ### CommMaker MVP flows
 
 Use the dev server (required for website kit scrape API):
@@ -192,6 +222,8 @@ Use the dev server (required for website kit scrape API):
 ```bash
 python3 scripts/serve-static.py --port 8000
 ```
+
+On Windows, prefer `.\scripts\dev-commmaker.ps1` (same server, auto vendor install).
 
 | Step | URL | What it does |
 |------|-----|----------------|
