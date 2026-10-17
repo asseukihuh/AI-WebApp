@@ -1,0 +1,32 @@
+{
+  "name": "Stripe",
+  "tagline": "Financial infrastructure to grow your revenue.",
+  "businessOverview": "Stripe is a technology company that builds programmable financial infrastructure for the internet. Businesses of every size use Stripe to accept payments, manage recurring billing, prevent fraud and embed financial services.",
+  "brandValues": ["Speed and Craft", "First Principles", "Economic Growth", "Customer Obsession"],
+  "aesthetic": ["Chromatic Fluidity", "Architectural Draughtsmanship", "Modular Layering", "Kinetic Geometry", "Isomorphic Planes"],
+  "toneOfVoice": ["Professional", "Authoritative", "Technical", "Innovative"],
+  "keywords": ["payments", "billing", "financial infrastructure", "fraud prevention", "developers"],
+  "palette": [
+    {"role": "background", "hex": "#fefefe", "candidateId": "", "name": "Paper White", "usage": "Page background"},
+    {"role": "primary", "hex": "#533afd", "candidateId": "c2", "name": "Blurple", "usage": "Primary CTAs"},
+    {"role": "text", "hex": "#071c32", "candidateId": "", "name": "Downriver", "usage": "Headlines"},
+    {"role": "accent", "hex": "#ff9a44", "candidateId": "", "name": "Sunset Orange", "usage": "Hero ribbon gradient"},
+    {"role": "secondary", "hex": "#11ddaa", "candidateId": "", "name": "Mint", "usage": "Illustration highlights"}
+  ],
+  "typography": {
+    "display": {"family": "Söhne", "candidateId": "", "weights": [300, 400, 700], "usage": "Hero headlines"},
+    "body": {"family": "sohne-var", "candidateId": "f1", "weights": [300, 400], "usage": "Body copy"}
+  },
+  "logo": {"candidateId": "L1", "backdropHex": "#ffffff", "variant": "dark-on-light", "notes": "Wordmark top-left in navigation"},
+  "imageryStyle": {
+    "primaryMedium": "gradients",
+    "secondaryMedia": ["product-ui", "3d-render"],
+    "motifs": ["flowing ribbon gradients", "layered translucent planes", "diagonal stripes"],
+    "colorTreatment": "Saturated warm-to-violet gradients on white",
+    "ideogramPrompt": "Flowing translucent ribbon gradient sweeping diagonally from violet #533afd through magenta to orange #ff9a44 on a clean white field, soft light, crisp edges, generous negative space, no text, no logos",
+    "avoid": ["stock photos of handshakes", "clip-art"]
+  },
+  "layoutTraits": {"density": "airy", "cornerRadius": "subtle", "whitespace": "generous", "composition": "Left-aligned hero type over a diagonal gradient ribbon, modular product cards below."},
+  "doNots": ["Do not use heavy drop shadows", "Do not crowd the gradient with text", "No neon-on-black palettes"],
+  "visualSummary": "Bright white canvas, deep navy type and a sweeping violet-to-orange ribbon gradient."
+}

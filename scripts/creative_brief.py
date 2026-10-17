@@ -268,6 +268,9 @@ def kit_summary_for_prompt(kit: dict[str, Any] | None) -> str:
         f"kitHeroUsableAsBackground: {bool(kit.get('heroImageUrl')) and not kit_hero_unsuitable(kit)}",
         f"headlineFromSite: {kit.get('headline') or '(none)'}",
     ]
+    from brand_profile import brand_profile_prompt_lines
+
+    lines.extend(brand_profile_prompt_lines(kit))
     return "\n".join(lines)
 
 
