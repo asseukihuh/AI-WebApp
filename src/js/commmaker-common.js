@@ -1,6 +1,6 @@
 "use strict";
 
-/** @typedef {{ sourceUrl: string, siteName: string, logoUrl: string|null, colors: string[], fonts: string[], scrapedAt: string, heroImageUrl?: string, logoSvg?: string, tagline?: string, headline?: string, accentColors?: string[] }} CommunicationKit */
+/** @typedef {{ sourceUrl: string, siteName: string, logoUrl: string|null, colors: string[], fonts: string[], scrapedAt: string, heroImageUrl?: string, logoSvg?: string, logoSource?: "inline-svg"|"img"|"favicon", faviconUrl?: string, tagline?: string, headline?: string, accentColors?: string[] }} CommunicationKit */
 
 export const KIT_STORAGE_KEY = "commmaker.kit";
 export const SESSION_STORAGE_KEY = "commmaker.session";
