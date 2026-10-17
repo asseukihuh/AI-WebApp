@@ -40,6 +40,30 @@
     text-decoration: underline;
 }
 
+.poster-open-callout {
+    margin: 0.75rem 0 0;
+    padding: 0.75rem 1rem;
+    background: #1e3a2f;
+    border: 1px solid #2d6a4f;
+    border-radius: 6px;
+}
+
+.poster-callout-title {
+    margin: 0 0 0.35rem;
+    font-weight: 600;
+    color: #bbf7d0;
+}
+
+.poster-open-link {
+    color: #6ee7b7;
+    font-weight: 600;
+    text-decoration: none;
+}
+
+.poster-open-link:hover {
+    text-decoration: underline;
+}
+
 .photocraft-notice {
     margin: 0.5rem 0 0;
     padding: 0.5rem 0.75rem;

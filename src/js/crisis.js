@@ -3,6 +3,7 @@
 import {
     mountCommMakerNav,
     loadKit,
+    loadSession,
     saveSession,
     escapeHtml,
     renderKitSummary,
@@ -15,6 +16,8 @@ const kitBanner = document.getElementById("kit-banner");
 const captionPreview = document.getElementById("caption-preview");
 const generateBtn = document.getElementById("generate-btn");
 const openEditorBtn = document.getElementById("open-editor-btn");
+const generatePosterBtn = document.getElementById("generate-poster-btn");
+const posterStatus = document.getElementById("poster-status");
 
 /**
  * Optional LLM hook — replace or wrap to call Ollama / remote API.
@@ -118,9 +121,87 @@ form?.addEventListener("submit", async (event) => {
         captionPreview.classList.remove("is-error");
         captionPreview.textContent = captionDraft;
         openEditorBtn.disabled = false;
+        generatePosterBtn.disabled = false;
+        if (posterStatus) {
+            posterStatus.hidden = true;
+            posterStatus.textContent = "";
+        }
     } finally {
         generateBtn.disabled = false;
     }
+});
+
+async function generatePosterInPhotoCraft() {
+    const session = loadSession();
+    const kit = loadKit();
+    if (!session?.brief) {
+        if (posterStatus) {
+            posterStatus.hidden = false;
+            posterStatus.classList.add("is-error");
+            posterStatus.textContent = "Generate a caption draft first.";
+        }
+        return;
+    }
+
+    generatePosterBtn.disabled = true;
+    openEditorBtn.disabled = true;
+    if (posterStatus) {
+        posterStatus.hidden = false;
+        posterStatus.classList.remove("is-error");
+        posterStatus.textContent = "Compiling poster and running PhotoCraft CLI…";
+    }
+
+    try {
+        const res = await fetch("/api/generate-poster", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ kit, session }),
+        });
+        const data = await res.json();
+        if (!res.ok) {
+            throw new Error(data.error || `HTTP ${res.status}`);
+        }
+
+        const updated = {
+            ...session,
+            poster: {
+                documentPath: data.documentPath,
+                openUrl: data.openUrl,
+                cliAvailable: data.cliAvailable,
+                generatedAt: new Date().toISOString(),
+                cliError: data.cliError || null,
+            },
+        };
+        saveSession(updated);
+
+        if (data.cliError && posterStatus) {
+            posterStatus.classList.add("is-error");
+            posterStatus.textContent =
+                `CLI: ${data.cliError} — command JSON was returned; open the editor for manual steps.`;
+        } else if (posterStatus) {
+            posterStatus.textContent = data.ok
+                ? "Poster saved. Opening PhotoCraft…"
+                : "Poster batch ready; see editor for next steps.";
+        }
+
+        const docParam = data.openUrl || data.documentPath;
+        const target = docParam
+            ? `photocraft/?doc=${encodeURIComponent(docParam)}`
+            : "photocraft/";
+        window.location.href = target;
+    } catch (err) {
+        if (posterStatus) {
+            posterStatus.hidden = false;
+            posterStatus.classList.add("is-error");
+            posterStatus.textContent = err.message || String(err);
+        }
+        generatePosterBtn.disabled = false;
+        openEditorBtn.disabled = false;
+    }
+}
+
+generatePosterBtn?.addEventListener("click", () => {
+    generatePosterInPhotoCraft();
 });
 
 openEditorBtn?.addEventListener("click", () => {

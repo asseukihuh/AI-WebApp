@@ -113,6 +113,15 @@ body.commmaker-page {
     margin-top: 0.75rem;
 }
 
+button.btn-primary {
+    background: #0d9488;
+    border-color: #0d9488;
+}
+
+.poster-status.is-error {
+    color: #b91c1c;
+}
+
 button,
 .btn {
     display: inline-block;

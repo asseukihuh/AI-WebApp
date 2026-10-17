@@ -45,8 +45,10 @@
             <h2>LinkedIn caption draft</h2>
             <div id="caption-preview" class="caption-preview">Complete the form above to generate copy.</div>
             <div class="btn-row">
-                <button type="button" id="open-editor-btn" disabled>Open PhotoCraft editor (1200×627) →</button>
+                <button type="button" id="generate-poster-btn" class="btn-primary" disabled>Generate poster in PhotoCraft</button>
+                <button type="button" id="open-editor-btn" disabled>Open editor without generating</button>
             </div>
+            <p id="poster-status" class="muted poster-status" hidden></p>
             <p class="muted">Session saved to <code>sessionStorage</code> key <code>commmaker.session</code>. Override copy generation with <code>window.commmakerGenerateCaptionWithLLM(brief)</code> for LLM integration.</p>
         </section>
     </div>

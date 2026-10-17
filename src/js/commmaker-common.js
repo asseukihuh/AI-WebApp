@@ -125,6 +125,12 @@ export function renderKitSummary(target, kit, session) {
             `<details class="kit-caption"><summary>Caption draft</summary><pre>${escapeHtml(session.captionDraft)}</pre></details>`
         );
     }
+    if (session?.poster?.openUrl || session?.poster?.documentPath) {
+        const path = session.poster.openUrl || session.poster.documentPath;
+        parts.push(
+            `<p><strong>Poster:</strong> <a href="${escapeHtml(path)}">Open generated .pcraft</a></p>`
+        );
+    }
 
     target.innerHTML = parts.join("");
 }
