@@ -43,29 +43,17 @@ import re
 import uuid
 from typing import Any
 
+import poster_design as design
+
 LINKEDIN_WIDTH = 1200
 LINKEDIN_HEIGHT = 627
 ACCENT_MAX_WIDTH_FRACTION = 0.45
 ACCENT_CENTER_X = LINKEDIN_WIDTH * 0.72
 ACCENT_CENTER_Y = LINKEDIN_HEIGHT * 0.48
-SAFE_PAD = 48
-TEXT_BLOCK_MAX_WIDTH = 900
-LOGO_MARGIN = 56
 LOGO_TARGET_WIDTH = 280
 LOGO_TARGET_WIDTH_MIN = 220
 LOGO_TARGET_WIDTH_MAX = 320
-LOGO_MAX_HEIGHT = 80
-LOGO_KNOCKBACK_PAD = 14
-LOGO_KNOCKBACK_BASE_WIDTH = 168
-LOGO_KNOCKBACK_BASE_HEIGHT = 88
-LOGO_KNOCKBACK_REL = "assets/commmaker/logo-knockback.svg"
-TYPE_SCRIM_REL = "assets/commmaker/bottom-type-scrim.svg"
-LOGO_ICON_TARGET_HEIGHT = 56
 LOGO_ICON_MAX_HEIGHT = 64
-HEADLINE_SIZE_SOLO = 56
-HEADLINE_SIZE_WITH_SUB = 52
-SUBLINE_SIZE = 24
-SUBLINE_OPACITY = 0.9
 SUBLINE_CHAR_LIMIT = 72
 BATCH_FORMAT = "photocraft-command-batch-v1"
 
@@ -126,31 +114,12 @@ def _palette_from_kit(kit: dict[str, Any] | None) -> list[str]:
     return palette
 
 
-def _pick_color(
-    kit: dict[str, Any] | None,
-    index: int = 0,
-    default: str = "#1a365d",
-) -> str:
-    palette = _palette_from_kit(kit)
-    vivid = [c for c in palette if not _is_neutral(c)]
-    pool = vivid if vivid else palette
-    if index < len(pool):
-        return pool[index]
-    if index < len(palette):
-        return palette[index]
-    return default
-
-
 def _hex_luminance(hex_color: str) -> float:
     hex6 = _normalize_hex(hex_color, "#000000").lstrip("#")
     if len(hex6) != 6:
         return 0.0
     r, g, b = (int(hex6[i : i + 2], 16) for i in (0, 2, 4))
     return (0.299 * r + 0.587 * g + 0.114 * b) / 255
-
-
-def _contrast_text_color(bg_hex: str) -> str:
-    return "#0f172a" if _hex_luminance(bg_hex) > 0.6 else "#ffffff"
 
 
 _BRIGHT_HERO_CORNER_LUMINANCE = 0.55
@@ -168,28 +137,6 @@ _SVG_STYLE_FILL_RE = re.compile(
 
 def _normalize_compare(text: str) -> str:
     return re.sub(r"\s+", " ", (text or "").strip()).casefold()
-
-
-def _body_lines(
-    session: dict[str, Any],
-    *,
-    skip_headline: str = "",
-    max_lines: int = 3,
-) -> str:
-    facts = (session.get("brief") or {}).get("facts") or ""
-    lines = [ln.strip() for ln in facts.splitlines() if ln.strip()]
-    if not lines and session.get("captionDraft"):
-        lines = [
-            ln.strip()
-            for ln in str(session["captionDraft"]).splitlines()
-            if ln.strip()
-        ][1:4]
-    skip = _normalize_compare(skip_headline)
-    if skip and lines and _normalize_compare(lines[0]) == skip:
-        lines = lines[1:]
-    elif skip:
-        lines = [ln for ln in lines if _normalize_compare(ln) != skip]
-    return "\n".join(lines[:max_lines])
 
 
 _GENERIC_FONT_NAMES = frozenset(
@@ -244,21 +191,6 @@ def _pick_body_font(kit: dict[str, Any] | None, headline_font: str) -> str:
         if name.casefold() != headline_font.casefold():
             return name
     return fonts[0] if fonts else "Inter"
-
-
-def _headline_font_style(
-    kit: dict[str, Any] | None,
-    headline_font: str,
-) -> str | None:
-    for entry in (kit or {}).get("googleFonts") or []:
-        if not isinstance(entry, dict):
-            continue
-        if str(entry.get("family") or "").casefold() != headline_font.casefold():
-            continue
-        weights = {str(w) for w in entry.get("weights") or []}
-        if weights & {"700", "800", "900"}:
-            return "bold"
-    return None
 
 
 def _truncate(text: str, limit: int) -> str:
@@ -406,17 +338,24 @@ def count_logo_placements(batch: dict[str, Any]) -> int:
     return total
 
 
-def recolor_logo_svg_for_light_hero(svg: str, light_fill: str = "#ffffff") -> str:
-    """Replace dark SVG path fills with a light fill for bright photo heroes."""
+def recolor_logo_svg(svg: str, fill: str, *, mode: str) -> str:
+    """Recolor a logo SVG for a light (``mode="light"``) or dark (``mode="dark"``) variant.
+
+    Light swaps dark fills to ``fill``; dark swaps light fills. ``currentColor`` and SVGs
+    without any fill (black by default) are recolored in both modes.
+    """
 
     def _maybe_swap(color: str) -> str:
         lower = (color or "").lower()
-        if lower in ("none", "transparent", "currentcolor"):
+        if lower == "currentcolor":
+            return fill
+        if lower in ("none", "transparent") or not lower.startswith("#"):
             return color
-        if not lower.startswith("#"):
-            return color
-        if _hex_luminance(color) < _LOGO_MARK_DARK_LUMINANCE:
-            return light_fill
+        lum = _hex_luminance(color)
+        if mode == "light" and lum < _LOGO_MARK_DARK_LUMINANCE:
+            return fill
+        if mode == "dark" and lum > 0.6:
+            return fill
         return color
 
     def _attr_repl(match: re.Match[str]) -> str:
@@ -426,8 +365,6 @@ def recolor_logo_svg_for_light_hero(svg: str, light_fill: str = "#ffffff") -> st
             return match.group(0)
         return f"fill={quote}{swapped}{quote}"
 
-    out = _SVG_FILL_ATTR_RE.sub(_attr_repl, svg)
-
     def _style_repl(match: re.Match[str]) -> str:
         raw = match.group(1)
         swapped = _maybe_swap(raw)
@@ -435,124 +372,61 @@ def recolor_logo_svg_for_light_hero(svg: str, light_fill: str = "#ffffff") -> st
             return match.group(0)
         return f"fill:{swapped}"
 
-    return _SVG_STYLE_FILL_RE.sub(_style_repl, out)
+    has_fill = bool(_SVG_FILL_ATTR_RE.search(svg) or _SVG_STYLE_FILL_RE.search(svg))
+    out = _SVG_STYLE_FILL_RE.sub(_style_repl, _SVG_FILL_ATTR_RE.sub(_attr_repl, svg))
+    if not has_fill and mode == "light":
+        out = re.sub(r"<svg\b", f'<svg fill="{fill}"', out, count=1)
+    return out
 
 
-def _use_logo_knockback(
-    kit: dict[str, Any] | None,
-    *,
-    has_hero: bool,
-    hero_busy: bool,
-    logo_on_dark: bool,
-) -> bool:
-    if has_hero or hero_busy or logo_on_dark:
-        return False
-    primary = _pick_color(kit, 0, "#1a365d")
-    if _hex_luminance(primary) > 0.62 and _logo_mark_luminance(kit) < _LOGO_MARK_DARK_LUMINANCE:
-        return True
-    return False
+def recolor_logo_svg_for_light_hero(svg: str, light_fill: str = "#ffffff") -> str:
+    """Replace dark SVG path fills with a light fill for bright photo heroes."""
+    return recolor_logo_svg(svg, light_fill, mode="light")
 
 
-def _logo_is_icon_mark(img_width: int, img_height: int) -> bool:
-    if img_width <= 0 or img_height <= 0:
-        return False
-    aspect = img_width / img_height
-    if aspect < 0.65 or aspect > 1.45:
-        return False
-    return max(img_width, img_height) <= 320 and min(img_width, img_height) <= 200
+def standalone_logo_svg(svg: str) -> str:
+    """Make an inline page SVG renderable on its own (xmlns, no unresolved CSS-variable fills)."""
+    out = re.sub(r'\sfill\s*=\s*(["\'])var\([^)]*\)\1', "", svg)
+    if not re.search(r"<svg\b[^>]*\bxmlns=", out):
+        out = re.sub(r"<svg\b", '<svg xmlns="http://www.w3.org/2000/svg"', out, count=1)
+    return out
 
 
-def _brand_mark_gradient_steps(
-    kit: dict[str, Any] | None,
-    primary: str,
-    secondary: str,
-    accent: str,
-) -> list[dict[str, Any]]:
-    brand = secondary
-    for candidate in (secondary, accent, primary):
-        if _hex_luminance(candidate) > 0.35 and not _is_neutral(candidate):
-            brand = candidate
-            break
-    return [
-        {
-            "command": "layer.newFillLayer.solidColor",
-            "params": {"color": "#000000", "name": "Brand base"},
-        },
-        {
-            "command": "layer.newFillLayer.solidColor",
-            "params": {"color": brand, "name": "Brand glow"},
-        },
-        {
-            "command": "layer.setProps",
-            "params": {"name": "Brand glow", "opacity": 0.72},
-        },
-    ]
+def logo_svg_variants(svg: str) -> dict[str, str]:
+    """``original`` / ``light`` / ``dark`` SVG payloads for luminance-based logo choice."""
+    svg = standalone_logo_svg(svg)
+    return {
+        "original": svg,
+        "light": recolor_logo_svg(svg, design.WHITE, mode="light"),
+        "dark": recolor_logo_svg(svg, design.INK, mode="dark"),
+    }
 
 
-def _brand_gradient_steps(
-    primary: str,
-    secondary: str,
-    accent: str,
-) -> list[dict[str, Any]]:
-    """Simulate a 2–3 stop brand gradient without a native gradient layer."""
-    return [
-        {
-            "command": "layer.newFillLayer.solidColor",
-            "params": {"color": primary, "name": "Brand base"},
-        },
-        {
-            "command": "layer.newFillLayer.solidColor",
-            "params": {"color": secondary, "name": "Brand mid"},
-        },
-        {
-            "command": "layer.setProps",
-            "params": {"name": "Brand mid", "opacity": 0.48},
-        },
-        {
-            "command": "layer.newFillLayer.solidColor",
-            "params": {"color": accent, "name": "Brand accent"},
-        },
-        {
-            "command": "layer.setProps",
-            "params": {"name": "Brand accent", "opacity": 0.28},
-        },
-    ]
-
-
-def _brand_gradient_svg_markup(primary: str, secondary: str, accent: str) -> str:
-    p = _normalize_hex(primary, "#1a365d")
-    s = _normalize_hex(secondary, "#2c5282")
-    a = _normalize_hex(accent, s)
-    return (
-        f'<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 {LINKEDIN_WIDTH} {LINKEDIN_HEIGHT}" '
-        f'preserveAspectRatio="none">'
-        f"<defs><linearGradient id=\"bg\" x1=\"0%\" y1=\"0%\" x2=\"100%\" y2=\"100%\">"
-        f'<stop offset="0%" stop-color="{p}"/>'
-        f'<stop offset="52%" stop-color="{s}"/>'
-        f'<stop offset="100%" stop-color="{a}"/>'
-        f"</linearGradient></defs>"
-        f'<rect width="{LINKEDIN_WIDTH}" height="{LINKEDIN_HEIGHT}" fill="url(#bg)"/>'
-        f"</svg>"
-    )
-
-
-def ensure_brand_gradient_svg(
+def ensure_brand_gradient_svg_stops(
     assets_dir: str,
-    primary: str,
-    secondary: str,
-    accent: str,
+    stops: list[tuple[float, str]],
 ) -> str:
-    """Write (or reuse) a full-canvas brand gradient SVG; return path relative to repo root parent of assets_dir."""
-    p = _normalize_hex(primary, "#1a365d")
-    s = _normalize_hex(secondary, "#2c5282")
-    a = _normalize_hex(accent, s)
-    digest = hashlib.sha256(f"{p}|{s}|{a}".encode("utf-8")).hexdigest()[:16]
+    """Write (or reuse) a diagonal brand gradient SVG matching ``poster_design`` stops."""
+    normalized = [(round(t, 3), _normalize_hex(c, "#1a365d")) for t, c in stops]
+    key = "|".join(f"{t}:{c}" for t, c in normalized)
+    digest = hashlib.sha256(key.encode("utf-8")).hexdigest()[:16]
     filename = f"brand-gradient-{digest}.svg"
     abs_path = os.path.join(assets_dir, filename)
     os.makedirs(assets_dir, exist_ok=True)
     if not os.path.isfile(abs_path):
+        stop_tags = "".join(
+            f'<stop offset="{t * 100:g}%" stop-color="{c}"/>' for t, c in normalized
+        )
+        markup = (
+            f'<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 {LINKEDIN_WIDTH} {LINKEDIN_HEIGHT}" '
+            f'preserveAspectRatio="none">'
+            f'<defs><linearGradient id="bg" x1="0%" y1="0%" x2="100%" y2="100%">{stop_tags}'
+            f"</linearGradient></defs>"
+            f'<rect width="{LINKEDIN_WIDTH}" height="{LINKEDIN_HEIGHT}" fill="url(#bg)"/>'
+            f"</svg>"
+        )
         with open(abs_path, "w", encoding="utf-8") as handle:
-            handle.write(_brand_gradient_svg_markup(p, s, a))
+            handle.write(markup)
     return f"generated/assets/{filename}"
 
 
@@ -619,52 +493,6 @@ def logo_scale_percent(
     return max(8.0, (target / img_width) * 100.0)
 
 
-def _logo_layout(
-    img_width: int = 0,
-    img_height: int = 0,
-) -> dict[str, float]:
-    target_w = _logo_target_width(img_width)
-    if img_width > 0 and img_height > 0:
-        target_h = max(1.0, target_w * (img_height / img_width))
-    else:
-        target_h = target_w * (LOGO_KNOCKBACK_BASE_HEIGHT / LOGO_KNOCKBACK_BASE_WIDTH)
-    if _logo_is_icon_mark(img_width, img_height):
-        target_h = min(target_h, float(LOGO_ICON_TARGET_HEIGHT))
-        if img_width > 0 and img_height > 0:
-            target_w = max(28.0, target_h * (img_width / img_height))
-    elif target_h > LOGO_MAX_HEIGHT:
-        target_h = float(LOGO_MAX_HEIGHT)
-        if img_width > 0 and img_height > 0:
-            target_w = max(
-                LOGO_TARGET_WIDTH_MIN,
-                min(LOGO_TARGET_WIDTH_MAX, target_h * (img_width / img_height)),
-            )
-    if _logo_is_icon_mark(img_width, img_height):
-        target_h = min(target_h, float(LOGO_ICON_MAX_HEIGHT))
-    knock_w = target_w + 2 * LOGO_KNOCKBACK_PAD
-    center_x = LINKEDIN_WIDTH - LOGO_MARGIN - target_w / 2
-    center_y = LOGO_MARGIN + target_h / 2
-    return {
-        "target_width": target_w,
-        "target_height": target_h,
-        "center_x": center_x,
-        "center_y": center_y,
-        "logo_scale": logo_scale_percent(img_width, target_width=int(round(target_w))),
-        "knockback_scale": (knock_w / LOGO_KNOCKBACK_BASE_WIDTH) * 100.0,
-    }
-
-
-def _type_scrim_placement() -> dict[str, Any]:
-    return {
-        "path": TYPE_SCRIM_REL,
-        "center": [LINKEDIN_WIDTH / 2, LINKEDIN_HEIGHT / 2],
-        "scale": 100.0,
-        "fit": True,
-        "smartObject": False,
-        "name": "Type scrim",
-    }
-
-
 def _hero_background_placement(
     hero_relative_path: str,
     *,
@@ -708,52 +536,6 @@ def _accent_background_placement(
     }
 
 
-def _logo_knockback_placement(
-    *,
-    img_width: int = 0,
-    img_height: int = 0,
-) -> dict[str, Any]:
-    layout = _logo_layout(img_width, img_height)
-    return {
-        "path": LOGO_KNOCKBACK_REL,
-        "center": [layout["center_x"], layout["center_y"]],
-        "scale": round(layout["knockback_scale"], 2),
-        "smartObject": False,
-        "name": "Logo knockback",
-    }
-
-
-def _logo_foreground_placement(
-    logo_relative_path: str,
-    *,
-    img_width: int | None = None,
-    img_height: int | None = None,
-) -> dict[str, Any]:
-    layout = _logo_layout(img_width or 0, img_height or 0)
-    return {
-        "path": logo_relative_path.replace("\\", "/"),
-        "center": [layout["center_x"], layout["center_y"]],
-        "scale": round(layout["logo_scale"], 2),
-        "smartObject": True,
-        "name": "Logo",
-    }
-
-
-def _color_with_alpha(hex_color: str, alpha: float) -> list[float]:
-    hex6 = _normalize_hex(hex_color, "#ffffff").lstrip("#")
-    r, g, b = (int(hex6[i : i + 2], 16) for i in (0, 2, 4))
-    return [r, g, b, alpha]
-
-
-def _show_footer(site_name: str, *, has_logo: bool) -> bool:
-    if not has_logo:
-        return True
-    cleaned = re.sub(r"\s+", " ", site_name or "").strip()
-    if not cleaned or cleaned.casefold() in {"learn more", "home", "accueil"}:
-        return False
-    return False
-
-
 def _brief_wants_photo_hero(creative_brief: dict[str, Any] | None) -> bool:
     if not creative_brief:
         return True
@@ -785,7 +567,7 @@ def _apply_creative_brief_to_compile(
     if creative_brief.get("headline"):
         headline = _truncate(str(creative_brief["headline"]), 90)
     if creative_brief.get("subhead"):
-        subline = _truncate(str(creative_brief["subhead"]), SUBLINE_CHAR_LIMIT)
+        subline = str(creative_brief["subhead"]).strip()
 
     layout = creative_brief.get("layoutRecipe") or ""
     hero = creative_brief.get("heroStrategy") or ""
@@ -838,13 +620,12 @@ def should_skip_hero_for_brief(
 ) -> bool:
     """Whether asset download should skip kit hero image for this brief."""
     if not creative_brief:
-        return bool((kit or {}).get("heroBusy") or (kit or {}).get("heroBrandMark"))
+        return design.kit_hero_unsuitable(kit)
     if not _brief_wants_photo_hero(creative_brief):
         return True
     if creative_brief.get("heroStrategy") == "ideogram_generate":
         return True
-    kit = kit or {}
-    return bool(kit.get("heroBusy") or kit.get("heroBrandMark"))
+    return design.kit_hero_unsuitable(kit)
 
 
 def _first_fact_sentence(session: dict[str, Any], skip: str) -> str:
@@ -858,6 +639,217 @@ def _first_fact_sentence(session: dict[str, Any], skip: str) -> str:
         sentence = re.split(r"(?<=[.!?])\s+", line, maxsplit=1)[0].strip()
         return _truncate(sentence or line, 140)
     return ""
+
+
+def _scrim_geometry(
+    kind: str,
+    text_zone: tuple[float, float, float, float],
+    alpha: float,
+) -> dict[str, Any] | None:
+    """Gradient Fill params: hold ``alpha`` across the text zone, fade to 0 within SCRIM_FADE_PX."""
+    x, y, w, h = text_zone
+    pad = 24.0
+    x0, y0, x1, y1 = x - pad, y - pad, x + w + pad, y + h + pad
+    opacity = round(alpha * 100, 1)
+    if kind == "diagonal":
+        dx, dy = 0.33, -0.944
+        ax, ay = 0.0, float(LINKEDIN_HEIGHT)
+        reach = max((cx - ax) * dx + (cy - ay) * dy for cx, cy in ((x0, y0), (x1, y0), (x0, y1), (x1, y1)))
+        length = reach + design.SCRIM_FADE_PX
+        return {
+            "from": [ax, ay],
+            "to": [round(ax + dx * length, 1), round(ay + dy * length, 1)],
+            "style": "linear",
+            "hold": round(reach / length, 3),
+            "opacity": opacity,
+        }
+    if kind == "radial":
+        cx, cy = (x0 + x1) / 2, (y0 + y1) / 2
+        reach = ((x1 - x0) ** 2 + (y1 - y0) ** 2) ** 0.5 / 2
+        length = reach + design.SCRIM_FADE_PX
+        return {
+            "from": [round(cx, 1), round(cy, 1)],
+            "to": [round(cx + length, 1), round(cy, 1)],
+            "style": "radial",
+            "hold": round(reach / length, 3),
+            "opacity": opacity,
+        }
+    if kind == "horizontal":
+        reach = x1
+        length = reach + design.SCRIM_FADE_PX
+        return {
+            "from": [0.0, LINKEDIN_HEIGHT / 2],
+            "to": [round(length, 1), LINKEDIN_HEIGHT / 2],
+            "style": "linear",
+            "hold": round(reach / length, 3),
+            "opacity": opacity,
+        }
+    return None
+
+
+def _gradient_steps(
+    name: str,
+    color: str,
+    geometry: dict[str, Any],
+) -> list[dict[str, Any]]:
+    return [
+        {
+            "command": "gradient.fill.create",
+            "params": {
+                "from": geometry["from"],
+                "to": geometry["to"],
+                "style": geometry["style"],
+                "stops": [[0, color], [1, color]],
+                "transparency": [
+                    [0, geometry["opacity"]],
+                    [geometry["hold"], geometry["opacity"]],
+                    [1, 0],
+                ],
+            },
+        },
+        {"command": "layer.setProps", "params": {"name": name}},
+    ]
+
+
+def _native_brand_gradient_steps(stops: list[tuple[float, str]]) -> list[dict[str, Any]]:
+    return [
+        {
+            "command": "gradient.fill.create",
+            "params": {
+                "from": [0, 0],
+                "to": [LINKEDIN_WIDTH, LINKEDIN_HEIGHT],
+                "style": "linear",
+                "stops": [[round(t, 3), c] for t, c in stops],
+            },
+        },
+        {"command": "layer.setProps", "params": {"name": "Brand gradient"}},
+    ]
+
+
+def _brand_glow_steps(color: str) -> list[dict[str, Any]]:
+    return [
+        {
+            "command": "gradient.fill.create",
+            "params": {
+                "from": [LINKEDIN_WIDTH * 0.86, LINKEDIN_HEIGHT * 0.12],
+                "to": [LINKEDIN_WIDTH * 0.86 + 520, LINKEDIN_HEIGHT * 0.12],
+                "style": "radial",
+                "stops": [[0, color], [1, color]],
+                "transparency": [[0, 38], [1, 0]],
+            },
+        },
+        {"command": "layer.setProps", "params": {"name": "Brand glow"}},
+    ]
+
+
+def _type_step(
+    name: str,
+    text: str,
+    box: tuple[float, float, float, float] | list[float],
+    *,
+    font: str,
+    size: float,
+    color: str | list[float],
+    weight: int,
+    align: str,
+    leading: float | None = None,
+    tracking: int | None = None,
+) -> dict[str, Any]:
+    params: dict[str, Any] = {
+        "name": name,
+        "box": [round(v, 1) for v in box],
+        "text": text,
+        "font": font,
+        "size": size,
+        "color": color,
+        "weight": weight,
+        "align": align,
+    }
+    if leading:
+        params["leading"] = leading
+    if tracking:
+        params["tracking"] = tracking
+    return {"command": "type.create", "params": params}
+
+
+def _pick_text_and_scrim(
+    samples: list[design.RGB],
+    roles: design.BrandRoles,
+) -> tuple[str, float | None, str]:
+    """Return (text colour, scrim alpha or None if impossible, scrim colour)."""
+    ink = roles.dark if design.contrast_ratio(design.hex_to_rgb(roles.dark), (255, 255, 255)) >= 12 else design.INK
+    options = []
+    for text, scrim in ((design.WHITE, roles.dark), (ink, "#ffffff")):
+        worst = design.worst_samples(samples, for_light_text=text == design.WHITE)
+        alpha = design.required_scrim_alpha(worst, design.hex_to_rgb(scrim), design.hex_to_rgb(text))
+        options.append((text, alpha, scrim))
+    white, dark = options
+    if white[1] is None and dark[1] is None:
+        return white
+    if white[1] is None:
+        return dark
+    if dark[1] is None:
+        return white
+    # Prefer white type (stronger editorial look) unless dark type needs clearly less scrim.
+    return dark if dark[1] + 0.25 < white[1] else white
+
+
+def _pick_logo_variant(
+    available: dict[str, str],
+    colors: dict[str, str],
+    samples: list[design.RGB],
+    preference: str | None,
+) -> tuple[str, float]:
+    order = ["original", "light", "dark"]
+    if preference == "wordmark-white" or preference == "symbol-only":
+        order = ["light", "original", "dark"]
+    elif preference == "wordmark-dark":
+        order = ["dark", "original", "light"]
+    scored = []
+    for name in order:
+        if name not in available:
+            continue
+        ratio = design.min_contrast(design.hex_to_rgb(colors[name]), samples)
+        scored.append((name, ratio))
+        if ratio >= design.GRAPHIC_CONTRAST_MIN:
+            return name, ratio
+    if not scored:
+        return "original", 0.0
+    return max(scored, key=lambda item: item[1])
+
+
+def _cta_colors(
+    roles: design.BrandRoles,
+    style: str,
+    text_color: str,
+    behind: list[design.RGB],
+) -> dict[str, Any]:
+    white = (255, 255, 255)
+    ink = design.hex_to_rgb(design.INK)
+    if style == "outline":
+        return {"fill": None, "stroke": text_color, "label": text_color, "chipContrast": design.min_contrast(design.hex_to_rgb(text_color), behind)}
+    candidates: list[str] = []
+    if roles.accent:
+        candidates.append(roles.accent)
+    bg_dark = sum(design.relative_luminance(c) for c in behind) / max(1, len(behind)) < 0.3
+    candidates.append(design.WHITE if bg_dark else roles.dark if not roles.monochrome else design.INK)
+    for fill in candidates:
+        rgb = design.hex_to_rgb(fill)
+        label = design.WHITE if design.contrast_ratio(rgb, white) >= design.contrast_ratio(rgb, ink) else design.INK
+        label_ratio = design.contrast_ratio(rgb, design.hex_to_rgb(label))
+        chip_ratio = design.min_contrast(rgb, behind)
+        if label_ratio >= design.TEXT_CONTRAST_MIN and chip_ratio >= design.GRAPHIC_CONTRAST_MIN:
+            return {"fill": fill, "stroke": None, "label": label, "labelContrast": label_ratio, "chipContrast": chip_ratio}
+    fill = candidates[-1]
+    rgb = design.hex_to_rgb(fill)
+    label = design.WHITE if design.contrast_ratio(rgb, white) >= design.contrast_ratio(rgb, ink) else design.INK
+    return {
+        "fill": fill,
+        "stroke": None,
+        "label": label,
+        "labelContrast": design.contrast_ratio(rgb, design.hex_to_rgb(label)),
+        "chipContrast": design.min_contrast(rgb, behind),
+    }
 
 
 def compile_poster_batch(
@@ -876,8 +868,18 @@ def compile_poster_batch(
     fonts_resolved: dict[str, Any] | None = None,
     creative_brief: dict[str, Any] | None = None,
     assets_dir: str | None = None,
+    hero_grid: dict[str, Any] | None = None,
+    logo_variants: dict[str, str] | None = None,
+    logo_fill: str | None = None,
+    brand_profile: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
-    """Build a PhotoCraft command batch for a LinkedIn 1200×627 poster."""
+    """Build a PhotoCraft command batch for a LinkedIn 1200×627 poster.
+
+    Layout follows ``docs/poster-design-system.md``: template grid, type scale, contrast checked
+    against ``hero_grid`` (see ``image_luma.load_rgb_grid``), localized gradient scrims, CTA chip,
+    and a logo variant (``logo_variants``: ``original`` / ``light`` / ``dark`` paths) picked by
+    background luminance. ``brand_profile`` is optional (palette roles, typography, layoutTraits).
+    """
     kit = kit or session.get("kitSnapshot") or {}
     headline, kit_subline = _resolve_headline_hierarchy(kit, session)
     fact_subline = _first_fact_sentence(session, headline)
@@ -886,16 +888,6 @@ def compile_poster_batch(
         headline
     ):
         subline = fact_subline
-    body = _truncate(
-        _body_lines(session, skip_headline=headline),
-        200,
-    )
-    if subline and body and _normalize_compare(body.splitlines()[0]) == _normalize_compare(
-        subline
-    ):
-        body_lines = body.splitlines()[1:]
-        body = "\n".join(body_lines).strip()
-        body = _truncate(body, 200)
     site_name = _pick_site_name(kit)
     if subline and _normalize_compare(subline) == _normalize_compare(site_name):
         subline = ""
@@ -916,228 +908,314 @@ def compile_poster_batch(
         creative_brief=creative_brief,
         hero_relative_path=hero_relative_path,
     )
-    if hero_busy and not creative_brief:
+    if design.kit_hero_unsuitable(kit) and (
+        not creative_brief or creative_brief.get("heroStrategy") == "use_kit_photo"
+    ):
         hero_relative_path = None
-        hero_brand_mark = bool(kit.get("heroBrandMark"))
 
     if not hero_width or not hero_height:
-        kit_w = (kit or {}).get("heroWidth")
-        kit_h = (kit or {}).get("heroHeight")
         try:
-            hero_width = int(kit_w) if kit_w else hero_width
-            hero_height = int(kit_h) if kit_h else hero_height
+            hero_width = int(kit.get("heroWidth")) if kit.get("heroWidth") else hero_width
+            hero_height = int(kit.get("heroHeight")) if kit.get("heroHeight") else hero_height
         except (TypeError, ValueError):
             pass
 
-    primary = _pick_color(kit, 0, "#1a365d")
-    secondary = _pick_color(kit, 1, "#2c5282")
-    accent = _pick_color(kit, 2, secondary)
-    text_on_dark = "#ffffff"
-    text_on_light = _contrast_text_color(primary)
+    brief = creative_brief or {}
+    roles = design.brand_roles(kit, brand_profile)
+    has_photo_hero = bool(hero_relative_path)
+    profile_font = design.profile_fonts(brand_profile)
     resolved = fonts_resolved or {}
-    headline_font = str(resolved.get("headline") or _pick_headline_font(kit))
-    body_font = str(resolved.get("body") or _pick_body_font(kit, headline_font))
-    headline_style = resolved.get("headlineStyle") or _headline_font_style(
-        kit, headline_font
+    headline_font = str(resolved.get("headline") or profile_font.get("headline") or _pick_headline_font(kit))
+    body_font = str(resolved.get("body") or profile_font.get("body") or _pick_body_font(kit, headline_font))
+
+    template_name = design.resolve_template_name(
+        creative_brief,
+        has_image=has_photo_hero,
+        monochrome=roles.monochrome,
+        brand_profile=brand_profile,
     )
 
-    has_photo_hero = bool(hero_relative_path)
-    logo_on_dark = should_recolor_logo_light(
-        kit,
-        has_photo_hero=has_photo_hero,
-        hero_busy=hero_busy,
-        hero_brand_mark=hero_brand_mark,
-    )
-    if brief_logo_recolor is not None:
-        logo_on_dark = brief_logo_recolor
-    use_knockback = _use_logo_knockback(
-        kit,
-        has_hero=has_photo_hero,
-        hero_busy=hero_busy or hero_brand_mark,
-        logo_on_dark=logo_on_dark,
-    )
-    scrim_opacity = 0.48 if kit.get("heroImageKind") == "ui-screenshot" else 0.42
-    bg_color = secondary if has_photo_hero else primary
+    subline = design.clamp_words(subline, design.MAX_WORDS["subline"], design.MAX_CHARS["subline"])
+    eyebrow = str(brief.get("eyebrow") or "").strip()
+    cta = str(brief.get("cta") or ("" if creative_brief else "Read more")).strip()
+    cta_style = brief.get("ctaStyle") if brief.get("ctaStyle") in design.CTA_STYLES else "pill"
+    if not cta:
+        cta_style = "none"
+    headline_scale = brief.get("headlineScale")
+    headline_weight = brief.get("headlineWeight") or profile_font.get("headlineWeight")
+
+    logo_paths: dict[str, str] = dict(logo_variants or {})
+    if logo_relative_path and "original" not in logo_paths:
+        logo_paths["original"] = logo_relative_path
+    has_logo = bool(logo_paths)
+    logo_size = design.logo_target_size(logo_width, logo_height) if has_logo else None
+
+    def _plan(name: str) -> design.LayoutPlan:
+        return design.plan_layout(
+            name,
+            headline=headline,
+            subline=subline,
+            eyebrow=eyebrow,
+            cta=cta,
+            cta_style=cta_style,
+            headline_scale=headline_scale,
+            headline_weight=headline_weight,
+            logo_size=logo_size,
+        )
+
+    gradient_stops = design.brand_gradient_stops(roles)
+    if has_photo_hero and hero_grid:
+        def _sampler_for(tpl: design.LayoutTemplate) -> design.Sampler:
+            return design.raster_sampler(hero_grid, region=tpl.image_region, align=tpl.image_align)
+    elif has_photo_hero:
+        _sampler_for = None  # type: ignore[assignment]
+    elif force_solid_bg:
+        def _sampler_for(tpl: design.LayoutTemplate) -> design.Sampler:
+            return design.solid_sampler(roles.brand)
+    else:
+        def _sampler_for(tpl: design.LayoutTemplate) -> design.Sampler:
+            return design.diagonal_gradient_sampler(gradient_stops)
+
+    def _surface_color(tpl: design.LayoutTemplate) -> str | None:
+        if tpl.surface == "panel":
+            if not roles.monochrome and design.contrast_ratio(design.hex_to_rgb(roles.brand), (255, 255, 255)) >= design.TEXT_CONTRAST_MIN:
+                return roles.brand
+            return roles.dark
+        if tpl.surface == "card":
+            return "#ffffff"
+        return None
+
+    def _zone_samples(tpl: design.LayoutTemplate, box: tuple[float, float, float, float]) -> list[design.RGB]:
+        if _sampler_for is None:
+            return design.assumed_photo_samples()
+        return design.sample_box(_sampler_for(tpl), box)
+
+    tpl = design.get_template(template_name)
+    plan = _plan(tpl.name)
+    surface = _surface_color(tpl)
+    scrim_alpha: float | None = 0.0
+    scrim_color = roles.dark
+    if surface:
+        surface_rgb = design.hex_to_rgb(surface)
+        ink = roles.dark if design.contrast_ratio(design.hex_to_rgb(roles.dark), (255, 255, 255)) >= 12 else design.INK
+        text_color = max((design.WHITE, ink), key=lambda c: design.contrast_ratio(design.hex_to_rgb(c), surface_rgb))
+        text_samples = [surface_rgb]
+    else:
+        zone = plan.text_zone or (design.MARGIN_X, design.MARGIN_Y, 600, 300)
+        raw_samples = _zone_samples(tpl, zone)
+        text_color, scrim_alpha, scrim_color = _pick_text_and_scrim(raw_samples, roles)
+        if scrim_alpha is None or (tpl.scrim == "none" and scrim_alpha > 0):
+            tpl = design.get_template("text-panel")
+            plan = _plan(tpl.name)
+            surface = _surface_color(tpl)
+            surface_rgb = design.hex_to_rgb(surface or "#ffffff")
+            text_color = design.INK if roles.monochrome else (
+                roles.dark if design.contrast_ratio(design.hex_to_rgb(roles.dark), surface_rgb) >= 7 else design.INK
+            )
+            text_samples = [surface_rgb]
+            scrim_alpha = 0.0
+        else:
+            if scrim_alpha > 0:
+                scrim_alpha = round(min(design.SCRIM_MAX_ALPHA, scrim_alpha + 0.05), 3)
+            scrim_rgb = design.hex_to_rgb(scrim_color)
+            text_samples = [design.blend(s, scrim_rgb, scrim_alpha) for s in raw_samples]
+
+    steps: list[dict[str, Any]] = []
+    background_placements: list[dict[str, Any]] = []
 
     brand_gradient_rel: str | None = None
-    use_svg_brand_gradient = False
-    if (
-        assets_dir
-        and not has_photo_hero
-        and not force_solid_bg
-        and not hero_brand_mark
-        and not skip_std_gradient
-    ):
-        brand_gradient_rel = ensure_brand_gradient_svg(
-            assets_dir, primary, secondary, accent
+    if not has_photo_hero:
+        if force_solid_bg:
+            steps.append(
+                {"command": "layer.newFillLayer.solidColor", "params": {"color": roles.brand, "name": "Brand solid"}}
+            )
+        elif assets_dir:
+            brand_gradient_rel = ensure_brand_gradient_svg_stops(assets_dir, gradient_stops)
+            background_placements.append(_brand_gradient_background_placement(brand_gradient_rel))
+        else:
+            steps.extend(_native_brand_gradient_steps(gradient_stops))
+        if not force_solid_bg:
+            steps.extend(_brand_glow_steps(design.glow_color(kit, roles)))
+
+    ideogram_layers = None
+    if brief.get("heroStrategy") == "ideogram_generate":
+        ideogram_layers = brief.get("ideogramLayers") or "background-only"
+    if hero_relative_path:
+        placement = _hero_background_placement(
+            hero_relative_path,
+            img_width=hero_width,
+            img_height=hero_height,
+            layer_name="Background" if ideogram_layers else "Hero image",
         )
-        use_svg_brand_gradient = True
+        rx, ry, rw, rh = tpl.image_region
+        if (rx, ry, rw, rh) != (0, 0, LINKEDIN_WIDTH, LINKEDIN_HEIGHT) and hero_width and hero_height:
+            scale = max(rw / hero_width, rh / hero_height)
+            disp_w = hero_width * scale
+            cx = rx + rw - disp_w / 2 if tpl.image_align == "right" else rx + rw / 2
+            placement["center"] = [round(cx, 1), round(ry + rh / 2, 1)]
+            placement["scale"] = round(scale * 100, 2)
+        background_placements.append(placement)
+    if accent_relative_path:
+        accent = _accent_background_placement(
+            accent_relative_path, img_width=accent_width, img_height=accent_height
+        )
+        accent["center"] = list(tpl.accent_center or (LINKEDIN_WIDTH * 0.84, LINKEDIN_HEIGHT * 0.5))
+        background_placements.append(accent)
+
+    scrim_meta: dict[str, Any] = {"kind": "none", "alpha": 0.0, "color": None}
+    if not surface and scrim_alpha and plan.text_zone:
+        kind = tpl.scrim if tpl.scrim != "none" else "diagonal"
+        geometry = _scrim_geometry(kind, plan.text_zone, scrim_alpha)
+        if geometry:
+            steps.extend(_gradient_steps("Text scrim", scrim_color, geometry))
+            scrim_meta = {"kind": kind, "alpha": scrim_alpha, "color": scrim_color, "hold": geometry["hold"]}
+
+    if plan.panel and surface:
+        steps.append(
+            {
+                "command": "shape.create",
+                "params": {"kind": "rect", "rect": [round(v, 1) for v in plan.panel], "fill": surface, "name": "Brand panel"},
+            }
+        )
+    if plan.card and surface:
+        r, g, b = design.hex_to_rgb(surface)
+        steps.append(
+            {
+                "command": "shape.create",
+                "params": {
+                    "kind": "roundedRect",
+                    "rect": [round(v, 1) for v in plan.card],
+                    "radii": design.CARD_RADIUS,
+                    "fill": [r, g, b, 0.96],
+                    "name": "Text card",
+                },
+            }
+        )
+
+    contrast: dict[str, float] = {}
+    text_rgb = design.hex_to_rgb(text_color)
+    els = plan.elements
+    if "eyebrow" in els:
+        eyebrow_color = text_color
+        if roles.accent and design.min_contrast(design.hex_to_rgb(roles.accent), text_samples) >= design.TEXT_CONTRAST_MIN:
+            eyebrow_color = roles.accent
+        contrast["eyebrow"] = design.min_contrast(design.hex_to_rgb(eyebrow_color), text_samples)
+        e = els["eyebrow"]
+        steps.append(
+            _type_step(
+                "Eyebrow", e["text"], e["box"], font=body_font, size=e["size"], color=eyebrow_color,
+                weight=design.EYEBROW_WEIGHT, align=plan.align, tracking=design.EYEBROW_TRACKING,
+            )
+        )
+    h = els["headline"]
+    contrast["headline"] = design.min_contrast(text_rgb, text_samples)
+    steps.append(
+        _type_step(
+            "Headline", h["text"], h["box"], font=headline_font, size=h["size"], color=text_color,
+            weight=h["weight"], align=plan.align, leading=h["leading"], tracking=design.HEADLINE_TRACKING,
+        )
+    )
+    if "subline" in els:
+        sub = els["subline"]
+        contrast["subline"] = contrast["headline"]
+        steps.append(
+            _type_step(
+                "Subline", sub["text"], sub["box"], font=body_font, size=sub["size"], color=text_color,
+                weight=design.SUBLINE_WEIGHT, align=plan.align, leading=sub["leading"],
+            )
+        )
+    cta_meta: dict[str, Any] | None = None
+    if "cta" in els:
+        chip = els["cta"]
+        colors = _cta_colors(roles, cta_style, text_color, text_samples)
+        cx, cy, cw, ch = chip["box"]
+        shape: dict[str, Any] = {
+            "kind": "roundedRect",
+            "rect": [cx, cy, cw, ch],
+            "radii": ch / 2,
+            "fill": colors["fill"],
+            "name": "CTA chip",
+        }
+        if colors.get("stroke"):
+            shape["stroke"] = {"width": 2, "color": colors["stroke"], "align": "inside"}
+        steps.append({"command": "shape.create", "params": shape})
+        label_h = design.CTA_LABEL_SIZE * 1.3
+        # PhotoCraft puts cap tops ~1px below the type box top; centre the cap height optically.
+        cap_h = design.CTA_LABEL_SIZE * 0.73
+        steps.append(
+            _type_step(
+                "CTA label", chip["label"], (cx, cy + (ch - cap_h) / 2 + 1, cw, label_h + 4),
+                font=body_font, size=design.CTA_LABEL_SIZE, color=colors["label"],
+                weight=design.CTA_LABEL_WEIGHT, align="center", tracking=10,
+            )
+        )
+        if colors.get("labelContrast") is not None:
+            contrast["ctaLabel"] = colors["labelContrast"]
+        contrast["ctaChip"] = colors["chipContrast"]
+        cta_meta = {"label": chip["label"], "style": cta_style, **{k: v for k, v in colors.items() if k in ("fill", "label", "stroke")}}
+
+    foreground_placements: list[dict[str, Any]] = []
+    logo_variant = None
+    logo_on_dark = False
+    if has_logo and "logo" in els:
+        lx, ly, lw, lh = els["logo"]["box"]
+        if plan.panel and lx + lw <= plan.panel[0] + plan.panel[2]:
+            logo_samples = [design.hex_to_rgb(surface or roles.dark)]
+        else:
+            logo_samples = _zone_samples(tpl, (lx - 8, ly - 8, lw + 16, lh + 16))
+        original = normalize_logo_fill(logo_fill, kit)
+        variant_colors = {"original": original, "light": design.WHITE, "dark": design.INK}
+        preference = brief.get("logoTreatment")
+        if brief_logo_recolor is True and not preference:
+            preference = "wordmark-white"
+        logo_variant, logo_ratio = _pick_logo_variant(logo_paths, variant_colors, logo_samples, preference)
+        logo_on_dark = logo_variant == "light" or (
+            logo_ratio < design.GRAPHIC_CONTRAST_MIN
+            and design.min_contrast((255, 255, 255), logo_samples)
+            >= design.min_contrast(design.hex_to_rgb(original), logo_samples)
+        )
+        if logo_ratio < design.GRAPHIC_CONTRAST_MIN:
+            light_rgb = design.hex_to_rgb(design.WHITE if "light" in logo_paths else variant_colors[logo_variant])
+            alpha = design.required_scrim_alpha(
+                design.worst_samples(logo_samples, for_light_text=True),
+                design.hex_to_rgb(roles.dark), light_rgb, target=design.GRAPHIC_CONTRAST_MIN,
+            ) or design.SCRIM_MAX_ALPHA
+            geometry = _scrim_geometry("radial", (lx, ly, lw, lh), alpha)
+            if geometry:
+                steps.extend(_gradient_steps("Logo scrim", roles.dark, geometry))
+            if "light" in logo_paths:
+                logo_variant = "light"
+            logo_on_dark = True
+            logo_ratio = design.min_contrast(
+                light_rgb, [design.blend(s, design.hex_to_rgb(roles.dark), alpha) for s in logo_samples]
+            )
+        contrast["logo"] = logo_ratio
+        foreground_placements.append(
+            {
+                "path": logo_paths[logo_variant].replace("\\", "/"),
+                "center": [round(lx + lw / 2, 1), round(ly + lh / 2, 1)],
+                "scale": round(logo_scale_percent(logo_width or 0, target_width=int(round(lw))), 2),
+                "smartObject": True,
+                "name": "Logo",
+            }
+        )
+
+    audit = design.audit_plan(
+        plan,
+        contrast=contrast,
+        scrim_alpha=scrim_meta["alpha"] if scrim_meta["kind"] != "none" else None,
+        logo_count=len(foreground_placements),
+    )
 
     document = {
         "width": LINKEDIN_WIDTH,
         "height": LINKEDIN_HEIGHT,
         "mode": "rgb",
         "depth": 8,
-        "background": bg_color,
+        "background": roles.dark if not has_photo_hero else roles.brand,
         "resolution": 72,
         "name": f"CommMaker LinkedIn — {site_name}",
     }
-
-    steps: list[dict[str, Any]] = []
-
-    if has_photo_hero:
-        steps.append(
-            {
-                "command": "layer.newFillLayer.solidColor",
-                "params": {"color": primary, "name": "Hero scrim"},
-            }
-        )
-        steps.append(
-            {
-                "command": "layer.setProps",
-                "params": {"name": "Hero scrim", "opacity": scrim_opacity},
-            }
-        )
-    elif force_solid_bg:
-        steps.append(
-            {
-                "command": "layer.newFillLayer.solidColor",
-                "params": {"color": primary, "name": "Brand solid"},
-            }
-        )
-    elif hero_brand_mark:
-        steps.extend(_brand_mark_gradient_steps(kit, primary, secondary, accent))
-    elif not skip_std_gradient and not use_svg_brand_gradient:
-        steps.extend(_brand_gradient_steps(primary, secondary, accent))
-
-    uses_dark_type = has_photo_hero or hero_brand_mark or _hex_luminance(primary) < 0.45
-    text_color = text_on_dark if uses_dark_type else text_on_light
-    text_right = SAFE_PAD + TEXT_BLOCK_MAX_WIDTH
-    has_logo = bool(logo_relative_path)
-    show_footer = _show_footer(site_name, has_logo=has_logo)
-    footer_top = LINKEDIN_HEIGHT - SAFE_PAD - 28
-    subline_bottom = footer_top - 8 if show_footer else LINKEDIN_HEIGHT - SAFE_PAD - 4
-    subline_top = subline_bottom - 56 if subline else subline_bottom
-    headline_bottom = subline_top - 12
-    headline_top = headline_bottom - 108
-    headline_size = HEADLINE_SIZE_SOLO if not subline else HEADLINE_SIZE_WITH_SUB
-    headline_params: dict[str, Any] = {
-        "name": "Headline",
-        "box": [SAFE_PAD, headline_top, text_right, headline_bottom],
-        "text": headline,
-        "font": headline_font,
-        "size": headline_size,
-        "color": text_color,
-        "align": "left",
-    }
-    if headline_style:
-        headline_params["fontStyle"] = headline_style
-    steps.append({"command": "type.create", "params": headline_params})
-
-    if subline:
-        steps.append(
-            {
-                "command": "type.create",
-                "params": {
-                    "name": "Subline",
-                    "box": [SAFE_PAD, subline_top, text_right, subline_bottom],
-                    "text": subline,
-                    "font": body_font,
-                    "size": SUBLINE_SIZE,
-                    "color": _color_with_alpha(text_color, SUBLINE_OPACITY),
-                    "align": "left",
-                },
-            }
-        )
-
-    if body:
-        body_bottom = headline_top - 8
-        body_top = max(SAFE_PAD, body_bottom - 100)
-        steps.append(
-            {
-                "command": "type.create",
-                "params": {
-                    "name": "Body",
-                    "box": [SAFE_PAD, body_top, text_right, body_bottom],
-                    "text": body,
-                    "font": body_font,
-                    "size": 20,
-                    "color": text_color,
-                    "align": "left",
-                },
-            }
-        )
-
-    if show_footer:
-        footer_color = "#cbd5e1" if uses_dark_type else text_on_light
-        steps.append(
-            {
-                "command": "type.create",
-                "params": {
-                    "name": "Footer",
-                    "box": [
-                        SAFE_PAD,
-                        footer_top,
-                        text_right,
-                        LINKEDIN_HEIGHT - SAFE_PAD,
-                    ],
-                    "text": site_name,
-                    "font": body_font,
-                    "size": 18,
-                    "color": footer_color,
-                    "align": "left",
-                },
-            }
-        )
-
-    ideogram_layers = None
-    if creative_brief and creative_brief.get("heroStrategy") == "ideogram_generate":
-        ideogram_layers = creative_brief.get("ideogramLayers") or "background-only"
-    background_layer_name = (
-        "Background" if ideogram_layers else "Hero image"
-    )
-
-    background_placements: list[dict[str, Any]] = []
-    if brand_gradient_rel:
-        background_placements.append(_brand_gradient_background_placement(brand_gradient_rel))
-    if hero_relative_path:
-        background_placements.append(
-            _hero_background_placement(
-                hero_relative_path,
-                img_width=hero_width,
-                img_height=hero_height,
-                layer_name=background_layer_name,
-            )
-        )
-    if accent_relative_path:
-        background_placements.append(
-            _accent_background_placement(
-                accent_relative_path,
-                img_width=accent_width,
-                img_height=accent_height,
-            )
-        )
-    if hero_relative_path or accent_relative_path:
-        background_placements.append(_type_scrim_placement())
-
-    logo_layout = _logo_layout(logo_width or 0, logo_height or 0)
-    foreground_placements: list[dict[str, Any]] = []
-    if logo_relative_path:
-        if use_knockback:
-            foreground_placements.append(
-                _logo_knockback_placement(
-                    img_width=logo_width or 0,
-                    img_height=logo_height or 0,
-                )
-            )
-        foreground_placements.append(
-            _logo_foreground_placement(
-                logo_relative_path,
-                img_width=logo_width,
-                img_height=logo_height,
-            )
-        )
-
     poster_id = uuid.uuid4().hex[:12]
     filename = f"commmaker-poster-{poster_id}.pcraft"
 
@@ -1154,26 +1232,44 @@ def compile_poster_batch(
         "meta": {
             "headline": headline,
             "tagline": subline,
+            "eyebrow": eyebrow or None,
+            "cta": cta_meta,
             "siteName": site_name,
-            "primaryColor": primary,
-            "accentColor": accent,
+            "primaryColor": roles.brand,
+            "accentColor": roles.accent,
+            "paletteRoles": {
+                "brand": roles.brand,
+                "dark": roles.dark,
+                "light": roles.light,
+                "accent": roles.accent,
+                "monochrome": roles.monochrome,
+            },
             "hasHero": has_photo_hero,
             "hasAccentLayer": bool(accent_relative_path),
             "ideogramLayers": ideogram_layers,
             "heroBusy": hero_busy,
             "heroBrandMark": hero_brand_mark,
+            "layoutTemplate": tpl.name,
+            "layout": plan.to_meta(),
+            "textColor": text_color,
+            "scrim": scrim_meta,
+            "contrast": {k: round(v, 2) for k, v in contrast.items()},
+            "backgroundSampled": bool(hero_grid) or not has_photo_hero,
+            "designAudit": audit,
+            "logoVariant": logo_variant,
             "logoOnDark": logo_on_dark,
-            "logoKnockback": use_knockback,
+            "logoKnockback": False,
             "hasLogo": has_logo,
             "logoLayout": {
-                "targetWidthPx": int(round(logo_layout["target_width"])),
-                "targetHeightPx": int(round(logo_layout["target_height"])),
-                "logoScalePercent": round(logo_layout["logo_scale"], 2),
-                "knockbackScalePercent": round(logo_layout["knockback_scale"], 2),
+                "targetWidthPx": int(round(logo_size[0])) if logo_size else None,
+                "targetHeightPx": int(round(logo_size[1])) if logo_size else None,
+                "logoScalePercent": foreground_placements[0]["scale"] if foreground_placements else None,
             },
             "typography": {
-                "headlineSize": headline_size,
-                "sublineSize": SUBLINE_SIZE if subline else None,
+                "headlineSize": h["size"],
+                "headlineWeight": h["weight"],
+                "headlineScale": h["scale"],
+                "sublineSize": (els.get("subline") or {}).get("size"),
             },
             "fonts": {
                 "headline": headline_font,
@@ -1182,3 +1278,19 @@ def compile_poster_batch(
             "creativeBrief": creative_brief,
         },
     }
+
+
+def normalize_logo_fill(logo_fill: str | None, kit: dict[str, Any] | None) -> str:
+    hex6 = _normalize_hex(logo_fill or "", "")
+    if hex6:
+        return hex6
+    svg = str((kit or {}).get("logoSvg") or "")
+    for match in _SVG_FILL_ATTR_RE.finditer(svg):
+        hex6 = _normalize_hex(match.group(2), "")
+        if hex6:
+            return hex6
+    for match in _SVG_STYLE_FILL_RE.finditer(svg):
+        hex6 = _normalize_hex(match.group(1), "")
+        if hex6:
+            return hex6
+    return "#000000"

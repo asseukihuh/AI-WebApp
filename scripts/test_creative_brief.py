@@ -68,7 +68,7 @@ class TestCreativeBriefFallback(unittest.TestCase):
         }
         brief = build_fallback_brief(kit, crisis)
         self.assertEqual(brief["heroStrategy"], "ideogram_generate")
-        self.assertIn("Acme", brief.get("heroImagePrompt", ""))
+        self.assertNotIn("Acme", brief.get("heroImagePrompt", ""))
 
     @patch.dict(os.environ, {"IDEOGRAM_API_KEY": "test-key", "OPENAI_API_KEY": "test-key"})
     @patch("creative_brief._call_llm")
@@ -93,7 +93,7 @@ class TestCreativeBriefFallback(unittest.TestCase):
         brief = result["brief"]
         self.assertEqual(brief["heroStrategy"], "ideogram_generate")
         self.assertEqual(brief["layoutRecipe"], "photo-hero-type")
-        self.assertIn("Stripe", brief.get("heroImagePrompt", ""))
+        self.assertNotIn("Stripe", brief.get("heroImagePrompt", ""))
 
     @patch.dict(os.environ, {"IDEOGRAM_API_KEY": "test-key", "OPENAI_API_KEY": "test-key"})
     @patch("creative_brief._call_llm")

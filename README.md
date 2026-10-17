@@ -296,6 +296,10 @@ When the creative brief uses `heroStrategy: ideogram_generate`, CommMaker genera
 | `IDEOGRAM_API_KEY` | [Ideogram API](https://developer.ideogram.ai/) key (`Api-Key` header) |
 | `COMMMAKER_PREFER_IDEOGRAM` | Optional: `1` / `true` — upgrade `gradient_from_palette` briefs to Ideogram abstract heroes when the key is set |
 | `COMMMAKER_IDEOGRAM_RENDERING` | Optional: `TURBO`, `DEFAULT`, or `QUALITY` (`rendering_speed` on generate) |
+| `COMMMAKER_IDEOGRAM_MAGIC_PROMPT` | Optional: `off` (default), `auto`, `on` — keep `off` so the structured, text-free prompt is used as written |
+| `COMMMAKER_ART_DIRECTOR` | Optional: `off` disables the one-shot text-only layout review (default on when an LLM key is set) |
+| `COMMMAKER_PNG_PREVIEW` | Optional: `off` skips flattening the `.pcraft` to a preview PNG |
+| `COMMMAKER_ALLOW_OG_HERO` | Optional: `1` — allow scraped `og:image` social cards as poster backgrounds (off by default; they usually contain the logo and text) |
 
 | Model | Use case | Example env |
 |-------|----------|-------------|
@@ -313,7 +317,7 @@ python3 scripts/serve-static.py --port 8000
 python3 scripts/test_creative_brief.py
 ```
 
-Hero images use **cover** placement (`fit: false` + scale to fill **1200×627**); verify with `python3 scripts/test_poster_cover.py`. Typography uses separate **headline** and **body** kit fonts when available; Google Fonts links from scrape are cached under `generated/fonts/` and reported as **`fontsResolved`** on the generate-poster response (`python3 scripts/test_poster_fonts.py`). LinkedIn layout tokens: logo **~280px** wide (220–320) with **56px** margin and knockback sized to the mark; crisis headline **52–56px**, kit tagline **24px** (footer site name omitted when a logo is placed).
+Hero images use **cover** placement (`fit: false` + scale to fill **1200×627**); verify with `python3 scripts/test_poster_cover.py`. Typography uses separate **headline** and **body** kit fonts when available; Google Fonts links from scrape are cached under `generated/fonts/` and reported as **`fontsResolved`** on the generate-poster response (`python3 scripts/test_poster_fonts.py`). Layout follows the [poster design system](docs/poster-design-system.md): 12-column grid with 60/56px safe margins, four templates (full-bleed scrim, split, text panel, centred statement), headline 54–76px at weight 700–800, eyebrow + subline + CTA chip, WCAG contrast measured on the sampled background with localized gradient scrims, and a logo variant (original / white / ink) chosen by luminance. Render offline samples with `python3 scripts/render_poster_samples.py`.
 
 ```bash
 python3 scripts/serve-static.py --port 8000

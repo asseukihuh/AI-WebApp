@@ -34,24 +34,32 @@ from image_probe import image_dimensions, raster_dimensions, svg_dimensions_from
 from font_fetcher import resolve_poster_fonts  # noqa: E402
 from creative_brief import (  # noqa: E402
     _normalize_api_key,
+    art_director_enabled,
+    art_director_review,
     build_creative_brief,
     coerce_ideogram_for_unsuitable_kit_hero,
     effective_ideogram_layers,
 )
-from ideogram_client import generate_layer_image, ideogram_api_key  # noqa: E402
-from brand_profile import (  # noqa: E402
-    analyze_brand,
-    apply_brand_profile_to_kit,
-    augment_ideogram_prompt,
-    playwright_available,
+from ideogram_client import (  # noqa: E402
+    brand_terms_from_kit,
+    generate_layer_image,
+    ideogram_api_key,
 )
+from image_luma import load_rgb_grid  # noqa: E402
 from poster_compiler import (  # noqa: E402
     compile_poster_batch,
     hero_cache_basename,
     logo_cache_basename,
     logo_svg_dimensions_oversized,
-    should_recolor_logo_light,
+    logo_svg_variants,
+    normalize_logo_fill,
     should_skip_hero_for_brief,
+)
+from poster_design import (  # noqa: E402
+    TEMPLATES,
+    brand_roles,
+    kit_hero_unsuitable,
+    resolve_template_name,
 )
 from photocraft_cli import run_poster_batch, _cli_missing_user_message  # noqa: E402
 
@@ -67,7 +75,7 @@ mimetypes.add_type("application/wasm", ".wasm")
 mimetypes.add_type("text/javascript", ".js")
 
 
-CREATIVE_BRIEF_STACK = "v25"
+CREATIVE_BRIEF_STACK = "v26-design-system"
 
 
 def dev_status_payload() -> dict:
@@ -303,44 +311,41 @@ class CommMakerHandler(http.server.SimpleHTTPRequestHandler):
             self._write_cached_asset(basename, data)
         return rel_path
 
-    def _maybe_cache_logo(
+    def _maybe_cache_logo_variants(
         self,
         kit: dict,
         errors: list[dict[str, str]] | None = None,
-        *,
-        recolor_light_mark: bool = False,
-    ) -> str | None:
+    ) -> dict[str, str]:
+        """Cache the logo; inline SVGs also get ``light`` / ``dark`` recolored variants."""
         if not kit:
-            return None
+            return {}
         logo_svg = kit.get("logoSvg")
         if isinstance(logo_svg, str) and logo_svg.strip().startswith("<svg"):
-            from poster_compiler import recolor_logo_svg_for_light_hero
-
             payload = logo_svg.strip()
             dims = svg_dimensions_from_text(payload)
             if dims and logo_svg_dimensions_oversized(dims[0], dims[1]):
                 fallback = self._maybe_cache_remote_asset(
                     kit.get("logoUrl"), logo_cache_basename, errors, role="logo"
-                )
-                if fallback:
-                    return fallback
-                return self._maybe_cache_remote_asset(
+                ) or self._maybe_cache_remote_asset(
                     kit.get("faviconUrl"), logo_cache_basename, errors, role="logo"
                 )
-            if recolor_light_mark:
-                payload = recolor_logo_svg_for_light_hero(payload)
-            digest = hashlib.sha256(payload.encode("utf-8")).hexdigest()[:16]
-            return self._write_cached_asset(
-                f"logo-{digest}.svg", payload.encode("utf-8")
-            )
-        return self._maybe_cache_remote_asset(
+                return {"original": fallback} if fallback else {}
+            variants: dict[str, str] = {}
+            for name, markup in logo_svg_variants(payload).items():
+                digest = hashlib.sha256(markup.encode("utf-8")).hexdigest()[:16]
+                variants[name] = self._write_cached_asset(
+                    f"logo-{digest}.svg", markup.encode("utf-8")
+                )
+            return variants
+        remote = self._maybe_cache_remote_asset(
             kit.get("logoUrl"), logo_cache_basename, errors, role="logo"
         )
+        return {"original": remote} if remote else {}
 
     def _maybe_cache_hero(
         self, kit: dict, errors: list[dict[str, str]] | None = None
     ) -> str | None:
-        if kit and (kit.get("heroBusy") or kit.get("heroBrandMark")):
+        if kit and kit_hero_unsuitable(kit):
             return None
         return self._maybe_cache_remote_asset(
             kit.get("heroImageUrl") if kit else None,
@@ -352,7 +357,10 @@ class CommMakerHandler(http.server.SimpleHTTPRequestHandler):
     def _handle_creative_brief(self) -> None:
         try:
             body = self._read_json_body(MAX_POSTER_BODY_BYTES)
-            kit = apply_brand_profile_to_kit(body.get("kit") or {})
+            kit = body.get("kit") or {}
+            brand_profile = body.get("brandProfile")
+            if not isinstance(brand_profile, dict):
+                brand_profile = None
             crisis_message = str(body.get("crisisMessage") or "").strip()
             crisis_facts = body.get("crisisFacts")
             crisis: dict = {
@@ -365,7 +373,7 @@ class CommMakerHandler(http.server.SimpleHTTPRequestHandler):
                 crisis.setdefault("crisisFacts", brief_form.get("facts") or "")
                 crisis.setdefault("tone", brief_form.get("tone"))
             fmt = str(body.get("format") or "linkedin-1200x627")
-            result = build_creative_brief(kit, crisis, fmt)
+            result = build_creative_brief(kit, crisis, fmt, brand_profile)
             payload = {
                 "brief": result["brief"],
                 "source": result["source"],
@@ -397,7 +405,10 @@ class CommMakerHandler(http.server.SimpleHTTPRequestHandler):
                 raise ValueError("Request must include session (or brief) JSON")
             if not kit:
                 kit = session.get("kitSnapshot")
-            kit = apply_brand_profile_to_kit(kit)
+            kit = dict(kit or {})
+            brand_profile = body.get("brandProfile")
+            if not isinstance(brand_profile, dict):
+                brand_profile = None
             if isinstance(kit.get("logoSvg"), str) and kit["logoSvg"].strip().startswith(
                 "<svg"
             ):
@@ -415,8 +426,6 @@ class CommMakerHandler(http.server.SimpleHTTPRequestHandler):
                     crisis_for_brief,
                 )
             asset_errors: list[dict[str, str]] = []
-            hero_busy = bool(kit.get("heroBusy"))
-            hero_brand_mark = bool(kit.get("heroBrandMark"))
             hero_rel = None
             accent_rel = None
             hero_meta: dict = {}
@@ -430,9 +439,31 @@ class CommMakerHandler(http.server.SimpleHTTPRequestHandler):
                     str(creative_brief.get("heroImagePrompt") or ""), kit, role="background"
                 )
                 layers_mode = effective_ideogram_layers(creative_brief)
-                accent_prompt = augment_ideogram_prompt(
-                    str(creative_brief.get("accentImagePrompt") or ""), kit, role="accent"
+                accent_prompt = str(creative_brief.get("accentImagePrompt") or "").strip()
+                roles = brand_roles(kit, brand_profile)
+                template_name = resolve_template_name(
+                    creative_brief,
+                    has_image=True,
+                    monochrome=roles.monochrome,
+                    brand_profile=brand_profile,
                 )
+                creative_brief = {**creative_brief, "layoutTemplate": template_name}
+                ideogram_style = {
+                    "template": template_name,
+                    "palette": [
+                        c
+                        for c in (roles.dark, roles.brand, roles.accent, roles.light, *roles.palette)
+                        if c
+                    ],
+                    "brand_terms": brand_terms_from_kit(kit),
+                    "mood": {
+                        "urgent": "serious, steady, reassuring",
+                        "celebratory": "optimistic, energetic, bright",
+                    }.get(str(creative_brief.get("emphasis") or ""), "calm, confident, premium"),
+                    "brand_profile": brand_profile,
+                }
+                if TEMPLATES[template_name].accent_center is None:
+                    layers_mode = "background-only"
                 if ideogram_api_key() and prompt:
                     try:
                         hero_rel, _bytes, bg_meta = generate_layer_image(
@@ -440,6 +471,7 @@ class CommMakerHandler(http.server.SimpleHTTPRequestHandler):
                             "background",
                             "1200x627",
                             assets_dir=ASSETS_DIR,
+                            **ideogram_style,
                         )
                         generated_assets.append(
                             {
@@ -453,6 +485,8 @@ class CommMakerHandler(http.server.SimpleHTTPRequestHandler):
                             "heroImagePrompt": prompt,
                             "ideogramResolution": bg_meta.get("ideogramResolution"),
                             "ideogramLayers": layers_mode,
+                            "ideogramStructuredPrompt": bg_meta.get("structuredPrompt"),
+                            "layoutTemplate": template_name,
                         }
                         if bg_meta.get("resolutionNote"):
                             hero_meta["resolutionNote"] = (
@@ -470,6 +504,7 @@ class CommMakerHandler(http.server.SimpleHTTPRequestHandler):
                                 "1024x1024",
                                 assets_dir=ASSETS_DIR,
                                 remove_bg=True,
+                                **ideogram_style,
                             )
                             generated_assets.append(
                                 {
@@ -495,9 +530,7 @@ class CommMakerHandler(http.server.SimpleHTTPRequestHandler):
                         accent_rel = None
                         generated_assets = []
                         patched = dict(creative_brief)
-                        if kit.get("heroImageUrl") and not (
-                            kit.get("heroBusy") or kit.get("heroBrandMark")
-                        ):
+                        if kit.get("heroImageUrl") and not kit_hero_unsuitable(kit):
                             patched["heroStrategy"] = "use_kit_photo"
                         else:
                             patched["heroStrategy"] = "gradient_from_palette"
@@ -508,9 +541,7 @@ class CommMakerHandler(http.server.SimpleHTTPRequestHandler):
                         "IDEOGRAM_API_KEY not set — using scraped kit hero or brand gradient."
                     )
                     patched = dict(creative_brief)
-                    if kit.get("heroImageUrl") and not (
-                        kit.get("heroBusy") or kit.get("heroBrandMark")
-                    ):
+                    if kit.get("heroImageUrl") and not kit_hero_unsuitable(kit):
                         patched["heroStrategy"] = "use_kit_photo"
                     else:
                         patched["heroStrategy"] = "gradient_from_palette"
@@ -527,33 +558,20 @@ class CommMakerHandler(http.server.SimpleHTTPRequestHandler):
                     }
             if not should_skip_hero_for_brief(kit, creative_brief):
                 hero_rel = self._maybe_cache_hero(kit, asset_errors)
-            logo_treatment = (creative_brief or {}).get("logoTreatment")
-            if logo_treatment == "wordmark-white":
-                logo_recolor_light = True
-            elif logo_treatment == "wordmark-dark":
-                logo_recolor_light = False
-            else:
-                logo_recolor_light = should_recolor_logo_light(
-                    kit,
-                    has_photo_hero=bool(hero_rel),
-                    hero_busy=hero_busy,
-                    hero_brand_mark=hero_brand_mark,
-                )
-            logo_rel = self._maybe_cache_logo(
-                kit,
-                asset_errors,
-                recolor_light_mark=logo_recolor_light,
-            )
+            logo_variants = self._maybe_cache_logo_variants(kit, asset_errors)
+            logo_rel = logo_variants.get("original")
             hero_width: int | None = None
             hero_height: int | None = None
             accent_width: int | None = None
             accent_height: int | None = None
             logo_width: int | None = None
             logo_height: int | None = None
+            hero_grid = None
             if hero_rel:
                 hero_dims = raster_dimensions(os.path.join(ROOT, hero_rel))
                 if hero_dims:
                     hero_width, hero_height = hero_dims
+                hero_grid = load_rgb_grid(os.path.join(ROOT, hero_rel))
             if accent_rel:
                 accent_dims = raster_dimensions(os.path.join(ROOT, accent_rel))
                 if accent_dims:
@@ -584,22 +602,45 @@ class CommMakerHandler(http.server.SimpleHTTPRequestHandler):
                 ROOT,
                 fetcher=_font_fetch,
             )
+            compile_kwargs = {
+                "logo_relative_path": logo_rel,
+                "logo_variants": logo_variants or None,
+                "logo_fill": normalize_logo_fill(None, kit),
+                "hero_relative_path": hero_rel,
+                "hero_width": hero_width,
+                "hero_height": hero_height,
+                "hero_grid": hero_grid,
+                "accent_relative_path": accent_rel,
+                "accent_width": accent_width,
+                "accent_height": accent_height,
+                "logo_width": logo_width,
+                "logo_height": logo_height,
+                "fonts_resolved": fonts_resolved,
+                "assets_dir": ASSETS_DIR,
+                "brand_profile": brand_profile,
+            }
             batch = compile_poster_batch(
-                kit,
-                session,
-                logo_relative_path=logo_rel,
-                hero_relative_path=hero_rel,
-                hero_width=hero_width,
-                hero_height=hero_height,
-                accent_relative_path=accent_rel,
-                accent_width=accent_width,
-                accent_height=accent_height,
-                logo_width=logo_width,
-                logo_height=logo_height,
-                fonts_resolved=fonts_resolved,
-                creative_brief=creative_brief,
-                assets_dir=ASSETS_DIR,
+                kit, session, creative_brief=creative_brief, **compile_kwargs
             )
+            art_director: dict | None = None
+            if isinstance(creative_brief, dict) and art_director_enabled():
+                review = art_director_review(creative_brief, batch.get("meta") or {})
+                if review:
+                    art_director = {
+                        "score": review.get("score"),
+                        "issues": review.get("issues"),
+                        "auditBefore": (batch.get("meta") or {}).get("designAudit", {}).get("score"),
+                        "applied": review["brief"] != creative_brief,
+                    }
+                    if art_director["applied"]:
+                        creative_brief = review["brief"]
+                        batch = compile_poster_batch(
+                            kit, session, creative_brief=creative_brief, **compile_kwargs
+                        )
+                    art_director["auditAfter"] = (
+                        (batch.get("meta") or {}).get("designAudit", {}).get("score")
+                    )
+                    batch.setdefault("meta", {})["artDirector"] = art_director
             os.makedirs(GENERATED_DIR, exist_ok=True)
             try:
                 result = run_poster_batch(ROOT, batch)
@@ -634,7 +675,12 @@ class CommMakerHandler(http.server.SimpleHTTPRequestHandler):
                 "cliPath": result.get("cliPath"),
                 "placementErrors": placement_errors,
                 "fontsResolved": fonts_resolved,
+                "previewUrl": result.get("previewPath"),
+                "layoutTemplate": (batch.get("meta") or {}).get("layoutTemplate"),
+                "designAudit": (batch.get("meta") or {}).get("designAudit"),
             }
+            if art_director:
+                payload["artDirector"] = art_director
             if generated_assets:
                 payload["generatedAssets"] = generated_assets
             if hero_meta:

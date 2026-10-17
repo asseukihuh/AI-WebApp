@@ -12,6 +12,22 @@ import urllib.error
 import urllib.request
 from typing import Any, Literal
 
+from poster_design import (
+    CTA_STYLES,
+    HEADLINE_SCALES,
+    HEADLINE_WEIGHTS,
+    LAYOUT_TEMPLATES,
+    MAX_CHARS,
+    MAX_WORDS,
+    TEMPLATES,
+    brand_roles,
+    clamp_words,
+    default_template_for,
+    headline_scale_for,
+    kit_hero_unsuitable,
+    template_hint_from_profile,
+)
+
 LayoutRecipe = Literal["photo-hero-type", "gradient-brand", "minimal-wordmark"]
 HeroStrategy = Literal[
     "use_kit_photo",
@@ -79,6 +95,11 @@ CREATIVE_BRIEF_JSON_SCHEMA: dict[str, Any] = {
             "type": "string",
             "enum": ["calm", "urgent", "celebratory"],
         },
+        "layoutTemplate": {"type": "string", "enum": list(LAYOUT_TEMPLATES)},
+        "headlineScale": {"type": "string", "enum": list(HEADLINE_SCALES)},
+        "headlineWeight": {"type": "string", "enum": list(HEADLINE_WEIGHTS)},
+        "eyebrow": {"type": "string"},
+        "ctaStyle": {"type": "string", "enum": list(CTA_STYLES)},
         "rationale": {"type": "string"},
     },
     "required": [
@@ -92,7 +113,39 @@ CREATIVE_BRIEF_JSON_SCHEMA: dict[str, Any] = {
         "ideogramLayers",
         "logoTreatment",
         "emphasis",
+        "layoutTemplate",
+        "headlineScale",
+        "headlineWeight",
+        "eyebrow",
+        "ctaStyle",
         "rationale",
+    ],
+}
+
+ART_DIRECTOR_JSON_SCHEMA: dict[str, Any] = {
+    "type": "object",
+    "additionalProperties": False,
+    "properties": {
+        "score": {"type": "integer"},
+        "issues": {"type": "array", "items": {"type": "string"}},
+        "headline": {"type": "string"},
+        "subhead": {"type": "string"},
+        "cta": {"type": "string"},
+        "eyebrow": {"type": "string"},
+        "headlineScale": {"type": "string", "enum": list(HEADLINE_SCALES)},
+        "headlineWeight": {"type": "string", "enum": list(HEADLINE_WEIGHTS)},
+        "ctaStyle": {"type": "string", "enum": list(CTA_STYLES)},
+    },
+    "required": [
+        "score",
+        "issues",
+        "headline",
+        "subhead",
+        "cta",
+        "eyebrow",
+        "headlineScale",
+        "headlineWeight",
+        "ctaStyle",
     ],
 }
 
@@ -211,6 +264,8 @@ def kit_summary_for_prompt(kit: dict[str, Any] | None) -> str:
         f"heroBusy: {bool(kit.get('heroBusy'))}",
         f"heroBrandMark: {bool(kit.get('heroBrandMark'))}",
         f"hasHeroImage: {bool(kit.get('heroImageUrl'))}",
+        f"heroImageKind: {kit.get('heroImageKind') or '(unknown)'}",
+        f"kitHeroUsableAsBackground: {bool(kit.get('heroImageUrl')) and not kit_hero_unsuitable(kit)}",
         f"headlineFromSite: {kit.get('headline') or '(none)'}",
     ]
     from brand_profile import brand_profile_prompt_lines
@@ -231,8 +286,12 @@ def _tone_to_emphasis(tone: str | None) -> Emphasis:
 
 
 def _first_fact_line(crisis: dict[str, Any]) -> str:
+    """Headline: the crisis message when it fits the headline limit, else the first fact."""
     facts = str(crisis.get("crisisFacts") or crisis.get("facts") or "").strip()
     message = str(crisis.get("crisisMessage") or crisis.get("message") or "").strip()
+    message_line = message.splitlines()[0].strip() if message else ""
+    if message_line and len(message_line.split()) <= MAX_WORDS["headline"]:
+        return _truncate(message_line, 90)
     blob = facts or message
     if not blob:
         return "Important update"
@@ -241,27 +300,26 @@ def _first_fact_line(crisis: dict[str, Any]) -> str:
 
 
 def _fallback_subhead(kit: dict[str, Any] | None, crisis: dict[str, Any]) -> str:
+    """Subhead: the first confirmed fact that isn't the headline; the kit tagline only as a last resort."""
     kit = kit or {}
-    tag = _truncate(str(kit.get("tagline") or ""), 72)
-    if tag:
-        return tag
+    headline = _first_fact_line(crisis).casefold()
     facts = str(crisis.get("crisisFacts") or crisis.get("facts") or "")
     for line in facts.splitlines():
         line = line.strip()
-        if line and len(line) > 12:
-            return _truncate(line, 72)
-    return ""
+        if line and len(line) > 12 and line.casefold() != headline:
+            return clamp_words(line, MAX_WORDS["subline"], MAX_CHARS["subline"])
+    return clamp_words(str(kit.get("tagline") or "").strip(), MAX_WORDS["subline"], MAX_CHARS["subline"])
 
 
 def _fallback_hero_and_layout(
     kit: dict[str, Any] | None,
 ) -> tuple[HeroStrategy, LayoutRecipe]:
     kit = kit or {}
-    if kit.get("heroBusy") or kit.get("heroBrandMark"):
+    if kit.get("heroImageUrl") and kit_hero_unsuitable(kit):
         if (os.environ.get("IDEOGRAM_API_KEY") or "").strip():
             return "ideogram_generate", "photo-hero-type"
         return "gradient_from_palette", "gradient-brand"
-    if kit.get("heroImageUrl") and not kit.get("heroBrandMark"):
+    if kit.get("heroImageUrl"):
         return "use_kit_photo", "photo-hero-type"
     if kit.get("logoUrl") or kit.get("logoSvg"):
         return "gradient_from_palette", "minimal-wordmark"
@@ -283,10 +341,43 @@ def _fallback_logo_treatment(
     return "wordmark-dark"
 
 
+_FALLBACK_EYEBROW: dict[str, str] = {
+    "urgent": "Service update",
+    "celebratory": "Announcement",
+    "calm": "Update",
+}
+_FALLBACK_CTA: dict[str, str] = {
+    "urgent": "Read the update",
+    "celebratory": "Learn more",
+    "calm": "Read more",
+}
+
+
+def fallback_layout_template(
+    kit: dict[str, Any] | None,
+    *,
+    layout_recipe: str,
+    hero_strategy: str,
+    emphasis: str,
+    brand_profile: dict[str, Any] | None = None,
+) -> str:
+    has_image = hero_strategy in ("use_kit_photo", "ideogram_generate")
+    hint = template_hint_from_profile(brand_profile)
+    if hint and (has_image or hint == "centered-statement"):
+        return hint
+    return default_template_for(
+        layout_recipe=layout_recipe,
+        has_image=has_image,
+        emphasis=emphasis,
+        monochrome=brand_roles(kit, brand_profile).monochrome,
+    )
+
+
 def build_fallback_brief(
     kit: dict[str, Any] | None,
     crisis: dict[str, Any],
     format: str = "linkedin-1200x627",
+    brand_profile: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Deterministic brief when LLM is unavailable."""
     kit = kit or {}
@@ -304,10 +395,20 @@ def build_fallback_brief(
     brief: dict[str, Any] = {
         "headline": headline,
         "subhead": subhead,
+        "cta": _FALLBACK_CTA[emphasis],
         "layoutRecipe": layout,
         "heroStrategy": hero_strategy,
         "logoTreatment": logo,
         "emphasis": emphasis,
+        "layoutTemplate": fallback_layout_template(
+            kit,
+            layout_recipe=layout,
+            hero_strategy=hero_strategy,
+            emphasis=emphasis,
+            brand_profile=brand_profile,
+        ),
+        "eyebrow": _FALLBACK_EYEBROW[emphasis],
+        "ctaStyle": "pill",
         "rationale": rationale,
     }
     if hero_strategy == "ideogram_generate":
@@ -332,9 +433,10 @@ def _normalize_brief(raw: dict[str, Any]) -> dict[str, Any]:
     emphasis = raw.get("emphasis") or "calm"
     if emphasis not in CREATIVE_BRIEF_JSON_SCHEMA["properties"]["emphasis"]["enum"]:
         emphasis = "calm"
+    headline = _truncate(str(raw.get("headline") or "Important update"), 90)
     out: dict[str, Any] = {
-        "headline": _truncate(str(raw.get("headline") or "Important update"), 90),
-        "subhead": _truncate(str(raw.get("subhead") or ""), 72),
+        "headline": headline,
+        "subhead": clamp_words(str(raw.get("subhead") or ""), MAX_WORDS["subline"], MAX_CHARS["subline"]),
         "layoutRecipe": layout,
         "heroStrategy": hero,
         "logoTreatment": logo,
@@ -343,7 +445,21 @@ def _normalize_brief(raw: dict[str, Any]) -> dict[str, Any]:
     }
     cta = raw.get("cta")
     if cta and str(cta).strip():
-        out["cta"] = _truncate(str(cta), 48)
+        out["cta"] = clamp_words(str(cta), MAX_WORDS["cta"], MAX_CHARS["cta"]).rstrip("…")
+    template = raw.get("layoutTemplate")
+    if template in TEMPLATES:
+        out["layoutTemplate"] = template
+    scale = raw.get("headlineScale")
+    out["headlineScale"] = scale if scale in HEADLINE_SCALES else headline_scale_for(headline)
+    weight = raw.get("headlineWeight")
+    out["headlineWeight"] = (
+        weight if weight in HEADLINE_WEIGHTS else ("bold" if out["headlineScale"] == "md" else "extrabold")
+    )
+    eyebrow = clamp_words(str(raw.get("eyebrow") or ""), MAX_WORDS["eyebrow"], MAX_CHARS["eyebrow"])
+    if eyebrow:
+        out["eyebrow"] = eyebrow.rstrip("…")
+    cta_style = raw.get("ctaStyle")
+    out["ctaStyle"] = cta_style if cta_style in CTA_STYLES else ("pill" if out.get("cta") else "none")
     hero_prompt = raw.get("heroImagePrompt")
     accent_prompt = raw.get("accentImagePrompt")
     if hero == "ideogram_generate":
@@ -421,7 +537,7 @@ def coerce_ideogram_for_unsuitable_kit_hero(
     hero = brief.get("heroStrategy") or ""
     if hero == "ideogram_generate":
         return brief
-    unsuitable_kit = bool(kit.get("heroBusy") or kit.get("heroBrandMark"))
+    unsuitable_kit = bool(kit.get("heroImageUrl")) and kit_hero_unsuitable(kit)
     crisis_gradient = prefer_ideogram_for_crisis_post(crisis) and hero == "gradient_from_palette"
     if not unsuitable_kit and not crisis_gradient:
         return brief
@@ -467,15 +583,10 @@ def _fallback_ideogram_abstract_prompt(
     kit: dict[str, Any] | None,
     crisis: dict[str, Any],
 ) -> str:
-    kit = kit or {}
-    site = kit.get("siteName") or "the organization"
-    colors = _kit_color_phrase(kit)
     tone = (crisis.get("tone") or "factual").strip()
     return (
-        f"Abstract brand background for {site}, soft diagonal gradient and subtle grain "
-        f"using palette {colors}, calm {tone} corporate communications, "
-        f"no people, no faces, no logos, no text, no news photos or specific events, "
-        f"generous negative space in the lower-left third for headline type"
+        "Abstract flowing ribbons of translucent colour over a soft diagonal gradient with "
+        f"subtle grain, {tone} corporate mood, smooth glass-like layered planes"
     )
 
 
@@ -483,17 +594,10 @@ def _fallback_ideogram_prompt(
     kit: dict[str, Any] | None,
     crisis: dict[str, Any],
 ) -> str:
-    kit = kit or {}
-    site = kit.get("siteName") or "the organization"
-    colors = _kit_color_phrase(kit)
     tone = (crisis.get("tone") or "factual").strip()
-    facts = str(crisis.get("crisisFacts") or crisis.get("facts") or "").strip()
-    context = _truncate(facts.splitlines()[0] if facts else "corporate update", 120)
     return (
-        f"Editorial marketing photograph for {site}, calm {tone} corporate communications, "
-        f"abstract professional scene (no UI screenshots, no homepage mockups), "
-        f"palette accents {colors}, subtle depth, negative space in lower-left for headline text, "
-        f"context: {context}"
+        f"Editorial still life of soft geometric glass and paper forms, {tone} corporate "
+        "mood, shallow depth of field, gentle shadows, premium minimal set design"
     )
 
 
@@ -501,27 +605,57 @@ def _fallback_accent_prompt(
     kit: dict[str, Any] | None,
     crisis: dict[str, Any],
 ) -> str:
-    kit = kit or {}
-    site = kit.get("siteName") or "the organization"
-    colors = _kit_color_phrase(kit)
     tone = (crisis.get("tone") or "factual").strip()
     return (
-        f"Single editorial illustration subject for {site}, calm {tone} corporate tone, "
-        f"no text, no logo, no wordmarks, palette accents {colors}, "
-        f"isolated focal subject suitable for right side of a poster"
+        f"A single sculptural abstract object made of smooth layered glass planes, {tone} mood"
     )
+
+
+def brand_profile_summary_for_prompt(brand_profile: dict[str, Any] | None) -> str:
+    """Optional AI-vision brand profile (aesthetic, imageryStyle, toneOfVoice, layoutTraits …)."""
+    if not isinstance(brand_profile, dict) or not brand_profile:
+        return ""
+    lines: list[str] = []
+    for key in ("aesthetic", "imageryStyle", "toneOfVoice", "layoutTraits", "palette", "typography"):
+        value = brand_profile.get(key)
+        if value in (None, "", [], {}):
+            continue
+        if isinstance(value, (list, dict)):
+            value = json.dumps(value, ensure_ascii=False)
+        lines.append(f"{key}: {_truncate(str(value), 240)}")
+    return "\n".join(lines)
+
+
+def _design_system_prompt() -> str:
+    templates = "\n".join(
+        f"- {name}: {tpl.ideogram_layout_note}; text {tpl.align}-aligned"
+        + (" on a solid brand panel" if tpl.surface == "panel" else "")
+        + (" on a rounded card" if tpl.surface == "card" else "")
+        for name, tpl in TEMPLATES.items()
+    )
+    return f"""Design system (Adobe fundamentals: hierarchy, contrast, alignment, balance, whitespace, repetition, emphasis):
+layoutTemplate options:
+{templates}
+- full-bleed-scrim / split-text-left / text-panel need an image (use_kit_photo or ideogram_generate); centered-statement works on brand gradients.
+- Copy limits: eyebrow ≤ {MAX_WORDS["eyebrow"]} words (short label, e.g. "New plan"), headline ≤ {MAX_WORDS["headline"]} words (ideal 4–8, one idea), subhead ≤ {MAX_WORDS["subline"]} words and one sentence, cta ≤ {MAX_WORDS["cta"]} words (verb first, e.g. "See pricing"). No hashtags, no URLs.
+- headlineScale: xl for ≤ 4 words, lg for 5–7, md for 8–10. headlineWeight: extrabold for xl/lg, bold for md.
+- ctaStyle: pill (default), outline (when the brand is minimal/monochrome), none (only for somber crisis notices).
+- One focal point: the headline (statement) or the image subject (split / full-bleed). The real logo is placed by the compiler; never ask for a logo in imagery."""
 
 
 def _llm_prompt(
     kit: dict[str, Any] | None,
     crisis: dict[str, Any],
     format: str,
+    brand_profile: dict[str, Any] | None = None,
 ) -> str:
     crisis = crisis or {}
     facts = crisis.get("crisisFacts") or crisis.get("facts") or ""
     message = crisis.get("crisisMessage") or crisis.get("message") or ""
     tone = crisis.get("tone") or "factual"
-    return f"""You are a senior brand marketing strategist drafting a LinkedIn crisis/update poster brief.
+    profile = brand_profile_summary_for_prompt(brand_profile)
+    profile_block = f"\nBrand profile (AI vision analysis; prefer over scraped signals):\n{profile}\n" if profile else ""
+    return f"""You are a senior brand marketing strategist and art director drafting a LinkedIn crisis/update poster brief.
 
 Output JSON only matching the schema. Copy must be factual, non-sensational, and appropriate for corporate communications.
 
@@ -530,25 +664,26 @@ Tone from user: {tone}
 
 Communication kit (scraped brand signals):
 {kit_summary_for_prompt(kit)}
-
+{profile_block}
 Crisis message (primary):
 {message or "(use facts below)"}
 
 Confirmed crisis facts:
 {facts or "(none provided)"}
 
-Choose layoutRecipe, heroStrategy, and logoTreatment so the poster feels on-brand and readable at 1200×627.
-Avoid full-bleed competitor OG artwork when heroBrandMark is true or heroBusy is true.
+{_design_system_prompt()}
+
+Choose layoutRecipe, layoutTemplate, heroStrategy, and logoTreatment so the poster feels on-brand and readable at 1200×627.
+Only choose heroStrategy use_kit_photo when kitHeroUsableAsBackground is true; og:image social cards usually contain the logo and headline text.
 For LinkedIn crisis/update posts when the scraped kit hero is busy UI chrome or a brand-mark OG image, prefer heroStrategy ideogram_generate with layoutRecipe photo-hero-type.
 For crisis/update posts when a flat gradient would feel empty, prefer ideogram_generate with abstract brand gradients, soft textures, or calm editorial backgrounds (no people, no crowds, no unverified news imagery, no fake event photos). Use background-only ideogramLayers for texture-only heroes.
 When heroStrategy is ideogram_generate:
-- Set ideogramLayers to background-plus-accent when a distinct subject helps the story; background-only for abstract texture-only heroes.
-- heroImagePrompt: full-bleed background scene (include siteName and kit color hex values). Always leave the lower-left third clear/uncluttered for headline type. No text in the image.
-- When ideogramLayers is background-plus-accent, set accentImagePrompt to a single illustration or photo subject for the right/center (no text, no logo — the scraped SVG logo is added separately).
-- The accent must not duplicate the brand logo or wordmark.
+- heroImagePrompt: describe only the visual scene (subject, materials, shapes, lighting, mood) in one or two sentences. Do NOT mention the company name, products, logos, wordmarks, letters, words, signs, screens or UI — the image model paints any name it reads. Composition, palette and the empty text zone are added automatically from layoutTemplate.
+- Set ideogramLayers to background-plus-accent only when a distinct subject helps the story; background-only for abstract texture-only heroes and always for centered-statement.
+- accentImagePrompt (background-plus-accent only): one isolated object, same rules as heroImagePrompt.
 Never describe homepage screenshots, browser chrome, or literal OG triangles.
 When heroStrategy is not ideogram_generate, set heroImagePrompt and accentImagePrompt to empty strings and ideogramLayers to background-only.
-When cta is not needed, set cta to an empty string.
+When cta is not needed, set cta to an empty string and ctaStyle to none.
 Headline should state the update clearly; subhead supports with brand context or next step."""
 
 
@@ -583,27 +718,35 @@ def _anthropic_messages_body(
     format: str,
     *,
     model: str,
+    brand_profile: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     return {
         "model": model,
-        "max_tokens": 1200,
+        "max_tokens": 1400,
         "system": (
             "You produce concise marketing creative briefs. "
             "You MUST call submit_creative_brief exactly once with complete structured fields."
         ),
-        "messages": [{"role": "user", "content": _llm_prompt(kit, crisis, format)}],
+        "messages": [
+            {"role": "user", "content": _llm_prompt(kit, crisis, format, brand_profile)}
+        ],
         "tools": [_anthropic_submit_tool()],
         "tool_choice": {"type": "auto"},
     }
 
 
-def _brief_from_anthropic_payload(payload: dict[str, Any]) -> dict[str, Any] | None:
+def _tool_input_from_anthropic_payload(payload: dict[str, Any], tool_name: str) -> dict[str, Any] | None:
     for block in payload.get("content") or []:
-        if block.get("type") == "tool_use" and block.get("name") == "submit_creative_brief":
+        if block.get("type") == "tool_use" and block.get("name") == tool_name:
             tool_input = block.get("input")
             if isinstance(tool_input, dict):
-                return _normalize_brief(tool_input)
+                return tool_input
     return None
+
+
+def _brief_from_anthropic_payload(payload: dict[str, Any]) -> dict[str, Any] | None:
+    tool_input = _tool_input_from_anthropic_payload(payload, "submit_creative_brief")
+    return _normalize_brief(tool_input) if tool_input is not None else None
 
 
 def _text_from_anthropic_payload(payload: dict[str, Any]) -> str:
@@ -626,39 +769,35 @@ def _post_anthropic_messages(body: dict[str, Any], *, api_key: str) -> dict[str,
         return json.loads(resp.read().decode("utf-8"))
 
 
-def _call_openai_compatible(
-    kit: dict[str, Any] | None,
-    crisis: dict[str, Any],
-    format: str,
+def _openai_compatible_endpoint(provider: LlmProvider) -> tuple[str, dict[str, str]]:
+    if provider == "openrouter":
+        referer = os.environ.get("OPENROUTER_HTTP_REFERER", "https://github.com/asseukihuh/AI-WebApp")
+        title = os.environ.get("OPENROUTER_APP_TITLE", "CommMaker")
+        return OPENROUTER_API_BASE, {"HTTP-Referer": referer, "X-Title": title}
+    return OPENAI_API_BASE, {}
+
+
+def _post_openai_json_schema(
     *,
+    system: str,
+    user: str,
+    schema_name: str,
+    schema: dict[str, Any],
     api_key: str,
     model: str,
     base_url: str,
     extra_headers: dict[str, str] | None = None,
-) -> dict[str, Any]:
-    url = f"{base_url}/chat/completions"
+) -> str:
     body = {
         "model": model,
         "temperature": 0.35,
         "messages": [
-            {
-                "role": "system",
-                "content": (
-                    "You produce concise marketing creative briefs as strict JSON. "
-                    "No markdown, no commentary outside JSON. "
-                    "For ideogram_generate heroes, always leave the lower-left clear for type; "
-                    "accent illustrations must not include logos or duplicate the wordmark."
-                ),
-            },
-            {"role": "user", "content": _llm_prompt(kit, crisis, format)},
+            {"role": "system", "content": system},
+            {"role": "user", "content": user},
         ],
         "response_format": {
             "type": "json_schema",
-            "json_schema": {
-                "name": "creative_brief",
-                "strict": True,
-                "schema": CREATIVE_BRIEF_JSON_SCHEMA,
-            },
+            "json_schema": {"name": schema_name, "strict": True, "schema": schema},
         },
     }
     headers = {
@@ -668,7 +807,7 @@ def _call_openai_compatible(
     if extra_headers:
         headers.update(extra_headers)
     req = urllib.request.Request(
-        url,
+        f"{base_url}/chat/completions",
         data=json.dumps(body).encode("utf-8"),
         headers=headers,
         method="POST",
@@ -679,7 +818,34 @@ def _call_openai_compatible(
     if not choices:
         raise ValueError("LLM returned no choices")
     message = choices[0].get("message") or {}
-    content = message.get("content") or ""
+    return message.get("content") or ""
+
+
+def _call_openai_compatible(
+    kit: dict[str, Any] | None,
+    crisis: dict[str, Any],
+    format: str,
+    *,
+    api_key: str,
+    model: str,
+    base_url: str,
+    extra_headers: dict[str, str] | None = None,
+    brand_profile: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    content = _post_openai_json_schema(
+        system=(
+            "You produce concise marketing creative briefs as strict JSON. "
+            "No markdown, no commentary outside JSON. "
+            "Image prompts describe scenes only: never company names, logos, letters or words."
+        ),
+        user=_llm_prompt(kit, crisis, format, brand_profile),
+        schema_name="creative_brief",
+        schema=CREATIVE_BRIEF_JSON_SCHEMA,
+        api_key=api_key,
+        model=model,
+        base_url=base_url,
+        extra_headers=extra_headers,
+    )
     return _parse_llm_json(content)
 
 
@@ -690,8 +856,9 @@ def _call_anthropic(
     *,
     api_key: str,
     model: str,
+    brand_profile: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
-    body = _anthropic_messages_body(kit, crisis, format, model=model)
+    body = _anthropic_messages_body(kit, crisis, format, model=model, brand_profile=brand_profile)
     payload: dict[str, Any] = {}
     for _ in range(2):
         payload = _post_anthropic_messages(body, api_key=api_key)
@@ -712,31 +879,22 @@ def _call_llm(
     *,
     api_key: str,
     model: str,
+    brand_profile: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     if provider == "anthropic":
-        return _call_anthropic(kit, crisis, format, api_key=api_key, model=model)
-    if provider == "openrouter":
-        referer = os.environ.get("OPENROUTER_HTTP_REFERER", "https://github.com/asseukihuh/AI-WebApp")
-        title = os.environ.get("OPENROUTER_APP_TITLE", "CommMaker")
-        return _call_openai_compatible(
-            kit,
-            crisis,
-            format,
-            api_key=api_key,
-            model=model,
-            base_url=OPENROUTER_API_BASE,
-            extra_headers={
-                "HTTP-Referer": referer,
-                "X-Title": title,
-            },
+        return _call_anthropic(
+            kit, crisis, format, api_key=api_key, model=model, brand_profile=brand_profile
         )
+    base_url, extra_headers = _openai_compatible_endpoint(provider)
     return _call_openai_compatible(
         kit,
         crisis,
         format,
         api_key=api_key,
         model=model,
-        base_url=OPENAI_API_BASE,
+        base_url=base_url,
+        extra_headers=extra_headers or None,
+        brand_profile=brand_profile,
     )
 
 
@@ -744,12 +902,16 @@ def build_creative_brief(
     kit: dict[str, Any] | None,
     crisis: dict[str, Any],
     format: str = "linkedin-1200x627",
+    brand_profile: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
-    """Build brief. Returns ``brief``, ``source`` (`llm`|`fallback`), optional ``model`` / ``provider``."""
+    """Build brief. Returns ``brief``, ``source`` (`llm`|`fallback`), optional ``model`` / ``provider``.
+
+    ``brand_profile`` (optional AI-vision profile) enriches the prompt and template choice.
+    """
     provider = resolve_llm_provider()
     if not provider:
         return {
-            "brief": build_fallback_brief(kit, crisis, format),
+            "brief": build_fallback_brief(kit, crisis, format, brand_profile),
             "source": "fallback",
             "fallbackReason": "no_provider",
             "errorDetail": "ConfigurationError",
@@ -757,21 +919,17 @@ def build_creative_brief(
     api_key = api_key_for_provider(provider)
     if not api_key:
         return {
-            "brief": build_fallback_brief(kit, crisis, format),
+            "brief": build_fallback_brief(kit, crisis, format, brand_profile),
             "source": "fallback",
             "fallbackReason": "no_api_key",
             "errorDetail": "MissingApiKeyError",
         }
     model = resolve_llm_model(provider)
     try:
-        brief = _call_llm(
-            provider,
-            kit,
-            crisis,
-            format,
-            api_key=api_key,
-            model=model,
-        )
+        llm_kwargs: dict[str, Any] = {"api_key": api_key, "model": model}
+        if brand_profile:
+            llm_kwargs["brand_profile"] = brand_profile
+        brief = _call_llm(provider, kit, crisis, format, **llm_kwargs)
         brief = coerce_ideogram_for_unsuitable_kit_hero(brief, kit, crisis)
         return {
             "brief": brief,
@@ -788,9 +946,146 @@ def build_creative_brief(
         OSError,
     ) as exc:
         return {
-            "brief": build_fallback_brief(kit, crisis, format),
+            "brief": build_fallback_brief(kit, crisis, format, brand_profile),
             "source": "fallback",
             "fallbackReason": "llm_error",
             "errorDetail": _safe_error_detail(exc, provider=provider),
             "provider": provider,
         }
+
+
+# --------------------------------------------------------------------------- art director pass
+
+
+def art_director_enabled() -> bool:
+    raw = (os.environ.get("COMMMAKER_ART_DIRECTOR") or "on").strip().lower()
+    return raw not in ("0", "false", "no", "off") and resolve_llm_provider() is not None
+
+
+def _art_director_prompt(brief: dict[str, Any], layout_meta: dict[str, Any]) -> str:
+    audit = layout_meta.get("designAudit") or {}
+    summary = {
+        "brief": {
+            k: brief.get(k)
+            for k in (
+                "headline",
+                "subhead",
+                "cta",
+                "eyebrow",
+                "layoutTemplate",
+                "headlineScale",
+                "headlineWeight",
+                "ctaStyle",
+                "emphasis",
+            )
+        },
+        "layout": layout_meta.get("layout"),
+        "contrast": layout_meta.get("contrast"),
+        "audit": {"score": audit.get("score"), "failed": audit.get("failed"), "checks": audit.get("checks")},
+    }
+    return f"""You are an art director reviewing a composed LinkedIn poster (1200×627) from its layer metadata.
+
+{_design_system_prompt()}
+
+Composed poster (layer boxes are [x, y, w, h] in px; contrast values are WCAG ratios measured on the real background):
+{json.dumps(summary, ensure_ascii=False)}
+
+Score the composition 0–100 against the design system, list the concrete issues, then return the corrected fields.
+Only change copy when it breaks a limit or weakens hierarchy; keep facts identical, never invent claims.
+Return the current value for any field you keep. The layout template and imagery cannot change."""
+
+
+def _apply_art_director_patch(brief: dict[str, Any], review: dict[str, Any]) -> dict[str, Any]:
+    patched = dict(brief)
+    for key in ("headline", "subhead", "cta", "eyebrow"):
+        value = str(review.get(key) or "").strip()
+        if key == "headline" and not value:
+            continue
+        patched[key] = value
+    for key, allowed in (
+        ("headlineScale", HEADLINE_SCALES),
+        ("headlineWeight", HEADLINE_WEIGHTS),
+        ("ctaStyle", CTA_STYLES),
+    ):
+        if review.get(key) in allowed:
+            patched[key] = review[key]
+    normalized = _normalize_brief(patched)
+    for key in ("heroImagePrompt", "accentImagePrompt", "ideogramLayers", "layoutTemplate"):
+        if key in brief:
+            normalized[key] = brief[key]
+        elif key in normalized and key not in brief:
+            normalized.pop(key)
+    if not normalized.get("cta"):
+        normalized["ctaStyle"] = "none"
+    return normalized
+
+
+def art_director_review(
+    brief: dict[str, Any],
+    layout_meta: dict[str, Any],
+) -> dict[str, Any] | None:
+    """One text-only critique of the composed layout. Returns ``{brief, score, issues}`` or ``None``."""
+    provider = resolve_llm_provider()
+    if not provider:
+        return None
+    api_key = api_key_for_provider(provider)
+    if not api_key:
+        return None
+    model = resolve_llm_model(provider)
+    user = _art_director_prompt(brief, layout_meta)
+    try:
+        if provider == "anthropic":
+            body = {
+                "model": model,
+                "max_tokens": 900,
+                "system": (
+                    "You are a meticulous art director. "
+                    "You MUST call submit_art_direction exactly once."
+                ),
+                "messages": [{"role": "user", "content": user}],
+                "tools": [
+                    {
+                        "name": "submit_art_direction",
+                        "description": "Submit the layout review and corrected fields.",
+                        "input_schema": ART_DIRECTOR_JSON_SCHEMA,
+                        "strict": True,
+                    }
+                ],
+                "tool_choice": {"type": "auto"},
+            }
+            payload = _post_anthropic_messages(body, api_key=api_key)
+            review = _tool_input_from_anthropic_payload(payload, "submit_art_direction")
+            if review is None:
+                text = _text_from_anthropic_payload(payload)
+                review = json.loads(text) if text else None
+        else:
+            base_url, extra_headers = _openai_compatible_endpoint(provider)
+            content = _post_openai_json_schema(
+                system="You are a meticulous art director. Reply with strict JSON only.",
+                user=user,
+                schema_name="art_direction",
+                schema=ART_DIRECTOR_JSON_SCHEMA,
+                api_key=api_key,
+                model=model,
+                base_url=base_url,
+                extra_headers=extra_headers or None,
+            )
+            review = json.loads(content)
+    except (
+        urllib.error.URLError,
+        urllib.error.HTTPError,
+        json.JSONDecodeError,
+        ValueError,
+        TimeoutError,
+        OSError,
+    ):
+        return None
+    if not isinstance(review, dict):
+        return None
+    return {
+        "brief": _apply_art_director_patch(brief, review),
+        "score": review.get("score"),
+        "issues": [str(i) for i in (review.get("issues") or [])][:8],
+        "model": model,
+        "provider": provider,
+    }

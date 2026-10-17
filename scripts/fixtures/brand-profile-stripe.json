@@ -1,0 +1,14 @@
+{
+  "aesthetic": ["minimal", "premium", "technical", "luminous"],
+  "imageryStyle": "abstract luminous light ribbons and soft glass forms on deep navy",
+  "toneOfVoice": ["confident", "clear", "optimistic"],
+  "palette": {
+    "primary": "#635bff",
+    "dark": "#0a2540",
+    "accent": "#00d4b2",
+    "background": "#ffffff",
+    "highlight": "#ffc000"
+  },
+  "typography": {"headline": "Inter", "body": "Inter", "headlineWeight": 700},
+  "layoutTraits": ["generous whitespace", "split image and text"]
+}

@@ -249,6 +249,33 @@ def _finalize_doc_place_params(
     return params
 
 
+def preview_enabled() -> bool:
+    raw = (os.environ.get("COMMMAKER_PNG_PREVIEW") or "on").strip().lower()
+    return raw not in ("0", "false", "no", "off")
+
+
+def render_preview_png(cli: str, repo_root: str, pcraft_rel: str) -> str | None:
+    """Flatten a saved ``.pcraft`` to a sibling ``.png`` via ``photocraft-cli convert``."""
+    if not pcraft_rel.endswith(".pcraft"):
+        return None
+    png_rel = pcraft_rel[: -len(".pcraft")] + ".png"
+    src = os.path.join(repo_root, pcraft_rel)
+    dst = os.path.join(repo_root, png_rel)
+    try:
+        proc = subprocess.run(
+            [cli, "convert", src, dst],
+            capture_output=True,
+            text=True,
+            timeout=90,
+            cwd=repo_root,
+        )
+    except (OSError, subprocess.TimeoutExpired):
+        return None
+    if proc.returncode != 0 or not os.path.isfile(dst):
+        return None
+    return png_rel
+
+
 def run_poster_batch(
     repo_root: str,
     batch: dict[str, Any],
@@ -407,6 +434,10 @@ def run_poster_batch(
     }
     if ok:
         result["userMessage"] = "Poster saved successfully."
+        if preview_enabled():
+            preview_rel = render_preview_png(cli, repo_root, out_rel)
+            if preview_rel:
+                result["previewPath"] = f"/{preview_rel}"
     else:
         err = (
             proc.stderr.strip()

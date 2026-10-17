@@ -79,10 +79,10 @@ class TestPosterLayerStack(unittest.TestCase):
         )
         bg = batch.get("backgroundPlacements") or []
         names = [p.get("name") for p in bg]
-        self.assertEqual(
-            names,
-            ["Background", "Accent illustration", "Type scrim"],
-        )
+        self.assertEqual(names, ["Background", "Accent illustration"])
+        layer_names = [(st.get("params") or {}).get("name") for st in batch.get("steps") or []]
+        self.assertIn("Text scrim", layer_names)
+        self.assertNotIn("layer.newFillLayer.solidColor", [st.get("command") for st in batch["steps"]])
         meta = batch.get("meta") or {}
         self.assertTrue(meta.get("hasAccentLayer"))
         self.assertEqual(meta.get("ideogramLayers"), "background-plus-accent")
@@ -107,7 +107,7 @@ class TestPosterLayerStack(unittest.TestCase):
             creative_brief=brief,
         )
         bg = batch.get("backgroundPlacements") or []
-        self.assertEqual(len(bg), 2)
+        self.assertEqual(len(bg), 1)
         self.assertEqual(bg[0].get("name"), "Background")
         self.assertFalse((batch.get("meta") or {}).get("hasAccentLayer"))
 
