@@ -65,6 +65,18 @@ IDEOGRAM_PRESET_RESOLUTIONS: tuple[str, ...] = (
 
 LayerRole = Literal["background", "accent"]
 RenderingSpeed = Literal["turbo", "default", "quality"]
+MagicPrompt = Literal["auto", "on", "off"]
+
+# Words that invite Ideogram (a text-rendering model) to paint lettering or marks.
+_TEXT_INVITING_WORDS = re.compile(
+    r"\b(logos?|wordmarks?|brand\s*marks?|monograms?|emblems?|watermarks?|texts?|typography|"
+    r"typographic|letter(?:ing|s)?|headlines?|titles?|captions?|labels?|signage|signs?|"
+    r"posters?|banners?|slogans?|taglines?|words?|fonts?|copy|ui|screenshots?|mockups?)\b",
+    re.I,
+)
+_NEGATION_PHRASE = re.compile(r"\b(no|without|free of|avoid(?:ing)?)\b[^,.;]*", re.I)
+_QUOTED = re.compile(r"[\"“”'‘’][^\"“”'‘’]{1,80}[\"“”'‘’]")
+_HEX = re.compile(r"#[0-9a-fA-F]{3,8}\b")
 
 ROLE_DEFAULT_RESOLUTION: dict[LayerRole, str] = {
     "background": DEFAULT_BACKGROUND_RESOLUTION,
@@ -89,6 +101,139 @@ def resolve_rendering_speed() -> RenderingSpeed:
         "QUALITY": "quality",
     }
     return mapping.get(raw, "default")
+
+
+def resolve_magic_prompt() -> MagicPrompt:
+    """``off`` by default: a well-formed JSON prompt is used as written (no brand re-injection)."""
+    raw = (os.environ.get("COMMMAKER_IDEOGRAM_MAGIC_PROMPT") or "off").strip().lower()
+    return raw if raw in ("auto", "on", "off") else "off"  # type: ignore[return-value]
+
+
+def brand_terms_from_kit(kit: dict | None) -> list[str]:
+    """Names that must never reach Ideogram (site name, its words, domain stem)."""
+    kit = kit or {}
+    terms: list[str] = []
+    site = re.sub(r"\s+", " ", str(kit.get("siteName") or "")).strip()
+    if site:
+        terms.append(site)
+        terms.extend(w for w in re.split(r"[\s\-–|·:]+", site) if len(w) >= 3)
+    source = str(kit.get("sourceUrl") or "")
+    host = re.sub(r"^https?://(www\.)?", "", source).split("/", 1)[0]
+    stem = host.split(".")[0] if host else ""
+    if len(stem) >= 3:
+        terms.append(stem)
+    seen: set[str] = set()
+    out: list[str] = []
+    for term in terms:
+        key = term.casefold()
+        if key not in seen and key not in ("the", "and", "inc", "home", "accueil"):
+            seen.add(key)
+            out.append(term)
+    return out
+
+
+def sanitize_scene_description(text: str, brand_terms: list[str] | None = None) -> str:
+    """Strip brand names, quoted copy, hex codes and text-inviting words from a scene prompt."""
+    out = _QUOTED.sub(" ", text or "")
+    out = _NEGATION_PHRASE.sub(" ", out)
+    for term in sorted(brand_terms or [], key=len, reverse=True):
+        out = re.sub(rf"\b{re.escape(term)}(?:'s|’s)?\b", " ", out, flags=re.I)
+    out = _HEX.sub(" ", out)
+    out = _TEXT_INVITING_WORDS.sub(" ", out)
+    out = re.sub(r"\b(for|of|by|with|from|featuring)\s*(?=[,.;]|$)", " ", out, flags=re.I)
+    out = re.sub(r"\s+([,.;])", r"\1", out)
+    out = re.sub(r"([,.;])\s*(?:[,.;]\s*)+", r"\1 ", out)
+    out = re.sub(r"\s{2,}", " ", out).strip(" ,.;")
+    return out
+
+
+def build_structured_prompt(
+    scene: str,
+    *,
+    role: LayerRole,
+    template: str | None = None,
+    palette: list[str] | None = None,
+    brand_terms: list[str] | None = None,
+    mood: str | None = None,
+    brand_profile: dict | None = None,
+) -> dict:
+    """Ideogram 4 JSON caption: zero ``text`` elements, subject boxes away from the text zone.
+
+    Optional ``brand_profile`` fields used when present: ``aesthetic`` (list of style tags),
+    ``imageryStyle`` (str) and ``palette`` (role dict or list).
+    """
+    from poster_design import get_template, normalize_hex, profile_palette_list
+
+    profile = brand_profile or {}
+    clean = sanitize_scene_description(scene, brand_terms) or "abstract flowing brand-colored shapes"
+    profile_colors = profile_palette_list(profile)
+    merged = profile_colors + [c for c in (palette or []) if normalize_hex(c) not in profile_colors]
+    colors = [normalize_hex(c) for c in merged if normalize_hex(c)][:8]
+    aesthetic = profile.get("aesthetic")
+    if isinstance(aesthetic, list) and aesthetic:
+        mood = ", ".join(str(a) for a in aesthetic[:4]) + (f", {mood}" if mood else "")
+    tone = sanitize_scene_description(mood or "", brand_terms) or "calm, premium, modern"
+    imagery = sanitize_scene_description(str(profile.get("imageryStyle") or ""), brand_terms)
+    art_style = (
+        f"{imagery}, plain unmarked surfaces"
+        if imagery
+        else "abstract editorial art direction, subtle grain, plain unmarked surfaces"
+    )
+    if role == "accent":
+        return {
+            "high_level_description": (
+                f"A single isolated object: {clean}, centred on a plain seamless light studio backdrop."
+            ),
+            "style_description": {
+                "aesthetics": f"{tone}, clean, minimal, product-shot clarity",
+                "lighting": "soft even studio light, gentle contact shadow",
+                "medium": "3D render",
+                "art_style": "polished editorial illustration, smooth materials, no surface markings",
+                **({"color_palette": colors} if colors else {}),
+            },
+            "compositional_deconstruction": {
+                "background": "A plain, seamless, very light grey studio backdrop with nothing else in frame.",
+                "elements": [
+                    {
+                        "type": "obj",
+                        "bbox": [150, 150, 850, 850],
+                        "desc": f"{clean}; smooth unmarked surfaces, fully inside the frame.",
+                        **({"color_palette": colors[:5]} if colors else {}),
+                    }
+                ],
+            },
+        }
+    tpl = get_template(template)
+    elements = [
+        {
+            "type": "obj",
+            "bbox": list(bbox),
+            "desc": f"{clean}; smooth, unmarked surfaces.",
+            **({"color_palette": colors[:5]} if colors else {}),
+        }
+        for bbox in tpl.ideogram_subject_bboxes
+    ]
+    return {
+        "high_level_description": (
+            f"A clean, text-free marketing background image: {clean}. "
+            f"Composition: {tpl.ideogram_layout_note}."
+        ),
+        "style_description": {
+            "aesthetics": f"{tone}, uncluttered, generous negative space",
+            "lighting": "soft diffused light, smooth tonal gradients",
+            "medium": "graphic design",
+            "art_style": art_style,
+            **({"color_palette": colors} if colors else {}),
+        },
+        "compositional_deconstruction": {
+            "background": f"{tpl.ideogram_background[0].upper()}{tpl.ideogram_background[1:]}.",
+            "elements": elements,
+        },
+    }
+
+
+def structured_prompt_text(prompt: dict) -> str:
+    return json.dumps(prompt, separators=(",", ":"), ensure_ascii=False)
 
 
 def _parse_resolution(resolution: str) -> tuple[int, int] | None:
@@ -174,13 +319,14 @@ def _call_generate_api(
     *,
     api_key: str,
     rendering_speed: RenderingSpeed,
+    magic_prompt: MagicPrompt = "off",
 ) -> dict:
     body = {
         "prompt": prompt,
         "resolution": resolution,
         "num_images": 1,
         "rendering_speed": rendering_speed,
-        "magic_prompt": "auto",
+        "magic_prompt": magic_prompt,
         "async": False,
     }
     req = urllib.request.Request(
@@ -296,26 +442,46 @@ def generate_layer_image(
     assets_dir: str,
     api_key: str | None = None,
     remove_bg: bool = False,
+    template: str | None = None,
+    palette: list[str] | None = None,
+    brand_terms: list[str] | None = None,
+    mood: str | None = None,
+    brand_profile: dict | None = None,
 ) -> tuple[str, bytes, dict]:
     """
     Generate a raster layer via Ideogram 4.0 and cache under ``assets_dir``.
 
+    ``prompt`` is a scene description; it is sanitized and wrapped in a structured Ideogram 4
+    JSON caption (no text elements, template subject boxes, brand palette) before sending.
+
     Returns ``(relative_path, image_bytes, meta)`` where relative_path is like
     ``generated/assets/layer-ideogram-background-<hash>.png``.
     """
-    prompt = (prompt or "").strip()
-    if not prompt:
+    scene = (prompt or "").strip()
+    if not scene:
         raise ValueError(f"prompt is required for Ideogram {role} generation")
     key = (api_key or ideogram_api_key()).strip()
     if not key:
         raise ValueError("IDEOGRAM_API_KEY is not set")
 
+    structured = build_structured_prompt(
+        scene,
+        role=role,
+        template=template,
+        palette=palette,
+        brand_terms=brand_terms,
+        mood=mood,
+        brand_profile=brand_profile,
+    )
+    prompt = structured_prompt_text(structured)
+    magic_prompt = resolve_magic_prompt()
     api_resolution = resolve_layer_resolution(role, resolution)
     payload = _call_generate_api(
         prompt,
         api_resolution,
         api_key=key,
         rendering_speed=resolve_rendering_speed(),
+        magic_prompt=magic_prompt,
     )
     data = payload.get("data") or []
     if not data:
@@ -342,7 +508,10 @@ def generate_layer_image(
     meta: dict = {
         "role": role,
         "source": "ideogram-4",
-        "imagePrompt": prompt,
+        "imagePrompt": scene,
+        "structuredPrompt": structured,
+        "magicPrompt": magic_prompt,
+        "template": template,
         "ideogramResolution": api_resolution,
         "requestedResolution": resolution,
         "renderingSpeed": resolve_rendering_speed(),
