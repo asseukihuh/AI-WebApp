@@ -140,18 +140,17 @@ def test_logo_placements_with_hero() -> None:
         logo_height=svg_dims[1],
     )
     placements = batch.get("placements") or []
-    assert len(placements) >= 2
-    assert placements[0].get("name") == "Logo knockback"
-    logo_place = placements[-1]
+    assert len(placements) == 1
+    logo_place = placements[0]
     assert logo_place.get("name") == "Logo"
+    meta = batch.get("meta") or {}
+    assert meta.get("logoKnockback") is False
+    assert meta.get("logoOnDark") is True
     layout = (batch.get("meta") or {}).get("logoLayout") or {}
     tw = layout.get("targetWidthPx", 0)
     assert LOGO_TARGET_WIDTH_MIN <= tw <= 320
     assert tw >= 280
     assert layout.get("logoScalePercent", 0) >= 40
-    knock_scale = placements[0].get("scale") or 0
-    assert 150 <= knock_scale <= 220
-
     steps = batch.get("steps") or []
     type_steps = [s for s in steps if s.get("command") == "type.create"]
     headline = next(s for s in type_steps if s["params"]["name"] == "Headline")

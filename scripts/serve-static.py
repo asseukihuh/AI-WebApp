@@ -36,6 +36,7 @@ from poster_compiler import (  # noqa: E402
     compile_poster_batch,
     hero_cache_basename,
     logo_cache_basename,
+    should_logo_on_dark,
 )
 from photocraft_cli import run_poster_batch, _cli_missing_user_message  # noqa: E402
 
@@ -203,15 +204,24 @@ class CommMakerHandler(http.server.SimpleHTTPRequestHandler):
         return rel_path
 
     def _maybe_cache_logo(
-        self, kit: dict, errors: list[dict[str, str]] | None = None
+        self,
+        kit: dict,
+        errors: list[dict[str, str]] | None = None,
+        *,
+        recolor_for_light_hero: bool = False,
     ) -> str | None:
         if not kit:
             return None
         logo_svg = kit.get("logoSvg")
         if isinstance(logo_svg, str) and logo_svg.strip().startswith("<svg"):
-            digest = hashlib.sha256(logo_svg.encode("utf-8")).hexdigest()[:16]
+            from poster_compiler import recolor_logo_svg_for_light_hero
+
+            payload = logo_svg.strip()
+            if recolor_for_light_hero:
+                payload = recolor_logo_svg_for_light_hero(payload)
+            digest = hashlib.sha256(payload.encode("utf-8")).hexdigest()[:16]
             return self._write_cached_asset(
-                f"logo-{digest}.svg", logo_svg.encode("utf-8")
+                f"logo-{digest}.svg", payload.encode("utf-8")
             )
         return self._maybe_cache_remote_asset(
             kit.get("logoUrl"), logo_cache_basename, errors, role="logo"
@@ -220,6 +230,8 @@ class CommMakerHandler(http.server.SimpleHTTPRequestHandler):
     def _maybe_cache_hero(
         self, kit: dict, errors: list[dict[str, str]] | None = None
     ) -> str | None:
+        if kit and kit.get("heroBusy"):
+            return None
         return self._maybe_cache_remote_asset(
             kit.get("heroImageUrl") if kit else None,
             hero_cache_basename,
@@ -239,8 +251,18 @@ class CommMakerHandler(http.server.SimpleHTTPRequestHandler):
             if not kit:
                 kit = session.get("kitSnapshot")
             asset_errors: list[dict[str, str]] = []
-            logo_rel = self._maybe_cache_logo(kit or {}, asset_errors)
             hero_rel = self._maybe_cache_hero(kit or {}, asset_errors)
+            hero_busy = bool((kit or {}).get("heroBusy"))
+            logo_on_dark = should_logo_on_dark(
+                kit or {},
+                has_hero=bool(hero_rel),
+                hero_busy=hero_busy,
+            )
+            logo_rel = self._maybe_cache_logo(
+                kit or {},
+                asset_errors,
+                recolor_for_light_hero=logo_on_dark,
+            )
             hero_width: int | None = None
             hero_height: int | None = None
             logo_width: int | None = None

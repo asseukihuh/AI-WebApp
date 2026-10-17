@@ -9,6 +9,8 @@ from typing import Any, Callable
 from urllib.parse import urljoin, urlparse
 from urllib.request import Request, urlopen
 
+from image_probe import classify_hero_candidate
+
 MAX_STYLESHEETS = 6
 MAX_STYLESHEET_BYTES = 400_000
 MAX_INLINE_SVG_CHARS = 80_000
@@ -233,9 +235,8 @@ class _PageCollector(HTMLParser):
         if self._svg_capture_depth > 0:
             self._svg_buf.append(self.get_starttag_text() or f"<{tag} />")
             return
-        if tag.lower() == "img":
-            self.handle_starttag(tag, attrs)
-            self.handle_endtag(tag)
+        self.handle_starttag(tag, attrs)
+        self.handle_endtag(tag)
 
 
 def _sanitize_logo_svg(svg: str) -> str | None:
@@ -456,15 +457,62 @@ def _meta_hero_dimensions(collector: _PageCollector) -> tuple[int | None, int | 
     return None, None
 
 
-def _pick_hero_url(base_url: str, collector: _PageCollector) -> str | None:
-    for key in ("og:image", "og:image:url", "twitter:image", "twitter:image:src"):
-        url = collector.meta.get(key, "").strip()
-        if url:
-            normalized = _normalize_url(base_url, url)
-            if normalized:
-                return normalized
-    above_fold = collector.images[:20]
-    best: tuple[int, str] | None = None
+def _hero_candidate_score(
+    url: str,
+    *,
+    width: int | None,
+    height: int | None,
+    source: str,
+    area: int = 0,
+) -> tuple[int, bool, str]:
+    busy, kind = classify_hero_candidate(
+        url, width=width, height=height, source=source
+    )
+    score = 0
+    if source == "og":
+        score += 120
+    elif source == "twitter":
+        score += 90
+    else:
+        score += 40
+    if busy:
+        score -= 200
+    elif kind == "og-marketing":
+        score += 40
+    if width and height:
+        score += min(30, (width * height) // 50_000)
+    elif area:
+        score += min(25, area // 50_000)
+    return score, busy, kind
+
+
+def _pick_hero_url(
+    base_url: str, collector: _PageCollector
+) -> tuple[str | None, bool | None, str | None]:
+    """Pick hero URL; prefer clean og/twitter stills over busy UI screenshots."""
+    og_w, og_h = _meta_hero_dimensions(collector)
+    candidates: list[tuple[int, str, bool, str, int | None, int | None]] = []
+
+    def add(url_raw: str, source: str, w: int | None = None, h: int | None = None) -> None:
+        url_raw = url_raw.strip()
+        if not url_raw:
+            return
+        normalized = _normalize_url(base_url, url_raw)
+        if not normalized:
+            return
+        if any(entry[1] == normalized for entry in candidates):
+            return
+        score, busy, kind = _hero_candidate_score(
+            normalized, width=w, height=h, source=source
+        )
+        candidates.append((score, normalized, busy, kind, w, h))
+
+    for key in ("og:image", "og:image:url"):
+        add(collector.meta.get(key, ""), "og", og_w, og_h)
+    for key in ("twitter:image", "twitter:image:src"):
+        add(collector.meta.get(key, ""), "twitter", None, None)
+
+    above_fold = collector.images[:24]
     for img in above_fold:
         src = img.get("src", "")
         if not src:
@@ -474,14 +522,20 @@ def _pick_hero_url(base_url: str, collector: _PageCollector) -> str | None:
         blob = " ".join((img.get("alt", ""), img.get("class", ""), src)).lower()
         if _LOGO_IMG_HINTS.search(blob) and img.get("in_header") == "1":
             continue
+        w, h = _img_dimensions(img)
         area = _img_area(img)
-        if area <= 0:
+        if area <= 0 and not (w and h):
             continue
-        if best is None or area > best[0]:
-            normalized = _normalize_url(base_url, src)
-            if normalized:
-                best = (area, normalized)
-    return best[1] if best else None
+        add(src, "page", w or None, h or None)
+
+    if not candidates:
+        return None, None, None
+
+    non_busy = [entry for entry in candidates if not entry[2]]
+    pool = non_busy if non_busy else candidates
+    pool.sort(key=lambda item: item[0], reverse=True)
+    _score, url, busy, kind, _w, _h = pool[0]
+    return url, busy, kind
 
 
 def _google_fonts_from_blob(text: str) -> list[dict[str, Any]]:
@@ -726,7 +780,7 @@ def scrape_kit_from_html(
     logo_svg, logo_url, logo_source, favicon_url = _resolve_logo_fields(
         source_url, collector
     )
-    hero_url = _pick_hero_url(source_url, collector)
+    hero_url, hero_busy, hero_kind = _pick_hero_url(source_url, collector)
 
     kit: dict[str, Any] = {
         "sourceUrl": source_url,
@@ -742,6 +796,10 @@ def scrape_kit_from_html(
         if hero_w and hero_h:
             kit["heroWidth"] = hero_w
             kit["heroHeight"] = hero_h
+        if hero_busy is not None:
+            kit["heroBusy"] = hero_busy
+        if hero_kind:
+            kit["heroImageKind"] = hero_kind
     if logo_svg:
         kit["logoSvg"] = logo_svg
     if logo_source:
