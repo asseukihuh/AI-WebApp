@@ -69,12 +69,14 @@ LayoutTemplateName = Literal[
     "split-text-left",
     "text-panel",
     "centered-statement",
+    "device-stage",
 ]
 LAYOUT_TEMPLATES: tuple[str, ...] = (
     "full-bleed-scrim",
     "split-text-left",
     "text-panel",
     "centered-statement",
+    "device-stage",
 )
 HEADLINE_SCALES: tuple[str, ...] = ("xl", "lg", "md")
 HEADLINE_WEIGHTS: tuple[str, ...] = ("bold", "extrabold")
@@ -463,6 +465,27 @@ TEMPLATES: dict[str, LayoutTemplate] = {
         ideogram_layout_note="symmetrical; strong calm negative space in the centre",
         max_headline_lines=2,
     ),
+    "device-stage": LayoutTemplate(
+        name="device-stage",
+        text_x=col_x(0),
+        text_w=span_w(6),
+        anchor="center",
+        align="left",
+        image_region=(640, 0, CANVAS_W - 640, CANVAS_H),
+        image_align="right",
+        scrim="none",
+        surface="panel",
+        logo_align="left",
+        accent_center=(CANVAS_W * 0.78, CANVAS_H * 0.42),
+        ideogram_subject_bboxes=((80, 560, 920, 980),),
+        ideogram_background=(
+            "a flat colour-block on the left and one bold abstract device on the right, "
+            "with empty ground between them"
+        ),
+        ideogram_layout_note="asymmetric colour block on the left; one large graphic device on the right",
+        panel_box=(0, 0, 640, CANVAS_H),
+        max_headline_lines=3,
+    ),
 }
 
 
@@ -580,6 +603,7 @@ def resolve_template_name(
     has_image: bool,
     monochrome: bool,
     brand_profile: dict[str, Any] | None = None,
+    communication_kit: dict[str, Any] | None = None,
 ) -> str:
     """Template used by both the server (Ideogram composition) and the compiler (layout)."""
     brief = creative_brief or {}
@@ -589,6 +613,14 @@ def resolve_template_name(
     hint = template_hint_from_profile(brand_profile)
     if hint and (has_image or hint == "centered-statement"):
         return hint
+    ck = communication_kit if isinstance(communication_kit, dict) else {}
+    if ck.get("thinSite") and not has_image:
+        blocking = str((ck.get("layoutMotif") or {}).get("blocking") or "")
+        if blocking == "full-field":
+            return "centered-statement"
+        if blocking == "corner-block":
+            return "full-bleed-scrim"
+        return "device-stage"
     if not creative_brief:
         return "full-bleed-scrim" if has_image else "centered-statement"
     return default_template_for(
@@ -945,6 +977,7 @@ def audit_plan(
     contrast: dict[str, float] | None = None,
     scrim_alpha: float | None = None,
     logo_count: int = 1,
+    devices: list[dict[str, Any]] | None = None,
 ) -> dict[str, Any]:
     """Score a layout against the design-system rules (0–100) with per-rule detail."""
     checks: list[dict[str, Any]] = []
@@ -1009,6 +1042,61 @@ def audit_plan(
     free = 1 - covered / (CANVAS_W * CANVAS_H)
     add("whitespace", free >= MIN_WHITESPACE_RATIO, f"{free:.0%} free (min {MIN_WHITESPACE_RATIO:.0%})")
     add("single-logo", logo_count <= 1, f"{logo_count} logo placement(s)")
+
+    # Linearity poster tips, as checks a layout can pass or fail.
+    text_sizes = [
+        els[key].get("size", 0)
+        for key in ("eyebrow", "subline", "cta")
+        if key in els and els[key].get("size")
+    ]
+    focal_devices = [d for d in (devices or []) if d.get("role") == "focal"]
+    one_focal = bool(head) and head.get("size", 0) > max(text_sizes, default=0) and len(focal_devices) <= 1
+    add(
+        "focal-point",
+        one_focal,
+        "headline is the type focal" + (f"; {len(focal_devices)} focal device(s)" if devices else ""),
+        2,
+    )
+    hook_words = word_count(head.get("text"))
+    hook_ok = bool(head) and hook_words <= 8 and head.get("size", 0) >= 54
+    add("hook", hook_ok, f"headline {hook_words} words at {head.get('size')}px", 2)
+    if sub:
+        scale_ok = head.get("size", 0) / max(1, sub.get("size", 1)) >= HIERARCHY_RATIO_MIN
+        scale_detail = f"headline/subline {head.get('size', 0) / max(1, sub.get('size', 1)):.2f}×"
+    else:
+        scale_ok = head.get("size", 0) >= HEADLINE_SCALE["lg"]
+        scale_detail = f"headline {head.get('size')}px with no subline"
+    add("scale-contrast", scale_ok, scale_detail, 2)
+    if plan.align == "left":
+        asymmetric = True
+        asymmetry_detail = "text mass on the left, open field opposite"
+    elif plan.template == "centered-statement":
+        zone_w = plan.text_zone[2] if plan.text_zone else 0
+        asymmetric = plan.text_zone is None or zone_w <= span_w(10) + 1
+        asymmetry_detail = "statement centred, imagery held at the edges"
+    else:
+        asymmetric = False
+        asymmetry_detail = "centred stack on a non-statement template"
+    add("asymmetry", asymmetric, asymmetry_detail)
+    tpl = get_template(plan.template)
+    layered = tpl.surface != "none" or tpl.scrim != "none" or bool(devices)
+    add(
+        "layered-depth",
+        layered,
+        f"surface {tpl.surface}, scrim {tpl.scrim}" + (", devices" if devices else ""),
+    )
+    blocked = plan.panel is not None or plan.card is not None or plan.template in (
+        "full-bleed-scrim",
+        "centered-statement",
+        "device-stage",
+    )
+    add("colour-blocking", blocked, "colour block, card, or full-bleed field")
+    thumb_ok = head.get("size", 0) >= HEADLINE_MIN_SIZE and (not sub or sub.get("size", 0) >= SUBLINE_MIN_SIZE)
+    add("thumbnail", thumb_ok, f"headline {head.get('size')}px, subline {(sub or {}).get('size')}px")
+    if "logo" in boxes:
+        lx, _ly, lw, lh = boxes["logo"]
+        logo_ok = lh >= 28 and lw <= span_w(3) + 1 and lx >= MARGIN_X - 1
+        add("logo-size", logo_ok, f"logo {lw:.0f}×{lh:.0f} at x {lx:.0f}", 2)
 
     total_weight = sum(c["weight"] for c in checks) or 1
     score = round(100 * sum(c["weight"] for c in checks if c["ok"]) / total_weight)

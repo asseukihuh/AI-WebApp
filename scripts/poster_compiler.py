@@ -43,6 +43,7 @@ import re
 import uuid
 from typing import Any
 
+import communication_kit as kit_design
 import poster_design as design
 
 LINKEDIN_WIDTH = 1200
@@ -924,15 +925,22 @@ def compile_poster_batch(
     roles = design.brand_roles(kit, brand_profile)
     has_photo_hero = bool(hero_relative_path)
     profile_font = design.profile_fonts(brand_profile)
+    comm_kit = kit.get("communicationKit") if isinstance(kit.get("communicationKit"), dict) else {}
+    pairing = kit_design.kit_type_pairing(comm_kit)
     resolved = fonts_resolved or {}
-    headline_font = str(resolved.get("headline") or profile_font.get("headline") or _pick_headline_font(kit))
-    body_font = str(resolved.get("body") or profile_font.get("body") or _pick_body_font(kit, headline_font))
+    headline_font = str(
+        resolved.get("headline") or profile_font.get("headline") or pairing.get("displayFamily") or _pick_headline_font(kit)
+    )
+    body_font = str(
+        resolved.get("body") or profile_font.get("body") or pairing.get("bodyFamily") or _pick_body_font(kit, headline_font)
+    )
 
     template_name = design.resolve_template_name(
         creative_brief,
         has_image=has_photo_hero,
         monochrome=roles.monochrome,
         brand_profile=brand_profile,
+        communication_kit=comm_kit or None,
     )
 
     subline = design.clamp_words(subline, design.MAX_WORDS["subline"], design.MAX_CHARS["subline"])
@@ -949,6 +957,16 @@ def compile_poster_batch(
         logo_paths["original"] = logo_relative_path
     has_logo = bool(logo_paths)
     logo_size = design.logo_target_size(logo_width, logo_height) if has_logo else None
+    min_logo = float((comm_kit.get("logoSystem") or {}).get("minHeightPx") or 0)
+    if logo_size and min_logo and logo_size[1] < min_logo and logo_size[1] > 0:
+        aspect = logo_size[0] / logo_size[1]
+        logo_h = min_logo
+        logo_w = logo_h * aspect
+        max_w = design.span_w(3)
+        if logo_w > max_w:
+            logo_w = max_w
+            logo_h = logo_w / aspect
+        logo_size = (logo_w, logo_h)
 
     def _plan(name: str) -> design.LayoutPlan:
         return design.plan_layout(
@@ -1071,11 +1089,25 @@ def compile_poster_batch(
             scrim_meta = {"kind": kind, "alpha": scrim_alpha, "color": scrim_color, "hold": geometry["hold"]}
 
     if plan.panel and surface:
-        steps.append(
-            {
-                "command": "shape.create",
-                "params": {"kind": "rect", "rect": [round(v, 1) for v in plan.panel], "fill": surface, "name": "Brand panel"},
-            }
+        block = kit_design.colour_block_step(comm_kit, surface=surface) if tpl.name == "device-stage" else None
+        if block:
+            steps.append(block)
+        else:
+            steps.append(
+                {
+                    "command": "shape.create",
+                    "params": {"kind": "rect", "rect": [round(v, 1) for v in plan.panel], "fill": surface, "name": "Brand panel"},
+                }
+            )
+    if comm_kit.get("devices"):
+        steps.extend(
+            kit_design.shape_steps(
+                kit_design.poster_vectors(
+                    comm_kit,
+                    template_name=tpl.name,
+                    logo_svg=str(kit.get("logoSvg") or ""),
+                )
+            )
         )
     if plan.card and surface:
         r, g, b = design.hex_to_rgb(surface)
@@ -1205,6 +1237,7 @@ def compile_poster_batch(
         contrast=contrast,
         scrim_alpha=scrim_meta["alpha"] if scrim_meta["kind"] != "none" else None,
         logo_count=len(foreground_placements),
+        devices=comm_kit.get("devices") or None,
     )
 
     document = {
@@ -1250,6 +1283,11 @@ def compile_poster_batch(
             "heroBusy": hero_busy,
             "heroBrandMark": hero_brand_mark,
             "layoutTemplate": tpl.name,
+            "communicationKit": {
+                "sector": comm_kit.get("sector"),
+                "thinSite": bool(comm_kit.get("thinSite")),
+                "devices": [d.get("kind") for d in (comm_kit.get("devices") or []) if isinstance(d, dict)],
+            } if comm_kit else None,
             "layout": plan.to_meta(),
             "textColor": text_color,
             "scrim": scrim_meta,

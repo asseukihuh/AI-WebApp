@@ -804,6 +804,142 @@ textarea.bp-input {
     margin: 0.75rem 0 0;
 }
 
+.communication-kit h3 {
+    margin: 1.1rem 0 0.4rem;
+    font-size: 0.95rem;
+}
+
+.ck-badge,
+.ck-note {
+    color: #475569;
+    margin: 0.2rem 0 0.6rem;
+}
+
+.ck-prop-bar {
+    display: flex;
+    height: 14px;
+    border-radius: 999px;
+    overflow: hidden;
+    margin: 0.4rem 0 0.6rem;
+}
+
+.ck-prop-bar span {
+    display: block;
+    min-width: 4px;
+}
+
+.ck-proportions,
+.ck-type,
+.ck-colours {
+    display: grid;
+    gap: 0.5rem;
+}
+
+.ck-proportions,
+.ck-type {
+    grid-template-columns: 1fr;
+}
+
+@media (min-width: 720px) {
+    .ck-proportions,
+    .ck-type {
+        grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+    }
+}
+
+.ck-proportion,
+.ck-type label,
+.ck-colour {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 0.4rem;
+    font-size: 0.85rem;
+    min-width: 0;
+}
+
+.ck-usage {
+    flex: 1 1 12rem;
+    min-width: 0;
+    color: #64748b;
+}
+
+.ck-type input,
+.ck-hex,
+.ck-proportion input {
+    min-width: 0;
+    max-width: 100%;
+}
+
+.ck-hex,
+.ck-type input,
+.ck-imagery,
+.ck-chips + input,
+.communication-kit input[type="text"],
+.communication-kit input[type="number"] {
+    font: inherit;
+    padding: 0.3rem 0.45rem;
+    border: 1px solid #cbd5e1;
+    border-radius: 6px;
+}
+
+.ck-devices {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+    gap: 0.75rem;
+}
+
+.ck-device {
+    display: grid;
+    gap: 0.35rem;
+    padding: 0.6rem;
+    border: 1px solid #e2e8f0;
+    border-radius: 10px;
+    background: #f8fafc;
+}
+
+.ck-device-well {
+    height: 96px;
+    border-radius: 8px;
+    display: grid;
+    place-items: center;
+    overflow: hidden;
+}
+
+.ck-device-svg,
+.ck-device-fallback {
+    width: 100%;
+    height: 96px;
+}
+
+.ck-device-fallback {
+    display: grid;
+    place-items: center;
+    color: #64748b;
+    font-size: 0.8rem;
+}
+
+.ck-chips {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.35rem;
+    margin-bottom: 0.4rem;
+}
+
+.ck-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.25rem;
+    background: #e2e8f0;
+    border-radius: 999px;
+    padding: 0.15rem 0.45rem;
+    font-size: 0.8rem;
+}
+
+.ck-imagery {
+    width: 100%;
+}
+
 .poster-preview img {
     display: block;
     width: 100%;
