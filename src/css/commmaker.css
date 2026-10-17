@@ -237,6 +237,41 @@ button.secondary,
     padding: 4px;
 }
 
+.kit-logo-inline {
+    display: flex;
+    align-items: center;
+    justify-content: flex-start;
+    min-height: 48px;
+    padding: 4px;
+}
+
+.kit-logo-inline svg {
+    max-width: 120px;
+    max-height: 64px;
+    width: auto;
+    height: auto;
+    display: block;
+}
+
+.kit-completeness {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.35rem;
+    margin-top: 1rem;
+    padding-top: 0.75rem;
+    border-top: 1px solid #e2e8f0;
+}
+
+.kit-chip {
+    font-size: 0.75rem;
+    font-weight: 600;
+    color: #334155;
+    background: #f1f5f9;
+    border: 1px solid #e2e8f0;
+    border-radius: 999px;
+    padding: 0.2rem 0.55rem;
+}
+
 .kit-hero-thumb {
     width: 100%;
     max-height: 140px;

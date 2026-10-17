@@ -181,7 +181,7 @@ CommMaker’s website onboarding aims for **[Pomelli](https://labs.google.com/po
 | Poster output | LinkedIn 1200×627 with hero layer, overlay, logo corner | Not a full generative “campaign set”; single template |
 | Editor | PhotoCraft component layers (editable) | No one-click “apply kit to all formats” yet |
 
-Kit JSON may include optional fields: `heroImageUrl`, `logoSvg`, `tagline`, `headline`, `accentColors[]` (older clients ignore them).
+Kit JSON may include optional fields: `heroImageUrl`, `logoSvg`, `logoSource` (`inline-svg` | `img` | `favicon`), `faviconUrl`, `tagline`, `headline`, `accentColors[]` (older clients ignore them). Logo tiers prefer inline header/wordmark SVG, then header `<img>` / lazy `data-src`, then favicon — never `og:image` (that field is hero/marketing only).
 
 Test URLs: see Project docs `docs/kit-scrape-test-sites.md` in the CommMaker agent store, or scrape the sites listed there directly.
 

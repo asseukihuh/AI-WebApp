@@ -25,6 +25,118 @@ function setStatus(message, isError = false) {
     statusEl.classList.toggle("is-error", isError);
 }
 
+function sanitizeInlineSvg(svgText) {
+    if (!svgText || typeof svgText !== "string") {
+        return null;
+    }
+    const doc = new DOMParser().parseFromString(svgText, "image/svg+xml");
+    const svg = doc.querySelector("svg");
+    if (!svg) {
+        return null;
+    }
+    svg.querySelectorAll("script, foreignObject, iframe, object, embed").forEach((node) => {
+        node.remove();
+    });
+    for (const el of svg.querySelectorAll("*")) {
+        for (const attr of [...el.attributes]) {
+            if (attr.name.toLowerCase().startsWith("on")) {
+                el.removeAttribute(attr.name);
+            }
+        }
+    }
+    return svg;
+}
+
+function svgDataUri(svgText) {
+    return `data:image/svg+xml;charset=utf-8,${encodeURIComponent(svgText)}`;
+}
+
+function buildLogoMarkup(kit) {
+    const inlineSvg = kit.logoSvg ? sanitizeInlineSvg(kit.logoSvg) : null;
+    if (inlineSvg) {
+        const wrap = document.createElement("div");
+        wrap.className = "kit-logo kit-logo-inline";
+        wrap.appendChild(inlineSvg);
+        return { html: wrap.outerHTML, mode: "inline-svg" };
+    }
+
+    const rasterUrl = kit.logoUrl || kit.faviconUrl || null;
+    if (!rasterUrl) {
+        if (kit.logoSvg) {
+            return {
+                html: '<p class="muted">No logo (inline SVG blocked)</p>',
+                mode: "blocked",
+            };
+        }
+        return { html: '<p class="muted">No logo detected</p>', mode: "none" };
+    }
+
+    const fallbackSvg = kit.logoSvg ? svgDataUri(kit.logoSvg) : null;
+    const fallbackFavicon = kit.faviconUrl && kit.faviconUrl !== rasterUrl
+        ? kit.faviconUrl
+        : null;
+    const dataFallback = fallbackSvg || fallbackFavicon || "";
+    const img = `<img class="kit-logo kit-logo-raster" src="${escapeHtml(rasterUrl)}" alt="Logo preview" referrerpolicy="no-referrer" decoding="async"${
+        dataFallback ? ` data-fallback="${escapeHtml(dataFallback)}"` : ""
+    } />`;
+    return { html: img, mode: "raster", fallback: dataFallback || null };
+}
+
+function kitHasLogo(kit) {
+    if (kit.logoSvg && sanitizeInlineSvg(kit.logoSvg)) {
+        return true;
+    }
+    return Boolean(kit.logoUrl || kit.faviconUrl);
+}
+
+function kitHasFonts(kit) {
+    return Boolean(
+        (kit.fonts && kit.fonts.length) ||
+            (kit.googleFonts && kit.googleFonts.length)
+    );
+}
+
+function formatFontsRow(kit) {
+    const names = [];
+    for (const name of kit.fonts || []) {
+        if (name && !names.includes(name)) {
+            names.push(name);
+        }
+    }
+    for (const entry of kit.googleFonts || []) {
+        const family = entry?.family;
+        if (family && !names.includes(family)) {
+            names.push(family);
+        }
+    }
+    if (names.length) {
+        return names.join(", ");
+    }
+    if (kit.headline || kit.tagline || kit.siteName) {
+        return "system-ui, sans-serif (inferred)";
+    }
+    return "—";
+}
+
+function completenessChips(kit) {
+    const logoOk = kitHasLogo(kit);
+    const fontsOk = kitHasFonts(kit);
+    const heroOk = Boolean(kit.heroImageUrl);
+    const colorsOk = Boolean(kit.colors?.length);
+    const chips = [
+        `logo ${logoOk ? "✓" : "✗"}`,
+        `fonts ${fontsOk ? "✓" : "✗"}`,
+        `hero ${heroOk ? "✓" : "✗"}`,
+        `colors ${colorsOk ? "✓" : "✗"}`,
+    ];
+    if (kit.logoSource) {
+        chips.push(escapeHtml(kit.logoSource));
+    }
+    return chips
+        .map((label) => `<span class="kit-chip">${label}</span>`)
+        .join("");
+}
+
 function renderPreview(kit) {
     if (!previewEl) {
         return;
@@ -39,10 +151,7 @@ function renderPreview(kit) {
                   .join("")
             : '<span class="muted">None detected</span>';
 
-    const logoSrc = kit.logoUrl || (kit.logoSvg ? `data:image/svg+xml,${encodeURIComponent(kit.logoSvg)}` : null);
-    const logoBlock = logoSrc
-        ? `<img class="kit-logo" src="${escapeHtml(logoSrc)}" alt="Logo preview" referrerpolicy="no-referrer" />`
-        : '<p class="muted">No logo detected</p>';
+    const logo = buildLogoMarkup(kit);
 
     const heroBlock = kit.heroImageUrl
         ? `<img class="kit-hero-thumb" src="${escapeHtml(kit.heroImageUrl)}" alt="Hero imagery preview" referrerpolicy="no-referrer" />`
@@ -60,7 +169,7 @@ function renderPreview(kit) {
         <div class="kit-visual-row">
             <figure class="kit-thumb-block">
                 <figcaption>Logo</figcaption>
-                ${logoBlock}
+                ${logo.html}
             </figure>
             <figure class="kit-thumb-block">
                 <figcaption>Hero / marketing</figcaption>
@@ -73,7 +182,7 @@ function renderPreview(kit) {
             ${taglineRow}
             <dt>Source</dt><dd><a href="${escapeHtml(kit.sourceUrl)}" target="_blank" rel="noopener noreferrer">${escapeHtml(kit.sourceUrl)}</a></dd>
             <dt>Colors</dt><dd class="kit-colors">${colors}</dd>
-            <dt>Fonts</dt><dd>${escapeHtml((kit.fonts || []).join(", ") || "—")}</dd>
+            <dt>Fonts</dt><dd>${escapeHtml(formatFontsRow(kit))}</dd>
             ${
                 kit.googleFonts?.length
                     ? `<dt>Google Fonts</dt><dd>${escapeHtml(
@@ -82,7 +191,24 @@ function renderPreview(kit) {
                     : ""
             }
             <dt>Scraped</dt><dd>${escapeHtml(kit.scrapedAt || "")}</dd>
-        </dl>`;
+        </dl>
+        <footer class="kit-completeness" aria-label="Kit completeness">${completenessChips(kit)}</footer>`;
+    const rasterLogo = previewEl.querySelector(".kit-logo-raster");
+    if (rasterLogo) {
+        rasterLogo.addEventListener("error", () => {
+            const fallback = rasterLogo.getAttribute("data-fallback");
+            if (fallback && rasterLogo.src !== fallback) {
+                rasterLogo.src = fallback;
+                return;
+            }
+            const note = document.createElement("p");
+            note.className = "muted";
+            note.textContent = kit.logoSvg
+                ? "No logo (inline SVG blocked)"
+                : "No logo (image failed)";
+            rasterLogo.replaceWith(note);
+        });
+    }
     previewEl.hidden = false;
     if (saveBtn) {
         saveBtn.disabled = false;

@@ -38,13 +38,23 @@ _GENERIC_FONTS = frozenset(
     }
 )
 
-_LOGO_HINTS = re.compile(r"logo|brand|mark|icon", re.I)
+_LOGO_HINTS = re.compile(r"logo|brand|wordmark", re.I)
+_LOGO_IMG_HINTS = re.compile(r"logo|brand|mark|wordmark", re.I)
 _HEADER_TAGS = frozenset({"header", "nav"})
+_SVG_UNSAFE = re.compile(
+    r"<\s*(script|foreignobject|iframe|object|embed)\b", re.I
+)
+_SVG_EVENT_ATTR = re.compile(r"\s+on[a-z]+\s*=", re.I)
+_WOFF_FAMILY = re.compile(
+    r"/(?:static/)?media/([A-Za-z][A-Za-z0-9_-]+)\.[a-f0-9]+\.woff2",
+    re.I,
+)
 
 
 class _PageCollector(HTMLParser):
-    def __init__(self) -> None:
+    def __init__(self, page_url: str = "") -> None:
         super().__init__(convert_charrefs=True)
+        self.page_url = page_url
         self.title_parts: list[str] = []
         self.in_title = False
         self.meta: dict[str, str] = {}
@@ -57,13 +67,55 @@ class _PageCollector(HTMLParser):
         self._in_style = False
         self._style_buf: list[str] = []
         self._in_header_nav_depth = 0
-        self._in_svg_header = False
+        self._logo_hint_depth = 0
+        self._logo_hint_stack: list[bool] = []
+        self._home_anchor_depth = 0
+        self._svg_capture_depth = 0
         self._svg_buf: list[str] = []
-        self._header_svgs: list[str] = []
+        self._logo_svgs: list[str] = []
         self._current_img: dict[str, str] | None = None
 
     def _in_header_nav(self) -> bool:
         return self._in_header_nav_depth > 0
+
+    def _in_logo_zone(self) -> bool:
+        return (
+            self._in_header_nav_depth > 0
+            or self._logo_hint_depth > 0
+            or self._home_anchor_depth > 0
+        )
+
+    def _logo_hint_from_attr(self, attr: dict[str, str]) -> bool:
+        blob = " ".join(
+            (
+                attr.get("class", ""),
+                attr.get("id", ""),
+                attr.get("role", ""),
+                attr.get("aria-label", ""),
+            )
+        )
+        return bool(_LOGO_HINTS.search(blob))
+
+    def _is_home_href(self, href: str) -> bool:
+        if not href or href.startswith("#"):
+            return False
+        if href in ("/", "./"):
+            return True
+        if not self.page_url:
+            return href.rstrip("/") in ("", "/")
+        joined = urljoin(self.page_url, href)
+        page = urlparse(self.page_url)
+        target = urlparse(joined)
+        if page.netloc and target.netloc != page.netloc:
+            return False
+        return target.path in ("", "/")
+
+    def _finish_svg_capture(self) -> None:
+        svg = "".join(self._svg_buf)
+        cleaned = _sanitize_logo_svg(svg)
+        if cleaned and len(cleaned) <= MAX_INLINE_SVG_CHARS:
+            self._logo_svgs.append(cleaned)
+        self._svg_buf = []
 
     def handle_starttag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
         t = tag.lower()
@@ -71,6 +123,12 @@ class _PageCollector(HTMLParser):
         attr = {k.lower(): (v or "") for k, v in attrs}
         if t in _HEADER_TAGS:
             self._in_header_nav_depth += 1
+        if t == "a" and self._is_home_href(attr.get("href", "").strip()):
+            self._home_anchor_depth += 1
+        bumped_logo = self._logo_hint_from_attr(attr)
+        if bumped_logo:
+            self._logo_hint_depth += 1
+        self._logo_hint_stack.append(bumped_logo)
         if t == "title":
             self.in_title = True
         elif t == "meta":
@@ -91,13 +149,23 @@ class _PageCollector(HTMLParser):
         elif t == "h1":
             self.h1_texts.append("")
         elif t == "img":
+            raw_src = (
+                attr.get("src", "").strip()
+                or attr.get("data-src", "").strip()
+                or attr.get("data-lazy-src", "").strip()
+            )
+            if raw_src.startswith("//"):
+                parsed_page = urlparse(self.page_url)
+                raw_src = f"{parsed_page.scheme}:{raw_src}"
+            src = raw_src
             self._current_img = {
-                "src": attr.get("src", "").strip(),
+                "src": src,
                 "alt": attr.get("alt", "").strip(),
                 "class": attr.get("class", "").strip(),
+                "title": attr.get("title", "").strip(),
                 "width": attr.get("width", "").strip(),
                 "height": attr.get("height", "").strip(),
-                "in_header": "1" if self._in_header_nav() else "0",
+                "in_header": "1" if self._in_logo_zone() else "0",
             }
         elif t == "picture":
             pass
@@ -112,12 +180,16 @@ class _PageCollector(HTMLParser):
                         "class": "picture-srcset",
                         "width": "",
                         "height": "",
-                        "in_header": "1" if self._in_header_nav() else "0",
+                        "in_header": "1" if self._in_logo_zone() else "0",
                     }
                 )
-        elif t == "svg" and self._in_header_nav():
-            self._in_svg_header = True
-            self._svg_buf = [self.get_starttag_text() or "<svg>"]
+        elif t == "svg" and self._in_logo_zone():
+            if self._svg_capture_depth == 0:
+                self._svg_buf = []
+            self._svg_capture_depth += 1
+            self._svg_buf.append(self.get_starttag_text() or "<svg>")
+        elif self._svg_capture_depth > 0:
+            self._svg_buf.append(self.get_starttag_text() or f"<{t}>")
 
     def handle_endtag(self, tag: str) -> None:
         t = tag.lower()
@@ -131,14 +203,19 @@ class _PageCollector(HTMLParser):
             if self._current_img.get("src"):
                 self.images.append(self._current_img)
             self._current_img = None
-        elif t == "svg" and self._in_svg_header:
-            self._in_svg_header = False
-            svg = "".join(self._svg_buf)
-            if len(svg) <= MAX_INLINE_SVG_CHARS:
-                self._header_svgs.append(svg)
-            self._svg_buf = []
+        if self._svg_capture_depth > 0:
+            self._svg_buf.append(f"</{t}>")
+            if t == "svg":
+                self._svg_capture_depth -= 1
+                if self._svg_capture_depth == 0:
+                    self._finish_svg_capture()
         if t in _HEADER_TAGS and self._in_header_nav_depth > 0:
             self._in_header_nav_depth -= 1
+        if t == "a" and self._home_anchor_depth > 0:
+            self._home_anchor_depth -= 1
+        if self._logo_hint_stack:
+            if self._logo_hint_stack.pop() and self._logo_hint_depth > 0:
+                self._logo_hint_depth -= 1
         if self._tag_stack and self._tag_stack[-1] == t:
             self._tag_stack.pop()
 
@@ -147,15 +224,66 @@ class _PageCollector(HTMLParser):
             self.title_parts.append(data)
         if self._in_style:
             self._style_buf.append(data)
-        if self._in_svg_header:
+        if self._svg_capture_depth > 0:
             self._svg_buf.append(data)
         if self.h1_texts and self._tag_stack and self._tag_stack[-1] == "h1":
             self.h1_texts[-1] += data
 
     def handle_startendtag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
+        if self._svg_capture_depth > 0:
+            self._svg_buf.append(self.get_starttag_text() or f"<{tag} />")
+            return
         if tag.lower() == "img":
             self.handle_starttag(tag, attrs)
             self.handle_endtag(tag)
+
+
+def _sanitize_logo_svg(svg: str) -> str | None:
+    text = (svg or "").strip()
+    if not text.lower().startswith("<svg"):
+        return None
+    if _SVG_UNSAFE.search(text):
+        return None
+    if _SVG_EVENT_ATTR.search(text):
+        text = _SVG_EVENT_ATTR.sub(" ", text)
+    if "</svg>" not in text.lower():
+        return None
+    return text
+
+
+def _fonts_from_asset_urls(text: str, limit: int = 6) -> list[str]:
+    fonts: list[str] = []
+    for match in _WOFF_FAMILY.findall(text):
+        name = match.replace("-", " ").strip()
+        if name and name.lower() not in _GENERIC_FONTS and name not in fonts:
+            fonts.append(name)
+        if len(fonts) >= limit:
+            break
+    return fonts
+
+
+def _display_fonts(
+    fonts: list[str],
+    google_fonts: list[dict[str, Any]],
+    font_blob: str,
+    *,
+    has_copy: bool,
+) -> list[str]:
+    if fonts:
+        return fonts
+    from_google = [
+        str(g.get("family", "")).strip()
+        for g in google_fonts
+        if g.get("family")
+    ]
+    if from_google:
+        return from_google[:6]
+    from_assets = _fonts_from_asset_urls(font_blob)
+    if from_assets:
+        return from_assets
+    if has_copy:
+        return ["system-ui", "sans-serif"]
+    return []
 
 
 def _first_srcset_url(srcset: str) -> str | None:
@@ -275,6 +403,8 @@ def _fonts_from_text(text: str, limit: int = 8) -> list[str]:
             name = part.strip().strip("'\"").strip()
             if not name or name.lower() in _GENERIC_FONTS:
                 continue
+            if name.startswith("var(") or "var(--" in name:
+                continue
             if name not in fonts:
                 fonts.append(name)
             if len(fonts) >= limit:
@@ -342,7 +472,7 @@ def _pick_hero_url(base_url: str, collector: _PageCollector) -> str | None:
         if not _hero_candidate_large_enough(img):
             continue
         blob = " ".join((img.get("alt", ""), img.get("class", ""), src)).lower()
-        if _LOGO_HINTS.search(blob) and img.get("in_header") == "1":
+        if _LOGO_IMG_HINTS.search(blob) and img.get("in_header") == "1":
             continue
         area = _img_area(img)
         if area <= 0:
@@ -360,25 +490,7 @@ def _google_fonts_from_blob(text: str) -> list[dict[str, Any]]:
     return parse_google_font_links(text)
 
 
-def _pick_logo_url(base_url: str, collector: _PageCollector) -> str | None:
-    for img in collector.images:
-        if img.get("in_header") != "1":
-            continue
-        src = img.get("src", "")
-        if not src.lower().split("?", 1)[0].endswith(".svg"):
-            continue
-        blob = " ".join((img.get("alt", ""), img.get("class", ""), src))
-        if _LOGO_HINTS.search(blob) or "wordmark" in blob.lower():
-            normalized = _normalize_url(base_url, src)
-            if normalized:
-                return normalized
-    for rel, href in collector.link_rels:
-        rel_l = rel.lower()
-        if "image_src" in rel_l or "logo" in rel_l:
-            if href.lower().split("?", 1)[0].endswith(".svg"):
-                normalized = _normalize_url(base_url, href)
-                if normalized:
-                    return normalized
+def _pick_favicon_url(base_url: str, collector: _PageCollector) -> str | None:
     icon_candidates: list[str] = []
     for rel, href in collector.link_rels:
         rel_l = rel.lower()
@@ -389,27 +501,75 @@ def _pick_logo_url(base_url: str, collector: _PageCollector) -> str | None:
             normalized = _normalize_url(base_url, href)
             if normalized:
                 icon_candidates.append(normalized)
+    if not icon_candidates:
+        return None
+    for url in icon_candidates:
+        if "apple-touch" in url.lower():
+            return url
+    for url in icon_candidates:
+        if url.lower().endswith(".png"):
+            return url
+    return icon_candidates[0]
+
+
+def _pick_logo_img_url(base_url: str, collector: _PageCollector) -> str | None:
     for img in collector.images:
         if img.get("in_header") != "1":
             continue
-        blob = " ".join((img.get("alt", ""), img.get("class", ""), img.get("src", "")))
-        if _LOGO_HINTS.search(blob):
-            normalized = _normalize_url(base_url, img.get("src", ""))
+        src = img.get("src", "")
+        if not src:
+            continue
+        blob = " ".join(
+            (
+                img.get("alt", ""),
+                img.get("title", ""),
+                img.get("class", ""),
+                src,
+            )
+        )
+        if not _LOGO_IMG_HINTS.search(blob):
+            continue
+        normalized = _normalize_url(base_url, src)
+        if normalized:
+            return normalized
+    for img in collector.images:
+        if img.get("in_header") != "1":
+            continue
+        src = img.get("src", "")
+        if src.lower().split("?", 1)[0].endswith(".svg"):
+            normalized = _normalize_url(base_url, src)
             if normalized:
                 return normalized
-    if icon_candidates:
-        for url in icon_candidates:
-            if "apple-touch" in url.lower() or url.endswith(".png"):
-                return url
-        return icon_candidates[0]
+    for rel, href in collector.link_rels:
+        rel_l = rel.lower()
+        if "image_src" in rel_l or "logo" in rel_l:
+            normalized = _normalize_url(base_url, href)
+            if normalized:
+                return normalized
     return None
 
 
 def _pick_logo_svg(collector: _PageCollector) -> str | None:
-    for svg in collector._header_svgs:
-        if _LOGO_HINTS.search(svg) or len(collector._header_svgs) == 1:
+    for svg in collector._logo_svgs:
+        if _LOGO_HINTS.search(svg) or len(collector._logo_svgs) == 1:
             return svg.strip()
-    return collector._header_svgs[0].strip() if collector._header_svgs else None
+    return collector._logo_svgs[0].strip() if collector._logo_svgs else None
+
+
+def _resolve_logo_fields(
+    base_url: str, collector: _PageCollector
+) -> tuple[str | None, str | None, str | None, str | None]:
+    """Return logoSvg, logoUrl, logoSource, faviconUrl (never og:image)."""
+    logo_svg = _pick_logo_svg(collector)
+    if logo_svg:
+        return logo_svg, None, "inline-svg", _pick_favicon_url(base_url, collector)
+    logo_url = _pick_logo_img_url(base_url, collector)
+    if logo_url:
+        return None, logo_url, "img", _pick_favicon_url(base_url, collector)
+    favicon = _pick_favicon_url(base_url, collector)
+    if favicon:
+        return None, favicon, "favicon", favicon
+    return None, None, None, None
 
 
 def _pick_site_name(collector: _PageCollector) -> str:
@@ -529,11 +689,14 @@ def scrape_kit_from_html(
     stylesheet_text: str = "",
 ) -> dict[str, Any]:
     """Return Communication Kit fields from HTML (+ optional linked CSS)."""
-    collector = _PageCollector()
+    collector = _PageCollector(page_url=source_url)
     try:
         collector.feed(html)
     except Exception:
         pass
+
+    headline = _pick_headline(collector)
+    tagline = _pick_tagline(collector)
 
     css_blob = "\n".join(collector.inline_css + [stylesheet_text])
     meta_hex: list[str] = []
@@ -552,12 +715,18 @@ def scrape_kit_from_html(
     font_blob = html + "\n" + css_blob
     fonts = _fonts_from_text(font_blob)
     google_fonts = _google_fonts_from_blob(font_blob)
+    has_copy = bool(headline or tagline or collector.h1_texts)
+    fonts = _display_fonts(
+        fonts,
+        google_fonts,
+        font_blob,
+        has_copy=has_copy,
+    )
 
-    logo_url = _pick_logo_url(source_url, collector)
-    logo_svg = _pick_logo_svg(collector)
+    logo_svg, logo_url, logo_source, favicon_url = _resolve_logo_fields(
+        source_url, collector
+    )
     hero_url = _pick_hero_url(source_url, collector)
-    headline = _pick_headline(collector)
-    tagline = _pick_tagline(collector)
 
     kit: dict[str, Any] = {
         "sourceUrl": source_url,
@@ -575,6 +744,10 @@ def scrape_kit_from_html(
             kit["heroHeight"] = hero_h
     if logo_svg:
         kit["logoSvg"] = logo_svg
+    if logo_source:
+        kit["logoSource"] = logo_source
+    if favicon_url:
+        kit["faviconUrl"] = favicon_url
     if tagline:
         kit["tagline"] = tagline
     if headline:
@@ -593,7 +766,7 @@ def scrape_kit_from_page(
     fetcher: Callable[[str], bytes] | None = None,
 ) -> dict[str, Any]:
     """Parse HTML and fetch linked stylesheets before building the kit."""
-    collector = _PageCollector()
+    collector = _PageCollector(page_url=source_url)
     try:
         collector.feed(html)
     except Exception:
