@@ -17,8 +17,10 @@ if SCRIPTS not in sys.path:
     sys.path.insert(0, SCRIPTS)
 
 from creative_brief import (  # noqa: E402
+    CREATIVE_BRIEF_JSON_SCHEMA,
     _anthropic_messages_body,
     _anthropic_request_headers,
+    _anthropic_tool_schema,
     _call_anthropic,
     _post_anthropic_messages,
     _safe_error_detail,
@@ -28,6 +30,23 @@ from creative_brief import (  # noqa: E402
     default_model_for_provider,
     resolve_llm_model,
 )
+
+
+def _object_nodes_without_additional_properties_false(node: object) -> list[str]:
+    """Return JSON paths of object schemas missing additionalProperties: false."""
+    missing: list[str] = []
+
+    def walk(value: object, path: str) -> None:
+        if not isinstance(value, dict):
+            return
+        if value.get("type") == "object":
+            if value.get("additionalProperties") is not False:
+                missing.append(path or "$")
+        for key, child in value.items():
+            walk(child, f"{path}.{key}" if path else key)
+
+    walk(node, "")
+    return missing
 from poster_compiler import compile_poster_batch  # noqa: E402
 
 
@@ -166,6 +185,15 @@ class TestCreativeBriefFallback(unittest.TestCase):
         self.assertTrue(tool.get("strict"))
         self.assertEqual(tool["name"], "submit_creative_brief")
         self.assertIn("MUST call submit_creative_brief", body["system"])
+        schema = tool["input_schema"]
+        self.assertEqual(schema.get("additionalProperties"), False)
+        props = schema.get("properties") or {}
+        self.assertEqual(set(schema.get("required") or []), set(props.keys()))
+
+    def test_creative_brief_schema_strict_object_nodes(self) -> None:
+        for schema in (CREATIVE_BRIEF_JSON_SCHEMA, _anthropic_tool_schema()):
+            missing = _object_nodes_without_additional_properties_false(schema)
+            self.assertEqual(missing, [], msg=f"missing additionalProperties: false at {missing}")
 
     def test_anthropic_console_usr_key_sends_bearer_and_x_api_key(self) -> None:
         key = "sk-ant-usr-test-key"
