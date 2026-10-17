@@ -60,7 +60,7 @@ mimetypes.add_type("application/wasm", ".wasm")
 mimetypes.add_type("text/javascript", ".js")
 
 
-CREATIVE_BRIEF_STACK = "v24"
+CREATIVE_BRIEF_STACK = "v25"
 
 
 def dev_status_payload() -> dict:
@@ -540,6 +540,7 @@ class CommMakerHandler(http.server.SimpleHTTPRequestHandler):
                 logo_height=logo_height,
                 fonts_resolved=fonts_resolved,
                 creative_brief=creative_brief,
+                assets_dir=ASSETS_DIR,
             )
             os.makedirs(GENERATED_DIR, exist_ok=True)
             try:

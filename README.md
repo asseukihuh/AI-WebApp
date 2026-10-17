@@ -284,6 +284,7 @@ When the creative brief uses `heroStrategy: ideogram_generate`, CommMaker genera
 | Variable | Purpose |
 |----------|---------|
 | `IDEOGRAM_API_KEY` | [Ideogram API](https://developer.ideogram.ai/) key (`Api-Key` header) |
+| `COMMMAKER_PREFER_IDEOGRAM` | Optional: `1` / `true` — upgrade `gradient_from_palette` briefs to Ideogram abstract heroes when the key is set |
 | `COMMMAKER_IDEOGRAM_RENDERING` | Optional: `TURBO`, `DEFAULT`, or `QUALITY` (`rendering_speed` on generate) |
 
 | Model | Use case | Example env |

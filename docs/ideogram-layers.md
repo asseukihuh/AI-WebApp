@@ -22,6 +22,8 @@ Kit photo heroes (`use_kit_photo`) still use a single background image layer, sa
 
 Without a key (or on API error), the server falls back to scraped kit photo or brand gradient and returns `ideogramFallback`.
 
+**Crisis coercion:** When `IDEOGRAM_API_KEY` is set, the server upgrades LLM `gradient_from_palette` briefs to `ideogram_generate` (abstract brand background, `background-only`) for crisis/update flows so posters are not flat palette fills. Set `COMMMAKER_PREFER_IDEOGRAM=1` to force the same upgrade even without crisis facts. Busy or brand-mark kit heroes are still coerced as in PR #27.
+
 ## Creative brief fields
 
 | Field | Description |
