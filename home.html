@@ -1,0 +1,43 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>CommMaker — Home</title>
+    <link rel="stylesheet" href="src/css/commmaker.css">
+    <script type="module">
+        import { mountCommMakerNav } from "./src/js/commmaker-common.js";
+        document.addEventListener("DOMContentLoaded", () => {
+            mountCommMakerNav(document.getElementById("commmaker-nav"), "home.html");
+        });
+    </script>
+</head>
+<body class="commmaker-page">
+    <div class="commmaker-shell">
+        <header class="commmaker-header">
+            <h1>CommMaker</h1>
+            <p>On-brand communication supports — MVP shell for kit import, crisis copy, and PhotoCraft editing.</p>
+        </header>
+        <div id="commmaker-nav"></div>
+
+        <section class="home-grid">
+            <a class="card-link" href="onboard.html">
+                <h2>1 · Onboard</h2>
+                <p>Paste your website URL to scrape a Communication Kit (logo, colors, fonts).</p>
+            </a>
+            <a class="card-link" href="crisis.html">
+                <h2>2 · Crisis fast path</h2>
+                <p>Capture facts and tone guardrails; generate a LinkedIn caption draft.</p>
+            </a>
+            <a class="card-link" href="photocraft/">
+                <h2>3 · Editor</h2>
+                <p>Open PhotoCraft for a 1200×627 LinkedIn visual. Export PNG from the editor.</p>
+            </a>
+            <a class="card-link" href="chatbot.html">
+                <h2>Local AI chat</h2>
+                <p>Legacy Ollama chat interface (optional LLM hook for captions).</p>
+            </a>
+        </section>
+    </div>
+</body>
+</html>

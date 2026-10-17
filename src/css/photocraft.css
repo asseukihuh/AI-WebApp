@@ -1,0 +1,105 @@
+.photocraft-page {
+    display: flex;
+    flex-direction: column;
+    min-height: 100vh;
+    margin: 0;
+    font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
+    background: #1a1a1e;
+    color: #e8e8ec;
+}
+
+.photocraft-header {
+    flex: 0 0 auto;
+    padding: 0.75rem 1rem;
+    border-bottom: 1px solid #333;
+    background: #121216;
+}
+
+.photocraft-header h1 {
+    margin: 0 0 0.25rem;
+    font-size: 1.1rem;
+    font-weight: 600;
+}
+
+.photocraft-header p {
+    margin: 0;
+    font-size: 0.85rem;
+    color: #a8a8b0;
+}
+
+.photocraft-nav {
+    margin-top: 0.5rem;
+}
+
+.photocraft-nav a {
+    color: #7eb8ff;
+    text-decoration: none;
+}
+
+.photocraft-nav a:hover {
+    text-decoration: underline;
+}
+
+.photocraft-notice {
+    margin: 0.5rem 0 0;
+    padding: 0.5rem 0.75rem;
+    font-size: 0.8rem;
+    background: #2a2418;
+    border: 1px solid #5a4a28;
+    border-radius: 4px;
+    color: #e8d8b0;
+}
+
+.photocraft-notice code {
+    font-size: 0.85em;
+}
+
+.photocraft-frame-wrap {
+    flex: 1 1 auto;
+    min-height: 0;
+    position: relative;
+}
+
+.photocraft-page .commmaker-nav {
+    margin: 0.5rem 0;
+    background: #1e1e24;
+    border-color: #333;
+}
+
+.photocraft-page .commmaker-nav a {
+    color: #7eb8ff;
+}
+
+.photocraft-page .session-banner {
+    margin-top: 0.5rem;
+    background: #1a2433;
+    border-color: #334155;
+    color: #e2e8f0;
+}
+
+.photocraft-page .kit-swatch {
+    border-color: rgba(255, 255, 255, 0.2);
+}
+
+.photocraft-frame {
+    display: block;
+    width: 100%;
+    height: calc(100vh - 12rem);
+    min-height: 480px;
+    border: 0;
+    background: #0a0a0c;
+}
+
+.photocraft-missing {
+    padding: 2rem;
+    text-align: center;
+    color: #a8a8b0;
+}
+
+.photocraft-missing pre {
+    display: inline-block;
+    text-align: left;
+    background: #0e0e12;
+    padding: 1rem;
+    border-radius: 6px;
+}

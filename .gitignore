@@ -1,0 +1,11 @@
+# PhotoCraft web release (fetch via scripts/fetch-photocraft-web.sh)
+vendor/photocraft-web/*
+!vendor/photocraft-web/README.md
+!vendor/photocraft-web/.gitkeep
+
+# Local clone used for build documentation (not committed)
+.photocraft-upstream/
+.photocraft-fork/
+
+__pycache__/
+*.pyc

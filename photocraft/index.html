@@ -1,0 +1,26 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>CommMaker — PhotoCraft editor</title>
+    <link rel="stylesheet" href="../src/css/photocraft.css">
+    <link rel="stylesheet" href="../src/css/commmaker.css">
+    <script type="module" src="../src/js/photocraft.js"></script>
+</head>
+<body class="photocraft-page">
+    <header class="photocraft-header">
+        <h1>CommMaker · PhotoCraft editor</h1>
+        <p id="linkedin-instructions">
+            LinkedIn preset: <strong>1200 × 627 px</strong>. Kit and crisis brief are shown below until the iframe bridge can consume them.
+        </p>
+        <div id="commmaker-nav"></div>
+        <aside id="session-banner" class="session-banner" hidden aria-label="Kit and session summary"></aside>
+        <p class="photocraft-notice">
+            Editor loads from <code>vendor/photocraft-web/</code> (run <code>./scripts/fetch-photocraft-web.sh</code>).
+            COOP/COEP are not required for PhotoCraft alone; see README.
+        </p>
+    </header>
+    <div id="photocraft-frame-wrap" class="photocraft-frame-wrap"></div>
+</body>
+</html>
