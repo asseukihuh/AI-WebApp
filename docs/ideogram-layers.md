@@ -4,11 +4,15 @@ CommMaker can generate **one or two** Ideogram raster layers when the creative b
 
 ## Layer stack (bottom → top)
 
-1. **Background** — full-bleed cover (`heroImagePrompt`)
-2. **Accent illustration** (optional) — right/center subject (`accentImagePrompt`), max ~45% canvas width
-3. **Type scrim** — SVG gradient for readable headline
-4. **Logo** — scraped kit SVG
-5. **Headline / subline** — PhotoCraft text layers
+1. **Background** — cover placement (`heroImagePrompt`); right-aligned half crop for `split-text-left`
+2. **Accent illustration** (optional) — subject at the template's accent position (`accentImagePrompt`), max ~45% canvas width
+3. **Text scrim** — native PhotoCraft gradient fill, contrast-solved against the sampled background and localized to the text zone (or a brand panel / card, depending on `layoutTemplate`)
+4. **Eyebrow / headline / subline / CTA chip** — PhotoCraft text and shape layers
+5. **Logo** — scraped kit SVG; original, white or ink variant picked by background luminance
+
+## Prompt format
+
+Ideogram receives a structured JSON caption, not free text (see [`poster-design-system.md`](poster-design-system.md) §9): the brief's scene description is sanitized (brand names, quoted copy, hex codes, *logo / text / wordmark* words removed), subject boxes come from the layout template so the text zone stays empty, the brand palette goes in `color_palette`, and there are no `text` elements. `magic_prompt` defaults to `off` so Ideogram doesn't rewrite the caption.
 
 Kit photo heroes (`use_kit_photo`) still use a single background image layer, same as before.
 
@@ -56,6 +60,9 @@ Header: `Api-Key: $IDEOGRAM_API_KEY`
 | `IDEOGRAM_API_KEY` | Required for AI layer generation |
 | `COMMMAKER_IDEOGRAM_RENDERING` | Optional: `TURBO`, `DEFAULT`, or `QUALITY` |
 | `COMMMAKER_IDEOGRAM_ACCENT_CUTOUT` | Default `true` — run remove-background on accent PNGs |
+| `COMMMAKER_IDEOGRAM_MAGIC_PROMPT` | `off` (default), `auto` or `on` |
+| `COMMMAKER_ART_DIRECTOR` | Default on (needs an LLM key) — one text-only layout review + recompile |
+| `COMMMAKER_PNG_PREVIEW` | Default on — flatten each `.pcraft` to a sibling `.png` (`previewUrl`) |
 
 ## Response metadata (`POST /api/generate-poster`)
 
@@ -68,7 +75,12 @@ Header: `Api-Key: $IDEOGRAM_API_KEY`
 | `ideogramResolution` | Background preset (e.g. `1280x720`) |
 | `ideogramFallback` | Message when falling back |
 
-Compiler batch `meta` includes `ideogramLayers` and `hasAccentLayer`.
+| `previewUrl` | Flattened PNG of the saved `.pcraft` |
+| `layoutTemplate` | Template the compiler used |
+| `designAudit` | `{score, checks, failed}` against the design system |
+| `artDirector` | `{score, issues, auditBefore, applied, auditAfter}` when the review ran |
+
+Compiler batch `meta` includes `ideogramLayers`, `hasAccentLayer`, `layout`, `contrast`, `scrim` and `logoVariant`.
 
 ## Tests
 
@@ -76,4 +88,5 @@ Compiler batch `meta` includes `ideogramLayers` and `hasAccentLayer`.
 python3 scripts/test_ideogram_client.py
 python3 scripts/test_ideogram_layers.py
 python3 scripts/test_creative_brief.py
+python3 -m unittest scripts.test_poster_design
 ```

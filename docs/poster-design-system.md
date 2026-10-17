@@ -41,7 +41,9 @@ Target bar: Google Pomelli–class marketing visuals, built on Adobe's core desi
 | CTA label | 20 | 600 | 1.0 | +10 | ≤ 3 words / 22 chars |
 
 The brief picks `headlineScale`; the compiler downsizes (never below 44) until the headline fits
-its box at an estimated 0.56 em per character (bold sans).
+its box at an estimated 0.53 em per character (Inter measures ≈ 0.48). Headline and subline line
+breaks are planned and **balanced** (no single-word last line) and written into the type layer, so
+the rendered height always matches the planned stack.
 
 ## 4. Contrast and scrims
 
@@ -58,6 +60,9 @@ its box at an estimated 0.56 em per character (bold sans).
 ## 5. Logo
 
 - One logo: the scraped kit SVG/PNG. Generated images must contain **no** logos, wordmarks or text.
+- Scraped `og:image` social cards (`heroImageKind: og-marketing`) are never used as backgrounds:
+  they almost always carry the logo and a headline. They are treated like busy or brand-mark heroes
+  (Ideogram when a key is set, otherwise the brand gradient). `COMMMAKER_ALLOW_OG_HERO=1` opts back in.
 - Position: top-left at the safe margin, aligned with the text column (top-centre for the
   centred template; on the panel for split).
 - Size by aspect: wordmark (≥ 2.2:1) height 36, compact (1.2–2.2) 44, icon 48; width ≤ 3 columns
@@ -110,3 +115,25 @@ hierarchy ratio) and stores `meta.designAudit`. When an LLM provider is configur
 `COMMMAKER_ART_DIRECTOR` isn't `off`, one text-only call reviews the layer metadata and may
 shorten copy or change `headlineScale` / `headlineWeight` / `ctaStyle` / `eyebrow`. The poster is
 recompiled once. The template is never changed after the image is generated.
+
+## 11. Optional `brandProfile` inputs
+
+`/api/creative-brief` and `/api/generate-poster` accept an optional `brandProfile` object. Every
+field is optional and nothing is required:
+
+| Field | Used for |
+|-------|----------|
+| `palette` (role dict `{primary, dark, accent, background, …}` or list of hex / `{hex, role}`) | Brand / dark / accent roles: panel, scrim tint, CTA, eyebrow, Ideogram `color_palette` (profile colours first) |
+| `aesthetic[]` | Ideogram `style_description.aesthetics` and the LLM brief prompt |
+| `imageryStyle` | Ideogram `art_style` and the LLM brief prompt |
+| `layoutTraits[]` | Template hint when the brief doesn't pick one (e.g. "split" → `split-text-left`) |
+| `typography` (`headline`, `body`, `headlineWeight`) | Font and weight preference |
+| `toneOfVoice[]` | LLM brief and copy prompt |
+
+## 12. Samples and verification
+
+`python3 scripts/render_poster_samples.py --out-dir <dir>` renders the Stripe and Vercel fixtures
+through PhotoCraft and flattens them to PNG. It runs offline with procedural stand-in backgrounds
+that follow each template's negative space; with `--ideogram` and `IDEOGRAM_API_KEY` it uses real
+Ideogram backgrounds instead. `--code-root <worktree> --before` renders the same inputs with another
+checkout's compiler for before/after comparisons. Unit tests: `python3 -m unittest scripts.test_poster_design`.
