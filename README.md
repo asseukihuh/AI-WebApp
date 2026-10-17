@@ -185,18 +185,20 @@ Kit JSON may include optional fields: `heroImageUrl`, `logoSvg`, `tagline`, `hea
 
 Test URLs: see Project docs `docs/kit-scrape-test-sites.md` in the CommMaker agent store, or scrape the sites listed there directly.
 
-### Windows (PowerShell)
+### Windows (PowerShell — default)
+
+On Windows, use **PowerShell only** for CommMaker dev setup. Git Bash is not required.
 
 **Prerequisites**
 
-- [Git for Windows](https://git-scm.com/download/win) (optional **Git Bash** to run existing `.sh` helpers such as `fetch-photocraft-web.sh` or `install-photocraft-from-fork.sh` when present)
 - [Python 3.11+](https://www.python.org/downloads/) — check **Add python.exe to PATH** during setup
+- [Git for Windows](https://git-scm.com/download/win) (for `git clone` / `git pull` only)
 - Ollama (optional) — only if you use the legacy chat pages
 
-**Clone and run** (example path `C:\Users\You\Projects\AI-WebApp`):
+**Clone and run** (example path `C:\Users\nyhar\Documents\AI-WebApp`):
 
 ```powershell
-cd $HOME\Projects
+cd $HOME\Documents
 git clone https://github.com/asseukihuh/AI-WebApp.git
 cd AI-WebApp
 git pull
@@ -205,7 +207,7 @@ git pull
 
 Open **http://localhost:8000/home.html** → **Onboard** → **Crisis** → **Editor** (`/photocraft/`).
 
-`dev-commmaker.ps1` installs `vendor/photocraft-web/` via `install-photocraft-windows.ps1` when assets are missing (fork-first GitHub release zip). To install web assets only:
+`dev-commmaker.ps1` always installs or refreshes `vendor/photocraft-web/` with `install-photocraft-windows.ps1` (release zip via GitHub API, with a hardcoded [storytold/photocraft v0.9.0](https://github.com/storytold/photocraft/releases/download/v0.9.0/photocraft-web-0.9.0.zip) fallback). To install web assets only:
 
 ```powershell
 .\scripts\install-photocraft-windows.ps1
@@ -213,11 +215,24 @@ Open **http://localhost:8000/home.html** → **Onboard** → **Crisis** → **Ed
 .\scripts\install-photocraft-windows.ps1 -IncludeCli
 ```
 
+**Optional fork build (Git Bash):** if you have `scripts/install-photocraft-from-fork.sh` (e.g. from [PR #4](https://github.com/asseukihuh/AI-WebApp/pull/4)) and want a local Rust/Trunk build instead of the release zip:
+
+```powershell
+$env:COMMMAKER_INSTALL_PHOTOCRAFT_FROM_FORK = "1"
+.\scripts\dev-commmaker.ps1
+```
+
 **Generate poster:** the dev server can download `photocraft-cli` on the first `POST /api/generate-poster`; allow the binary in Windows Defender if prompted. You can smoke-test the CLI with `python scripts\photocraft_cli.py --self-test`.
 
 **Windows troubleshooting**
 
-- **Git Bash `fetch-photocraft-web.sh`:** downloads go to a temp file under `%TEMP%` / `$TMPDIR` before extract (avoids `curl: (23) Failure writing output` from piping API JSON into Python). If the fork has no GitHub release yet (API 404), the script falls back to [storytold/photocraft v0.9.0 `photocraft-web` zip](https://github.com/storytold/photocraft/releases/download/v0.9.0/photocraft-web-0.9.0.zip).
+- **`install-photocraft-windows.ps1` / network errors:** downloads use a temp file under `%TEMP%` before unzip. Manual fallback (run from repo root in PowerShell):
+
+  ```powershell
+  $z="$env:TEMP\photocraft-web-0.9.0.zip"; Invoke-WebRequest -Uri "https://github.com/storytold/photocraft/releases/download/v0.9.0/photocraft-web-0.9.0.zip" -OutFile $z -UseBasicParsing; $e="$env:TEMP\pc-extract"; Expand-Archive $z $e -Force; Remove-Item vendor\photocraft-web -Recurse -Force -ErrorAction SilentlyContinue; Move-Item (Join-Path $e "photocraft-web-0.9.0") vendor\photocraft-web; Remove-Item $e -Recurse -Force
+  ```
+
+- **macOS/Linux `fetch-photocraft-web.sh`:** same fork-first / v0.9.0 upstream fallback; uses temp files (avoids `curl: (23)` when API JSON is piped).
 - **`fatal: detected dubious ownership` / `safe.directory`:** after cloning to a folder owned by another Windows user or WSL path, tell Git the repo is trusted (use your real clone path):
 
   ```bash
