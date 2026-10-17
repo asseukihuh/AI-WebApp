@@ -25,7 +25,7 @@ if SCRIPTS not in sys.path:
 
 from kit_scraper import scrape_kit_from_html, validate_fetch_url  # noqa: E402
 from poster_compiler import compile_poster_batch, logo_cache_basename  # noqa: E402
-from photocraft_cli import run_poster_batch  # noqa: E402
+from photocraft_cli import run_poster_batch, _cli_missing_user_message  # noqa: E402
 
 MAX_HTML_BYTES = 2_000_000
 MAX_POSTER_BODY_BYTES = 256_000
@@ -172,9 +172,17 @@ class CommMakerHandler(http.server.SimpleHTTPRequestHandler):
                 "documentPath": result.get("documentPath"),
                 "openUrl": result.get("openUrl"),
                 "cliAvailable": result.get("cliAvailable", False),
+                "cliPath": result.get("cliPath"),
             }
             if result.get("error"):
                 payload["cliError"] = result["error"]
+            if result.get("cliError"):
+                payload["cliError"] = result["cliError"]
+            payload["userMessage"] = result.get("userMessage") or (
+                _cli_missing_user_message(ROOT)
+                if not result.get("cliAvailable")
+                else (result.get("cliError") or "Poster generation failed.")
+            )
             self._send_json(200, payload)
         except ValueError as exc:
             self._send_json(400, {"error": str(exc)})

@@ -47,7 +47,7 @@ python3 scripts/serve-static.py --port 8000</pre>
         </div>`;
 }
 
-function mountEditor(docUrl) {
+function mountEditor() {
     const wrap = document.getElementById("photocraft-frame-wrap");
     if (!wrap) {
         return;
@@ -62,31 +62,57 @@ function mountEditor(docUrl) {
     );
     iframe.setAttribute("allowfullscreen", "");
     wrap.appendChild(iframe);
-
-    if (docUrl) {
-        const note = document.createElement("p");
-        note.className = "photocraft-open-hint muted";
-        note.innerHTML =
-            "PhotoCraft web cannot auto-open server files yet. Use <strong>File → Open</strong> and choose the downloaded file, or open the link below.";
-        wrap.insertAdjacentElement("afterbegin", note);
-    }
 }
 
-function mountPosterCallout(docUrl) {
-    const slot = document.getElementById("poster-open-callout");
+function mountPosterFailure(session) {
+    const slot = document.getElementById("poster-ready-banner");
+    if (!slot || session?.poster?.ok !== false) {
+        return;
+    }
+    const message =
+        session.poster.userMessage ||
+        session.poster.cliError ||
+        "Poster generation did not complete successfully.";
+    slot.hidden = false;
+    slot.className = "poster-ready-banner poster-ready-banner--error";
+    slot.setAttribute("role", "alert");
+    slot.innerHTML = `
+        <p class="poster-ready-banner__title">Poster generation failed</p>
+        <p class="poster-ready-banner__body">${escapeHtml(message)}</p>
+        <p class="muted">Return to <a href="../crisis.html">Crisis fast path</a> and try again after fixing the CLI or network issue.</p>
+    `;
+}
+
+function mountPosterReadyBanner(docUrl) {
+    const slot = document.getElementById("poster-ready-banner");
     if (!slot || !docUrl) {
         return;
     }
-    slot.hidden = false;
-    const absolute = docUrl.startsWith("http")
-        ? docUrl
-        : `${window.location.origin}${docUrl}`;
+    const session = loadSession();
+    if (session?.poster?.ok === false) {
+        mountPosterFailure(session);
+        return;
+    }
+
     const safePath = escapeHtml(docUrl);
-    const safeAbs = escapeHtml(absolute);
+    const filename = docUrl.split("/").pop() || "commmaker-poster.pcraft";
+    slot.hidden = false;
+    slot.className = "poster-ready-banner";
+    slot.setAttribute("role", "status");
     slot.innerHTML = `
-        <p class="poster-callout-title">Your generated poster is ready</p>
-        <p><a class="poster-open-link" href="${safePath}" download>Open your generated poster (.pcraft)</a></p>
-        <p class="muted">Direct URL: <code>${safeAbs}</code> — in PhotoCraft use <strong>File → Open</strong> after download, or drag the file into the editor window.</p>
+        <div class="poster-ready-banner__inner">
+            <p class="poster-ready-banner__title">Your poster is ready</p>
+            <p class="poster-ready-banner__body">
+                PhotoCraft in the browser cannot open server files directly yet.
+                Download the <code>.pcraft</code> file, then open it in the editor below.
+            </p>
+            <ol class="poster-ready-banner__steps">
+                <li>Click <strong>Download .pcraft</strong> (or use the link in the kit banner).</li>
+                <li>In PhotoCraft below, choose <strong>File → Open</strong> and select the downloaded file.</li>
+                <li>Alternatively, drag the file onto the PhotoCraft window or drop zone.</li>
+            </ol>
+            <a class="poster-ready-banner__download btn" href="${safePath}" download="${escapeHtml(filename)}">Download .pcraft</a>
+        </div>
     `;
 }
 
@@ -94,16 +120,24 @@ function mountSessionBanner() {
     const banner = document.getElementById("session-banner");
     const kit = loadKit();
     const session = loadSession();
+    if (banner) {
+        banner.hidden = false;
+    }
     renderKitSummary(banner, kit, session);
 
     const instructions = document.getElementById("linkedin-instructions");
-    const docUrl = posterDocFromQuery() || session?.poster?.openUrl || session?.poster?.documentPath;
+    const docUrl =
+        posterDocFromQuery() ||
+        session?.poster?.openUrl ||
+        session?.poster?.documentPath;
 
     if (instructions) {
         const headline = session?.suggestedHeadline || session?.brief?.headline;
         const lines = [];
-        if (docUrl) {
-            lines.push("Open your generated LinkedIn poster (1200 × 627 px) using the link below.");
+        if (docUrl && session?.poster?.ok !== false) {
+            lines.push(
+                "Your generated LinkedIn poster (1200 × 627 px) is ready — use the banner above to download and open it in PhotoCraft."
+            );
         } else {
             lines.push(
                 "Create a new document at 1200 × 627 px (LinkedIn link preview / single-image post), or generate a poster from the Crisis page."
@@ -116,17 +150,19 @@ function mountSessionBanner() {
         instructions.textContent = lines.join(" ");
     }
 
-    mountPosterCallout(docUrl);
+    if (session?.poster?.ok === false) {
+        mountPosterFailure(session);
+    } else {
+        mountPosterReadyBanner(docUrl);
+    }
 }
 
 document.addEventListener("DOMContentLoaded", async () => {
     mountCommMakerNav(document.getElementById("commmaker-nav"), "photocraft/");
     mountSessionBanner();
-    const docUrl = posterDocFromQuery() || loadSession()?.poster?.openUrl;
     if (await assetsPresent()) {
-        mountEditor(docUrl);
+        mountEditor();
     } else {
         showMissing();
-        mountPosterCallout(docUrl);
     }
 });

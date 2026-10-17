@@ -5,7 +5,6 @@ import {
     loadKit,
     loadSession,
     saveSession,
-    escapeHtml,
     renderKitSummary,
 } from "./commmaker-common.js";
 
@@ -88,6 +87,30 @@ function readForm() {
     return { facts, audienceNeed, tone, legalReviewNeeded };
 }
 
+function setPosterStatus(message, { error = false, success = false } = {}) {
+    if (!posterStatus) {
+        return;
+    }
+    posterStatus.hidden = !message;
+    posterStatus.textContent = message;
+    posterStatus.classList.toggle("is-error", Boolean(error));
+    posterStatus.classList.toggle("is-success", Boolean(success));
+    posterStatus.setAttribute("role", message ? "alert" : "status");
+}
+
+function triggerPosterDownload(docPath) {
+    if (!docPath) {
+        return;
+    }
+    const link = document.createElement("a");
+    link.href = docPath;
+    link.download = docPath.split("/").pop() || "commmaker-poster.pcraft";
+    link.rel = "noopener";
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+}
+
 form?.addEventListener("submit", async (event) => {
     event.preventDefault();
     const input = readForm();
@@ -122,10 +145,7 @@ form?.addEventListener("submit", async (event) => {
         captionPreview.textContent = captionDraft;
         openEditorBtn.disabled = false;
         generatePosterBtn.disabled = false;
-        if (posterStatus) {
-            posterStatus.hidden = true;
-            posterStatus.textContent = "";
-        }
+        setPosterStatus("", {});
     } finally {
         generateBtn.disabled = false;
     }
@@ -135,21 +155,13 @@ async function generatePosterInPhotoCraft() {
     const session = loadSession();
     const kit = loadKit();
     if (!session?.brief) {
-        if (posterStatus) {
-            posterStatus.hidden = false;
-            posterStatus.classList.add("is-error");
-            posterStatus.textContent = "Generate a caption draft first.";
-        }
+        setPosterStatus("Generate a caption draft first.", { error: true });
         return;
     }
 
     generatePosterBtn.disabled = true;
     openEditorBtn.disabled = true;
-    if (posterStatus) {
-        posterStatus.hidden = false;
-        posterStatus.classList.remove("is-error");
-        posterStatus.textContent = "Compiling poster and running PhotoCraft CLI…";
-    }
+    setPosterStatus("Compiling poster and running PhotoCraft CLI…", {});
 
     try {
         const res = await fetch("/api/generate-poster", {
@@ -159,42 +171,53 @@ async function generatePosterInPhotoCraft() {
         });
         const data = await res.json();
         if (!res.ok) {
-            throw new Error(data.error || `HTTP ${res.status}`);
+            throw new Error(data.error || data.userMessage || `HTTP ${res.status}`);
         }
 
+        const posterOk = Boolean(data.ok);
         const updated = {
             ...session,
             poster: {
+                ok: posterOk,
                 documentPath: data.documentPath,
                 openUrl: data.openUrl,
                 cliAvailable: data.cliAvailable,
                 generatedAt: new Date().toISOString(),
                 cliError: data.cliError || null,
+                userMessage: data.userMessage || null,
             },
         };
         saveSession(updated);
 
-        if (data.cliError && posterStatus) {
-            posterStatus.classList.add("is-error");
-            posterStatus.textContent =
-                `CLI: ${data.cliError} — command JSON was returned; open the editor for manual steps.`;
-        } else if (posterStatus) {
-            posterStatus.textContent = data.ok
-                ? "Poster saved. Opening PhotoCraft…"
-                : "Poster batch ready; see editor for next steps.";
+        if (!posterOk) {
+            const detail =
+                data.userMessage ||
+                data.cliError ||
+                "Poster generation failed. Fix the issue below and try again.";
+            setPosterStatus(detail, { error: true });
+            generatePosterBtn.disabled = false;
+            openEditorBtn.disabled = false;
+            return;
         }
 
+        setPosterStatus(
+            data.userMessage || "Poster saved. Downloading and opening PhotoCraft…",
+            { success: true }
+        );
+
         const docParam = data.openUrl || data.documentPath;
+        if (docParam) {
+            triggerPosterDownload(docParam);
+        }
+
         const target = docParam
             ? `photocraft/?doc=${encodeURIComponent(docParam)}`
             : "photocraft/";
-        window.location.href = target;
+        window.setTimeout(() => {
+            window.location.href = target;
+        }, 600);
     } catch (err) {
-        if (posterStatus) {
-            posterStatus.hidden = false;
-            posterStatus.classList.add("is-error");
-            posterStatus.textContent = err.message || String(err);
-        }
+        setPosterStatus(err.message || String(err), { error: true });
         generatePosterBtn.disabled = false;
         openEditorBtn.disabled = false;
     }

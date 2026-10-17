@@ -194,9 +194,23 @@ curl -s -X POST localhost:8000/api/generate-poster \
   -d '{"kit":{"siteName":"Acme","colors":["#1a365d"]},"session":{"brief":{"facts":"Update."},"suggestedHeadline":"Update"}}'
 ```
 
-**`photocraft-cli` install (Linux):** On first poster request the server downloads [storytold/photocraft](https://github.com/storytold/photocraft) release **`v0.9.0`** `photocraft-0.9.0-linux-<arch>.tar.gz` into `vendor/photocraft-cli/` (gitignored). You can also install the tarball manually or put `photocraft-cli` on `PATH`. macOS/Windows: use the `photocraft-cli-*` zip from the same release page.
+**`photocraft-cli` install:** On the first **`POST /api/generate-poster`** while `python3 scripts/serve-static.py` is running, CommMaker downloads the matching [storytold/photocraft](https://github.com/storytold/photocraft) **`v0.9.0`** asset into `vendor/photocraft-cli/` (gitignored):
 
-If the CLI is missing, the API still returns **`commandBatch`** JSON plus **`cliError`** for local debugging.
+| OS | Release asset |
+|----|----------------|
+| Linux | `photocraft-0.9.0-linux-<arch>.tar.gz` → `…/bin/photocraft-cli` |
+| macOS | `photocraft-cli-0.9.0-macos-universal.zip` → `photocraft-cli-0.9.0-macos-universal/photocraft-cli` |
+| Windows | `photocraft-0.9.0-windows-*-portable.zip` → `photocraft-cli.exe` |
+
+You can also put `photocraft-cli` on `PATH` or extract the archive manually.
+
+**macOS troubleshooting:** If Crisis shows a red alert after **Generate poster**, open the browser Network tab for `/api/generate-poster` and check **`cliError`** / **`userMessage`**. First run may take a minute while ~130 MB downloads; corporate proxies must allow `github.com` release downloads. Gatekeeper: if macOS blocks the binary, run `xattr -cr vendor/photocraft-cli` once, or approve in **System Settings → Privacy & Security**. Smoke-test the CLI:
+
+```bash
+python3 scripts/photocraft_cli.py --self-test
+```
+
+If the CLI is missing or fails, the API returns **`commandBatch`**, **`cliError`**, and **`userMessage`** (HTTP 200) so the Crisis page can show the error instead of opening the editor.
 
 Optional LLM caption hook in the browser console or a future script:
 
