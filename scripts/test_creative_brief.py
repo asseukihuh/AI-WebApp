@@ -95,6 +95,56 @@ class TestCreativeBriefFallback(unittest.TestCase):
         self.assertEqual(brief["layoutRecipe"], "photo-hero-type")
         self.assertIn("Stripe", brief.get("heroImagePrompt", ""))
 
+    @patch.dict(os.environ, {"IDEOGRAM_API_KEY": "test-key", "OPENAI_API_KEY": "test-key"})
+    @patch("creative_brief._call_llm")
+    def test_llm_crisis_gradient_coerced_without_brand_mark(self, mock_llm) -> None:
+        mock_llm.return_value = {
+            "headline": "Service update",
+            "subhead": "Investigating API errors",
+            "layoutRecipe": "gradient-brand",
+            "heroStrategy": "gradient_from_palette",
+            "logoTreatment": "wordmark-white",
+            "emphasis": "calm",
+            "rationale": "Avoid unverified imagery during incident.",
+        }
+        kit = {
+            "siteName": "Stripe",
+            "heroBusy": False,
+            "heroBrandMark": False,
+            "colors": ["#635bff", "#0a2540"],
+        }
+        result = build_creative_brief(
+            kit,
+            {"crisisFacts": "Elevated API errors in US region."},
+        )
+        brief = result["brief"]
+        self.assertEqual(brief["heroStrategy"], "ideogram_generate")
+        self.assertEqual(brief["layoutRecipe"], "photo-hero-type")
+        self.assertEqual(brief.get("ideogramLayers"), "background-only")
+        self.assertIn("Abstract", brief.get("heroImagePrompt", ""))
+
+    @patch.dict(
+        os.environ,
+        {
+            "IDEOGRAM_API_KEY": "test-key",
+            "OPENAI_API_KEY": "test-key",
+            "COMMMAKER_PREFER_IDEOGRAM": "1",
+        },
+    )
+    @patch("creative_brief._call_llm")
+    def test_prefer_ideogram_env_coerces_gradient(self, mock_llm) -> None:
+        mock_llm.return_value = {
+            "headline": "Update",
+            "subhead": "",
+            "layoutRecipe": "gradient-brand",
+            "heroStrategy": "gradient_from_palette",
+            "logoTreatment": "wordmark-white",
+            "emphasis": "calm",
+            "rationale": "Gradient.",
+        }
+        result = build_creative_brief(kit={"siteName": "Acme"}, crisis={})
+        self.assertEqual(result["brief"]["heroStrategy"], "ideogram_generate")
+
     def test_coerce_noop_without_ideogram_key(self) -> None:
         brief = {
             "headline": "Update",
@@ -346,6 +396,40 @@ class TestCreativeBriefFallback(unittest.TestCase):
 
 
 class TestPosterWithBrief(unittest.TestCase):
+    def test_gradient_brand_uses_svg_background_when_assets_dir_set(self) -> None:
+        import tempfile
+
+        kit = {
+            "siteName": "Stripe",
+            "colors": ["#635bff", "#0a2540", "#80e9ff"],
+        }
+        session = {"suggestedHeadline": "Update", "brief": {"facts": "API errors."}}
+        brief = {
+            "headline": "Service update",
+            "subhead": "Investigating",
+            "layoutRecipe": "gradient-brand",
+            "heroStrategy": "gradient_from_palette",
+            "logoTreatment": "wordmark-white",
+        }
+        with tempfile.TemporaryDirectory() as tmp:
+            batch = compile_poster_batch(
+                kit,
+                session,
+                creative_brief=brief,
+                assets_dir=tmp,
+            )
+        fills = [
+            s
+            for s in batch.get("steps") or []
+            if s.get("command") == "layer.newFillLayer.solidColor"
+            and (s.get("params") or {}).get("name") in ("Brand base", "Brand mid", "Brand accent")
+        ]
+        self.assertEqual(fills, [])
+        bg = batch.get("backgroundPlacements") or []
+        gradient = [p for p in bg if p.get("name") == "Brand gradient"]
+        self.assertEqual(len(gradient), 1)
+        self.assertTrue(gradient[0]["path"].startswith("generated/assets/brand-gradient-"))
+
     def test_compile_stores_brief_and_overrides_copy(self) -> None:
         fixture_path = os.path.join(SCRIPTS, "fixtures", "sample_creative_brief.json")
         with open(fixture_path, encoding="utf-8") as handle:

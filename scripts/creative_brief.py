@@ -312,7 +312,8 @@ def build_fallback_brief(
         brief["ideogramLayers"] = effective_ideogram_layers(brief)
         if brief["ideogramLayers"] == "background-plus-accent":
             brief["accentImagePrompt"] = _fallback_accent_prompt(kit, crisis)
-    return _normalize_brief(brief)
+    brief = _normalize_brief(brief)
+    return coerce_ideogram_for_unsuitable_kit_hero(brief, kit, crisis)
 
 
 def _normalize_brief(raw: dict[str, Any]) -> dict[str, Any]:
@@ -376,26 +377,50 @@ def _kit_color_phrase(kit: dict[str, Any] | None) -> str:
     return ", ".join(str(c) for c in colors[:4])
 
 
+def _ideogram_api_key_set() -> bool:
+    return bool((os.environ.get("IDEOGRAM_API_KEY") or "").strip())
+
+
+def _crisis_context_present(crisis: dict[str, Any] | None) -> bool:
+    crisis = crisis or {}
+    facts = str(crisis.get("crisisFacts") or crisis.get("facts") or "").strip()
+    message = str(crisis.get("crisisMessage") or crisis.get("message") or "").strip()
+    return bool(facts or message)
+
+
+def prefer_ideogram_for_crisis_post(crisis: dict[str, Any] | None) -> bool:
+    """When Ideogram is configured, upgrade flat gradient heroes for crisis/update flows."""
+    if not _ideogram_api_key_set():
+        return False
+    pref = (os.environ.get("COMMMAKER_PREFER_IDEOGRAM") or "").strip().lower()
+    if pref in ("1", "true", "yes", "on"):
+        return True
+    return _crisis_context_present(crisis)
+
+
 def coerce_ideogram_for_unsuitable_kit_hero(
     brief: dict[str, Any],
     kit: dict[str, Any] | None,
     crisis: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """
-    Prefer Ideogram when scraped heroes are busy UI or OG brand marks.
+    Prefer Ideogram when scraped heroes are busy UI or OG brand marks, or when a
+    crisis brief would otherwise render as a flat palette gradient.
 
-    The LLM often picks ``gradient_from_palette`` or ``use_kit_photo`` for crisis
-    posts; the poster pipeline skips those kit heroes anyway, which yields flat
-    gradient + type posters unless we upgrade the brief.
+    The LLM often picks ``gradient_from_palette`` for crisis posts (including when
+    the kit hero is neither busy nor a brand mark); without coercion that yields a
+    flat lavender + logo + type poster instead of a Pomelli-style abstract hero.
     """
     kit = kit or {}
     crisis = crisis or {}
-    if not (kit.get("heroBusy") or kit.get("heroBrandMark")):
-        return brief
-    if not (os.environ.get("IDEOGRAM_API_KEY") or "").strip():
+    if not _ideogram_api_key_set():
         return brief
     hero = brief.get("heroStrategy") or ""
     if hero == "ideogram_generate":
+        return brief
+    unsuitable_kit = bool(kit.get("heroBusy") or kit.get("heroBrandMark"))
+    crisis_gradient = prefer_ideogram_for_crisis_post(crisis) and hero == "gradient_from_palette"
+    if not unsuitable_kit and not crisis_gradient:
         return brief
     if hero not in ("use_kit_photo", "gradient_from_palette", "solid", "none"):
         return brief
@@ -403,8 +428,14 @@ def coerce_ideogram_for_unsuitable_kit_hero(
     upgraded["heroStrategy"] = "ideogram_generate"
     upgraded["layoutRecipe"] = "photo-hero-type"
     if not str(upgraded.get("heroImagePrompt") or "").strip():
-        upgraded["heroImagePrompt"] = _fallback_ideogram_prompt(kit, crisis)
-    upgraded["ideogramLayers"] = effective_ideogram_layers(upgraded)
+        if crisis_gradient and not unsuitable_kit:
+            upgraded["heroImagePrompt"] = _fallback_ideogram_abstract_prompt(kit, crisis)
+        else:
+            upgraded["heroImagePrompt"] = _fallback_ideogram_prompt(kit, crisis)
+    if crisis_gradient and not unsuitable_kit:
+        upgraded["ideogramLayers"] = "background-only"
+    else:
+        upgraded["ideogramLayers"] = effective_ideogram_layers(upgraded)
     if upgraded["ideogramLayers"] == "background-plus-accent":
         if not str(upgraded.get("accentImagePrompt") or "").strip():
             upgraded["accentImagePrompt"] = _fallback_accent_prompt(kit, crisis)
@@ -427,6 +458,22 @@ def effective_ideogram_layers(
     if ideogram_key_set:
         return "background-plus-accent"
     return "background-only"
+
+
+def _fallback_ideogram_abstract_prompt(
+    kit: dict[str, Any] | None,
+    crisis: dict[str, Any],
+) -> str:
+    kit = kit or {}
+    site = kit.get("siteName") or "the organization"
+    colors = _kit_color_phrase(kit)
+    tone = (crisis.get("tone") or "factual").strip()
+    return (
+        f"Abstract brand background for {site}, soft diagonal gradient and subtle grain "
+        f"using palette {colors}, calm {tone} corporate communications, "
+        f"no people, no faces, no logos, no text, no news photos or specific events, "
+        f"generous negative space in the lower-left third for headline type"
+    )
 
 
 def _fallback_ideogram_prompt(
@@ -490,6 +537,7 @@ Confirmed crisis facts:
 Choose layoutRecipe, heroStrategy, and logoTreatment so the poster feels on-brand and readable at 1200×627.
 Avoid full-bleed competitor OG artwork when heroBrandMark is true or heroBusy is true.
 For LinkedIn crisis/update posts when the scraped kit hero is busy UI chrome or a brand-mark OG image, prefer heroStrategy ideogram_generate with layoutRecipe photo-hero-type.
+For crisis/update posts when a flat gradient would feel empty, prefer ideogram_generate with abstract brand gradients, soft textures, or calm editorial backgrounds (no people, no crowds, no unverified news imagery, no fake event photos). Use background-only ideogramLayers for texture-only heroes.
 When heroStrategy is ideogram_generate:
 - Set ideogramLayers to background-plus-accent when a distinct subject helps the story; background-only for abstract texture-only heroes.
 - heroImagePrompt: full-bleed background scene (include siteName and kit color hex values). Always leave the lower-left third clear/uncluttered for headline type. No text in the image.

@@ -38,6 +38,7 @@ so hero imagery sits under type layers. Foreground ``placements`` run after the 
 from __future__ import annotations
 
 import hashlib
+import os
 import re
 import uuid
 from typing import Any
@@ -518,6 +519,54 @@ def _brand_gradient_steps(
     ]
 
 
+def _brand_gradient_svg_markup(primary: str, secondary: str, accent: str) -> str:
+    p = _normalize_hex(primary, "#1a365d")
+    s = _normalize_hex(secondary, "#2c5282")
+    a = _normalize_hex(accent, s)
+    return (
+        f'<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 {LINKEDIN_WIDTH} {LINKEDIN_HEIGHT}" '
+        f'preserveAspectRatio="none">'
+        f"<defs><linearGradient id=\"bg\" x1=\"0%\" y1=\"0%\" x2=\"100%\" y2=\"100%\">"
+        f'<stop offset="0%" stop-color="{p}"/>'
+        f'<stop offset="52%" stop-color="{s}"/>'
+        f'<stop offset="100%" stop-color="{a}"/>'
+        f"</linearGradient></defs>"
+        f'<rect width="{LINKEDIN_WIDTH}" height="{LINKEDIN_HEIGHT}" fill="url(#bg)"/>'
+        f"</svg>"
+    )
+
+
+def ensure_brand_gradient_svg(
+    assets_dir: str,
+    primary: str,
+    secondary: str,
+    accent: str,
+) -> str:
+    """Write (or reuse) a full-canvas brand gradient SVG; return path relative to repo root parent of assets_dir."""
+    p = _normalize_hex(primary, "#1a365d")
+    s = _normalize_hex(secondary, "#2c5282")
+    a = _normalize_hex(accent, s)
+    digest = hashlib.sha256(f"{p}|{s}|{a}".encode("utf-8")).hexdigest()[:16]
+    filename = f"brand-gradient-{digest}.svg"
+    abs_path = os.path.join(assets_dir, filename)
+    os.makedirs(assets_dir, exist_ok=True)
+    if not os.path.isfile(abs_path):
+        with open(abs_path, "w", encoding="utf-8") as handle:
+            handle.write(_brand_gradient_svg_markup(p, s, a))
+    return f"generated/assets/{filename}"
+
+
+def _brand_gradient_background_placement(relative_path: str) -> dict[str, Any]:
+    return {
+        "path": relative_path.replace("\\", "/"),
+        "center": [LINKEDIN_WIDTH / 2, LINKEDIN_HEIGHT / 2],
+        "scale": 100.0,
+        "fit": True,
+        "smartObject": False,
+        "name": "Brand gradient",
+    }
+
+
 def asset_cache_basename(url: str, prefix: str = "asset") -> str:
     digest = hashlib.sha256(url.encode("utf-8")).hexdigest()[:16]
     ext = ".png"
@@ -826,6 +875,7 @@ def compile_poster_batch(
     logo_height: int | None = None,
     fonts_resolved: dict[str, Any] | None = None,
     creative_brief: dict[str, Any] | None = None,
+    assets_dir: str | None = None,
 ) -> dict[str, Any]:
     """Build a PhotoCraft command batch for a LinkedIn 1200×627 poster."""
     kit = kit or session.get("kitSnapshot") or {}
@@ -909,6 +959,20 @@ def compile_poster_batch(
     scrim_opacity = 0.48 if kit.get("heroImageKind") == "ui-screenshot" else 0.42
     bg_color = secondary if has_photo_hero else primary
 
+    brand_gradient_rel: str | None = None
+    use_svg_brand_gradient = False
+    if (
+        assets_dir
+        and not has_photo_hero
+        and not force_solid_bg
+        and not hero_brand_mark
+        and not skip_std_gradient
+    ):
+        brand_gradient_rel = ensure_brand_gradient_svg(
+            assets_dir, primary, secondary, accent
+        )
+        use_svg_brand_gradient = True
+
     document = {
         "width": LINKEDIN_WIDTH,
         "height": LINKEDIN_HEIGHT,
@@ -943,7 +1007,7 @@ def compile_poster_batch(
         )
     elif hero_brand_mark:
         steps.extend(_brand_mark_gradient_steps(kit, primary, secondary, accent))
-    elif not skip_std_gradient:
+    elif not skip_std_gradient and not use_svg_brand_gradient:
         steps.extend(_brand_gradient_steps(primary, secondary, accent))
 
     uses_dark_type = has_photo_hero or hero_brand_mark or _hex_luminance(primary) < 0.45
@@ -1034,6 +1098,8 @@ def compile_poster_batch(
     )
 
     background_placements: list[dict[str, Any]] = []
+    if brand_gradient_rel:
+        background_placements.append(_brand_gradient_background_placement(brand_gradient_rel))
     if hero_relative_path:
         background_placements.append(
             _hero_background_placement(
