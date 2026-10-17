@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import struct
 import sys
 import tempfile
@@ -111,7 +112,7 @@ class TestTemplatesAndCopy(unittest.TestCase):
         name = design.resolve_template_name(
             {}, has_image=True, monochrome=False, brand_profile=_fixture("brand-profile-stripe.json")
         )
-        self.assertEqual(name, "split-text-left")
+        self.assertEqual(name, "full-bleed-scrim")
 
     def test_brief_template_wins(self) -> None:
         name = design.resolve_template_name(
@@ -126,8 +127,10 @@ class TestTemplatesAndCopy(unittest.TestCase):
 
     def test_profile_palette_drives_brand_role(self) -> None:
         roles = design.brand_roles(_fixture("kit-stripe.json"), _fixture("brand-profile-stripe.json"))
-        self.assertEqual(roles.brand, "#635bff")
-        self.assertEqual(roles.dark, "#0a2540")
+        self.assertEqual(roles.brand, "#533afd")
+        self.assertEqual(roles.dark, "#071c32")
+        self.assertEqual(roles.accent, "#ff9a44")
+        self.assertEqual(roles.light, "#fefefe")
         self.assertFalse(roles.monochrome)
 
     def test_clamp_words(self) -> None:
@@ -162,6 +165,84 @@ class TestTemplatesAndCopy(unittest.TestCase):
         plan = design.plan_layout("full-bleed-scrim", headline="Update", logo_size=(86, 36))
         audit = design.audit_plan(plan, contrast={"headline": 2.0})
         self.assertIn("contrast", audit["failed"])
+
+
+class TestBrandProfileShapes(unittest.TestCase):
+    """The AI brand profile (scripts/brand_profile.py) shape is consumed when present."""
+
+    def test_secondary_is_not_the_dark_text_role(self) -> None:
+        profile = {
+            "palette": [
+                {"role": "primary", "hex": "#533afd"},
+                {"role": "secondary", "hex": "#11ddaa"},
+            ]
+        }
+        roles = design.brand_roles(_fixture("kit-stripe.json"), profile)
+        self.assertNotEqual(roles.dark, "#11ddaa")
+        self.assertLess(design.relative_luminance(design.hex_to_rgb(roles.dark)), 0.1)
+
+    def test_light_role_must_be_light(self) -> None:
+        profile = {"palette": [{"role": "primary", "hex": "#533afd"}, {"role": "background", "hex": "#0a0a0a"}]}
+        roles = design.brand_roles(_fixture("kit-stripe.json"), profile)
+        self.assertGreater(design.relative_luminance(design.hex_to_rgb(roles.light)), 0.6)
+
+    def test_palette_list_ranked_by_role(self) -> None:
+        colors = design.profile_palette_list(_fixture("brand-profile-stripe.json"))
+        self.assertEqual(colors[:3], ["#533afd", "#ff9a44", "#11ddaa"])
+        self.assertEqual(colors[-1], "#fefefe")
+
+    def test_typography_display_and_weights(self) -> None:
+        fonts = design.profile_fonts(_fixture("brand-profile-stripe.json"))
+        self.assertEqual(fonts["headline"], "Söhne")
+        self.assertEqual(fonts["body"], "sohne-var")
+        self.assertEqual(fonts["headlineWeight"], "bold")
+        light_only = {"typography": {"display": {"family": "Thin", "weights": [200, 300]}}}
+        self.assertNotIn("headlineWeight", design.profile_fonts(light_only))
+
+    def test_layout_traits_object(self) -> None:
+        def hint(composition: object) -> str | None:
+            return design.template_hint_from_profile(
+                {"layoutTraits": {"density": "airy", "whitespace": "generous", "composition": composition}}
+            )
+
+        self.assertEqual(hint("Centered statement headline over soft texture"), "centered-statement")
+        self.assertEqual(hint("Split screen: product shot beside copy"), "split-text-left")
+        self.assertIsNone(hint(""))
+        self.assertIsNone(design.template_hint_from_profile({"layoutTraits": {"density": "dense"}}))
+        self.assertEqual(
+            design.template_hint_from_profile({"layoutTraits": ["generous whitespace", "split image and text"]}),
+            "split-text-left",
+        )
+
+    def test_imagery_style_object_phrase(self) -> None:
+        from ideogram_client import imagery_style_phrase
+
+        phrase = imagery_style_phrase(_fixture("brand-profile-stripe.json")["imageryStyle"])
+        self.assertTrue(phrase.startswith("gradients; flowing ribbon gradients"))
+        self.assertIn("warm-to-violet", phrase)
+        self.assertNotIn("product", imagery_style_phrase({"primaryMedium": "product-ui", "motifs": []}))
+        self.assertEqual(imagery_style_phrase("soft film grain"), "soft film grain")
+
+    def test_brief_prompt_renders_kit_profile_once(self) -> None:
+        from creative_brief import _llm_prompt
+
+        profile = _fixture("brand-profile-stripe.json")
+        kit = {**_fixture("kit-stripe.json"), "brandProfile": profile}
+        prompt = _llm_prompt(kit, {"crisisMessage": "Update"}, "linkedin-1200x627", profile)
+        self.assertEqual(prompt.count("Chromatic Fluidity"), 1)
+        standalone = _llm_prompt(_fixture("kit-stripe.json"), {"crisisMessage": "Update"}, "linkedin-1200x627", profile)
+        self.assertIn("Chromatic Fluidity", standalone)
+
+    def test_compile_with_real_profile(self) -> None:
+        batch = compile_poster_batch(
+            _fixture("kit-stripe.json"),
+            _session(),
+            creative_brief=_brief(heroStrategy="gradient_from_palette", layoutRecipe="gradient-brand", layoutTemplate="centered-statement"),
+            brand_profile=_fixture("brand-profile-stripe.json"),
+        )
+        meta = batch["meta"]
+        self.assertEqual(meta["paletteRoles"]["brand"], "#533afd")
+        self.assertEqual(meta["designAudit"]["failed"], [])
 
 
 class TestCompilerRules(unittest.TestCase):
@@ -274,14 +355,19 @@ class TestIdeogramPrompt(unittest.TestCase):
             brand_profile=_fixture("brand-profile-stripe.json"),
         )
         payload = json.dumps(prompt).lower()
-        self.assertNotIn("stripe", payload)
+        # "diagonal stripes" is a legitimate motif; only the brand word must go.
+        self.assertIsNone(re.search(r"\bstripe\b", payload))
         elements = prompt["compositional_deconstruction"]["elements"]
         self.assertTrue(elements)
         self.assertTrue(all(e["type"] == "obj" for e in elements))
         for element in elements:
             self.assertGreaterEqual(element["bbox"][1], 500)
-        self.assertEqual(prompt["style_description"]["color_palette"][0], "#635bff")
-        self.assertIn("minimal", prompt["style_description"]["aesthetics"])
+        self.assertEqual(prompt["style_description"]["color_palette"][0], "#533afd")
+        self.assertIn("Chromatic Fluidity", prompt["style_description"]["aesthetics"])
+        art_style = prompt["style_description"]["art_style"]
+        self.assertNotIn("{", art_style)
+        self.assertNotIn("primaryMedium", art_style)
+        self.assertIn("flowing ribbon gradients", art_style)
 
     @patch("ideogram_client._download_image")
     @patch("ideogram_client._call_generate_api")
