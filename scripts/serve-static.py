@@ -30,6 +30,7 @@ from kit_scraper import (  # noqa: E402
     scrape_kit_from_page,
     validate_fetch_url,
 )
+from image_probe import raster_dimensions  # noqa: E402
 from poster_compiler import (  # noqa: E402
     compile_poster_batch,
     hero_cache_basename,
@@ -239,11 +240,25 @@ class CommMakerHandler(http.server.SimpleHTTPRequestHandler):
             asset_errors: list[dict[str, str]] = []
             logo_rel = self._maybe_cache_logo(kit or {}, asset_errors)
             hero_rel = self._maybe_cache_hero(kit or {}, asset_errors)
+            hero_width: int | None = None
+            hero_height: int | None = None
+            logo_width: int | None = None
+            if hero_rel:
+                hero_dims = raster_dimensions(os.path.join(ROOT, hero_rel))
+                if hero_dims:
+                    hero_width, hero_height = hero_dims
+            if logo_rel:
+                logo_dims = raster_dimensions(os.path.join(ROOT, logo_rel))
+                if logo_dims:
+                    logo_width = logo_dims[0]
             batch = compile_poster_batch(
                 kit,
                 session,
                 logo_relative_path=logo_rel,
                 hero_relative_path=hero_rel,
+                hero_width=hero_width,
+                hero_height=hero_height,
+                logo_width=logo_width,
             )
             os.makedirs(GENERATED_DIR, exist_ok=True)
             try:

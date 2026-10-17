@@ -14,6 +14,9 @@ import urllib.request
 import zipfile
 from typing import Any
 
+from image_probe import raster_dimensions
+from poster_compiler import LINKEDIN_HEIGHT, LINKEDIN_WIDTH, cover_scale_percent
+
 PHOTOCRAFT_VERSION = "0.9.0"
 PHOTOCRAFT_RELEASE_TAG = f"v{PHOTOCRAFT_VERSION}"
 DOWNLOAD_BASE = (
@@ -220,6 +223,32 @@ def cli_self_test(repo_root: str) -> dict[str, Any]:
     }
 
 
+def _finalize_doc_place_params(
+    placement: dict[str, Any],
+    repo_root: str,
+) -> dict[str, Any]:
+    """Resolve CommMaker-only placement hints before ``doc.place``."""
+    params = dict(placement)
+    wants_cover = bool(params.pop("cover", False))
+    if wants_cover:
+        params["fit"] = False
+        if not params.get("scale"):
+            rel = str(params.get("path") or "").replace("\\", "/")
+            abs_path = os.path.join(repo_root, rel)
+            dims = raster_dimensions(abs_path)
+            if dims:
+                params["scale"] = round(
+                    cover_scale_percent(
+                        dims[0],
+                        dims[1],
+                        LINKEDIN_WIDTH,
+                        LINKEDIN_HEIGHT,
+                    ),
+                    2,
+                )
+    return params
+
+
 def run_poster_batch(
     repo_root: str,
     batch: dict[str, Any],
@@ -287,7 +316,7 @@ def run_poster_batch(
             {
                 "id": place_id,
                 "method": "doc.place",
-                "params": placement,
+                "params": _finalize_doc_place_params(placement, repo_root),
             }
         )
         place_id += 1
@@ -308,7 +337,7 @@ def run_poster_batch(
             {
                 "id": place_id,
                 "method": "doc.place",
-                "params": placement,
+                "params": _finalize_doc_place_params(placement, repo_root),
             }
         )
         place_id += 1
