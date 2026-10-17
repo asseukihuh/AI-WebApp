@@ -16,7 +16,8 @@ function Import-RepoDotEnv {
         return
     }
     Get-Content -LiteralPath $dotEnv -Encoding UTF8 | ForEach-Object {
-        $line = $_.Trim()
+        # Strip UTF-8 BOM from line and variable names (Notepad "UTF-8" saves BOM).
+        $line = $_.Trim().TrimStart([char]0xFEFF)
         if (-not $line -or $line.StartsWith("#")) {
             return
         }
@@ -24,7 +25,7 @@ function Import-RepoDotEnv {
         if ($eq -lt 1) {
             return
         }
-        $name = $line.Substring(0, $eq).Trim()
+        $name = $line.Substring(0, $eq).Trim().TrimStart([char]0xFEFF)
         $value = $line.Substring($eq + 1).Trim()
         if ($value.Length -ge 2) {
             if (
