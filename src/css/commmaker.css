@@ -774,9 +774,9 @@ textarea.bp-input {
     gap: 1rem;
 }
 
-@media (min-width: 640px) {
+@media (min-width: 800px) {
     .home-grid {
-        grid-template-columns: 1fr 1fr;
+        grid-template-columns: 1fr 1fr 1fr;
     }
 }
 

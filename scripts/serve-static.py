@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Static file server for AI-WebApp / CommMaker shell.
+"""Static file server for the CommMaker shell.
 
 Serves the repo root with correct application/wasm MIME type.
 Optional COOP/COEP headers for pages that need cross-origin isolation
@@ -839,7 +839,7 @@ class CommMakerHandler(http.server.SimpleHTTPRequestHandler):
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="Serve AI-WebApp static files")
+    parser = argparse.ArgumentParser(description="Serve CommMaker static files")
     parser.add_argument("--port", type=int, default=8000)
     parser.add_argument(
         "--coop-coep",

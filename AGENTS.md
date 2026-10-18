@@ -6,36 +6,36 @@ Guidelines and operational context for AI agents working in this repository.
 
 ## 1. Project Overview
 
-`ai-webapp` is a dependency-free, frontend-focused web application designed to connect to locally running Large Language Models (LLMs) via the **Ollama REST API**.
+CommMaker turns a website into a brand kit, then into an editable LinkedIn poster opened in PhotoCraft.
 
-- **Tech Stack**: Vanilla HTML5, CSS3, ES6+ JavaScript.
-- **Local Backend**: Ollama server (`http://localhost:11434`).
-- **Dev Server**: Any static HTTP server (e.g. `python3 -m http.server 8000`).
+- **Shell**: Vanilla HTML5, CSS3, and ES6+ JavaScript (`home.html`, `onboard.html`, `crisis.html`, `photocraft/`).
+- **Dev server**: `python3 scripts/serve-static.py` (Windows: `scripts/dev-commmaker.ps1`, which loads `.env` and installs the PhotoCraft web editor).
+- **Poster pipeline**: Python modules under `scripts/` (brand profile, communication kit, creative brief, Ideogram, poster compile, PhotoCraft CLI).
+- **Editor**: PhotoCraft static site in `vendor/photocraft-web/` (gitignored; installed by `scripts/fetch-photocraft-web.sh` or `scripts/dev-commmaker.ps1`).
+
+The GitHub repository is `asseukihuh/AI-WebApp`. Do not rename it.
 
 ---
 
 ## 2. Directory & File Organization
 
-Keep code structured according to the established project layout:
-
 ```
-ai-webapp/
-├── index.html              # Repository entry point (redirects to chatbot.html)
-├── chatbot.html            # Main chat application page
-├── imageGen.html           # Experimental image/prompt generation page
-├── src/
-│   ├── css/
-│   │   ├── chatbot.css     # Styling for chat interface
-│   │   └── imageGen.css    # Styling for generation interface
-│   └── js/
-│       ├── chatbot.js      # Chat logic, Ollama API integration, history management
-│       └── imageGen.js     # Experimental generation script logic
-├── docs/
-│   └── notes-test.txt      # API endpoints and curl testing commands
-├── AGENTS.md               # Agent guidelines and project standards
-├── NOTES.md                # Project update tracking and changelog
-├── README.md               # User-facing documentation and installation guide
-└── LICENSE                 # Apache-2.0 License
+├── index.html                 # Redirects to home.html
+├── home.html                  # Flow overview
+├── onboard.html               # Website → brand profile and communication kit
+├── crisis.html                # Brief → caption and poster
+├── photocraft/index.html      # PhotoCraft editor embed
+├── src/css/                   # commmaker.css, photocraft.css
+├── src/js/                    # onboard, crisis, kit, brand profile, editor
+├── scripts/                   # Dev server, scrape, brand, kit, poster, PhotoCraft
+├── docs/                      # Brand, kit, brief, poster, and local-run notes
+├── vendor/photocraft-web/     # PhotoCraft web build (downloaded)
+├── generated/                 # Local poster output (.pcraft); gitignored
+├── .env.example               # API keys (copy to .env; not committed)
+├── AGENTS.md
+├── NOTES.md
+├── README.md
+└── LICENSE
 ```
 
 ---
@@ -43,41 +43,41 @@ ai-webapp/
 ## 3. Coding Guidelines & Best Practices
 
 ### HTML
-- Use modern HTML5 standards (`<!DOCTYPE html>`, UTF-8 charset, responsive `<meta name="viewport">`).
-- Keep elements semantic (`<header>`, `<main>`, `<section>`, `<form>`).
-- Avoid inline JS event handlers (e.g., avoid `onclick="..."`).
-- Scripts should be linked using the `defer` attribute.
+- Use modern HTML5 (`<!DOCTYPE html>`, UTF-8, responsive viewport).
+- Keep elements semantic (`header`, `main`, `section`, `form`).
+- Avoid inline JS event handlers (`onclick="..."`).
+- Scripts should use `defer` or `type="module"`.
 
 ### JavaScript
-- Use strict and modern ES6+ standards (`const`, `let`, arrow functions, async/await).
-- **Security**: Never inject raw, unescaped user or model input directly into `innerHTML`. Always use helper functions (like `escapeHtml`) or safe DOM manipulation (`textContent`, `createElement`).
-- **Ollama API Integration**:
-  - Chat completions endpoint: `POST http://localhost:11434/api/chat`
-  - Generation endpoint: `POST http://localhost:11434/api/generate`
-  - Use `stream: false` unless a streaming UI handler is explicitly implemented.
-- **UI States**: Always disable inputs/buttons while waiting for responses to prevent race conditions and duplicate requests.
+- Use strict modern ES6+ (`const`, `let`, arrow functions, async/await).
+- Never inject raw, unescaped user or model input into `innerHTML`. Use `escapeHtml` or safe DOM APIs (`textContent`, `createElement`).
+- Disable inputs and buttons while a request is in flight.
 
 ### CSS
-- Maintain separation between markup and styling: all styles reside in `src/css/`.
-- Use descriptive, semantic class names rather than numbered element IDs (e.g., `.chat-messages` instead of `#div2`).
-- Responsive layout using Flexbox/Grid.
+- Styles live in `src/css/`.
+- Use descriptive class names.
+- Layout with Flexbox or Grid.
+
+### API
+- The shell talks to the dev server (`/api/brand-profile`, `/api/creative-brief`, `/api/generate-poster`, and the scrape routes in `scripts/serve-static.py`).
+- Use `stream: false` on model calls unless a streaming UI exists.
+- Poster output is a `.pcraft` opened by the PhotoCraft embed. Do not replace that with a flattened-only preview.
 
 ---
 
 ## 4. Testing & Verification
 
-1. **Syntax Checking**:
-   Validate JavaScript changes with Node before committing:
+1. **Syntax** — check changed JavaScript with Node:
+
    ```bash
-   node -c src/js/chatbot.js && node -c src/js/imageGen.js
+   node -c src/js/commmaker-common.js
+   node -c src/js/onboard.js
+   node -c src/js/crisis.js
+   node -c src/js/brand-profile.js
+   node -c src/js/communication-kit.js
+   node -c src/js/photocraft.js
    ```
 
-2. **Local Static Server**:
-   Start a local server to test the interface:
-   ```bash
-   python3 -m http.server 8000
-   ```
-   Verify `http://localhost:8000/` properly redirects and functions.
+2. **Dev server** — `python3 scripts/serve-static.py --port 8000`. Confirm `/` redirects to `home.html`, and Onboard, Crisis, and `/photocraft/` load.
 
-3. **Ollama Endpoint Testing**:
-   Refer to `docs/notes-test.txt` for reference curl calls to test Ollama connectivity.
+3. **Python** — run the tests that cover the modules you changed (`python3 scripts/test_<module>.py`).
