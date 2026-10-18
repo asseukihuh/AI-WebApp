@@ -15,9 +15,12 @@ if SCRIPTS not in sys.path:
 
 from ideogram_judge import (  # noqa: E402
     JUDGE_JSON_SCHEMA,
+    fetch_picture_layer,
+    poster_status_line,
     retry_prompt,
     review_generated_picture,
 )
+from poster_compiler import compile_poster_batch  # noqa: E402
 from render_poster_samples import write_png  # noqa: E402
 
 
@@ -26,6 +29,96 @@ def _fixture_png(folder: str, name: str = "picture.png") -> str:
     row = b"\x4b\xc8\x00" * 8
     write_png(path, 8, 8, [row] * 8)
     return path
+
+
+def _circle_brief() -> dict:
+    return {
+        "headline": "Learn a language in five minutes daily",
+        "subhead": "Free lessons, no textbook required.",
+        "cta": "Learn more",
+        "layoutRecipe": "photo-hero-type",
+        "heroStrategy": "ideogram_generate",
+        "logoTreatment": "wordmark-dark",
+        "layoutTemplate": "circle-stage",
+        "headlineScale": "lg",
+        "ctaStyle": "pill",
+        "composition": {
+            "textRegion": "left",
+            "visuals": [],
+            "colourBlock": "none",
+            "field": "ideogram",
+            "showCta": True,
+            "offer": "",
+            "proof": "",
+        },
+    }
+
+
+class TestCircleBitmap(unittest.TestCase):
+    def test_key_set_and_bitmap_returned_has_no_solid_ellipse(self) -> None:
+        png = b"\x89PNG\r\n\x1a\n" + b"not-empty"
+
+        def generate(_prompt):
+            return "generated/assets/duo-illustration.png", png, {"source": "ideogram-4"}
+
+        fetched = fetch_picture_layer(
+            "A text-free flat illustration of a simple green character.",
+            key_set=True,
+            generate=generate,
+        )
+        self.assertIsNone(fetched["error"])
+        self.assertEqual(fetched["path"], "generated/assets/duo-illustration.png")
+        grid = {"w": 2, "h": 2, "src_w": 640, "src_h": 640, "pixels": [(120, 200, 0)] * 4}
+        batch = compile_poster_batch(
+            {"siteName": "Duolingo", "colors": ["#78c800", "#1cb0f6", "#ffffff"]},
+            {"suggestedHeadline": "Learn a language in five minutes daily", "brief": {"facts": "Free lessons."}},
+            creative_brief=_circle_brief(),
+            hero_relative_path=fetched["path"],
+            hero_width=640,
+            hero_height=640,
+            hero_grid=grid,
+            logo_relative_path="generated/assets/duo.png",
+            logo_variants={"original": "generated/assets/duo.png"},
+            logo_width=180,
+            logo_height=180,
+        )
+        names = [step.get("params", {}).get("name") for step in batch["steps"]]
+        self.assertNotIn("Illustration plate", names)
+        pictures = [item for item in batch["placements"] if item.get("name") == "Picture"]
+        self.assertEqual(len(pictures), 1)
+        self.assertTrue(pictures[0]["path"].endswith("duo-illustration.png"))
+
+    def test_key_set_and_api_error_is_on_the_status_line(self) -> None:
+        def generate(_prompt):
+            raise RuntimeError("HTTP 401 invalid API key")
+
+        fetched = fetch_picture_layer("A flat illustration.", key_set=True, generate=generate)
+        self.assertIn("HTTP 401 invalid API key", fetched["error"])
+        line = poster_status_line(
+            template="circle-stage",
+            ideogram_used=False,
+            error=fetched["error"],
+            score=94,
+        )
+        self.assertIn("circle-stage", line)
+        self.assertIn("HTTP 401 invalid API key", line)
+        self.assertIn("Ideogram failed", line)
+
+    def test_key_missing_allows_the_ellipse(self) -> None:
+        fetched = fetch_picture_layer("A flat illustration.", key_set=False, generate=lambda _p: ("x", b"y", {}))
+        self.assertTrue(fetched["keyMissing"])
+        self.assertIsNone(fetched["error"])
+        batch = compile_poster_batch(
+            {"siteName": "Duolingo", "colors": ["#1cb0f6", "#ffffff"]},
+            {"suggestedHeadline": "Learn a language in five minutes daily", "brief": {"facts": "Free lessons."}},
+            creative_brief={**_circle_brief(), "heroStrategy": "solid"},
+            logo_relative_path="generated/assets/duo.png",
+            logo_variants={"original": "generated/assets/duo.png"},
+            logo_width=180,
+            logo_height=180,
+        )
+        names = [step.get("params", {}).get("name") for step in batch["steps"]]
+        self.assertIn("Illustration plate", names)
 
 
 class TestPictureJudge(unittest.TestCase):

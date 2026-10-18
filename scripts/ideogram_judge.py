@@ -223,6 +223,47 @@ def _default_llm(image_path: str, reference_paths: list[str], palette: list[str]
     return _call_openai(content, api_key=api_key, model=model, base_url=base)
 
 
+def poster_status_line(
+    *,
+    template: str | None,
+    ideogram_used: bool,
+    error: str | None,
+    score: int | None = None,
+) -> str:
+    """Crisis status. An Ideogram failure is part of the line, not only the frame name."""
+    parts: list[str] = []
+    if template:
+        parts.append(template)
+    if error:
+        parts.append(error)
+    elif ideogram_used:
+        parts.append("Ideogram")
+    else:
+        parts.append("no Ideogram")
+    if score is not None:
+        parts.append(f"design score {score}/100")
+    return " · ".join(parts)
+
+
+def fetch_picture_layer(prompt: str, *, key_set: bool, generate: Callable[..., tuple]) -> dict[str, Any]:
+    """Call Ideogram once. A missing key is not an error; a failed call returns the error text."""
+    if not key_set:
+        return {"path": None, "error": None, "keyMissing": True}
+    if not str(prompt or "").strip():
+        return {"path": None, "error": "Ideogram prompt was empty.", "keyMissing": False}
+    try:
+        rel, data, meta = generate(prompt)
+    except Exception as exc:  # noqa: BLE001 — the poster must report the failure, not hide it
+        return {
+            "path": None,
+            "error": f"Ideogram failed: {type(exc).__name__}: {exc}",
+            "keyMissing": False,
+        }
+    if not data:
+        return {"path": None, "error": "Ideogram returned an empty image.", "keyMissing": False}
+    return {"path": rel, "error": None, "keyMissing": False, "meta": meta or {}}
+
+
 def retry_prompt(prompt: str, reason: str, critique: str) -> str:
     """One extra instruction. Still forbids letters and a frame."""
     note = " ".join(f"{reason} {critique}".split())

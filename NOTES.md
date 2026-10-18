@@ -6,6 +6,11 @@ Project update tracking, changelog, and roadmap for `ai-webapp`.
 
 ## 📝 Recent Updates
 
+### 2026-10-18 - The empty circle was the stand-in
+
+- A picture-frame bitmap was placed before the solid field, so the field covered it. When Ideogram did not return a file, `circle-stage` still drew the light-blue “Illustration plate” and the status line omitted the error.
+- The bitmap is now placed above the field. If the key is set and the call fails, the status line includes the error. The ellipse remains only when there is no bitmap.
+
 ### 2026-10-18 - One check of the Ideogram picture
 
 - After a picture frame is generated, one Sonnet vision call scores the bitmap only: no letters, not a flat disc, one focal subject, some depth, brand colour. Linearity rules for the picture are one focal point, layered depth, brand colour, and the subject not lost in empty space.
