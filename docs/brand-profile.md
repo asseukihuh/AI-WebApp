@@ -57,7 +57,7 @@ python3 scripts/test_brand_profile.py   # offline, fixture-based
 
 | Variable | Purpose |
 |----------|---------|
-| `COMMMAKER_BRAND_PROFILE_MODEL` | Override the vision model. Defaults to the creative-brief model (`claude-sonnet-5-5` on Anthropic). |
+| `COMMMAKER_BRAND_PROFILE_MODEL` | Override the vision model. Defaults to the creative-brief model (`claude-opus-5-5` on Anthropic). |
 | `COMMMAKER_CHROME_PATH` | Explicit Chromium/Chrome executable. Otherwise the bundled Playwright Chromium is tried first, then Chrome / Edge channels. |
 | `COMMMAKER_LLM_PRICE_IN_PER_MTOK` / `_OUT_PER_MTOK` | Cost accounting in USD per million tokens (default 3 / 15). |
 

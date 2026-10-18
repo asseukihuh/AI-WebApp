@@ -4,7 +4,8 @@ When a scraped site is visually thin, an AI pass (``COMMMAKER_BRAND_MODEL``, def
 ``claude-opus-5-5``) designs a coherent kit: graphic devices from the logo and sector,
 colour proportions and tints, a type pairing, imagery direction and layout motifs.
 Rich sites are formalised from the colours and type already on the page. Results are
-cached per domain. Poster briefs stay on ``COMMMAKER_LLM_MODEL``.
+cached per domain. Poster briefs and the vision judge use ``COMMMAKER_LLM_MODEL``
+(default ``claude-opus-5-5``).
 
 Reusable assets are SVG. Posters place the same geometry as PhotoCraft ``shape.create``
 vectors (path beziers, ellipses, polygons, rects, lines).
@@ -246,7 +247,7 @@ COMMUNICATION_KIT_JSON_SCHEMA: dict[str, Any] = _strict_object(
 
 
 def resolve_brand_model(provider: str | None = None) -> str:
-    """Kit-analysis model. Poster briefs keep ``resolve_llm_model`` / ``COMMMAKER_LLM_MODEL``."""
+    """Kit-analysis model. Poster briefs use the same Opus default via ``resolve_llm_model``."""
     override = (os.environ.get("COMMMAKER_BRAND_MODEL") or "").strip()
     if override:
         return override
@@ -259,7 +260,7 @@ def resolve_brand_model(provider: str | None = None) -> str:
 
 
 def poster_brief_model(provider: str | None = None) -> str:
-    """Per-poster creative brief model (unchanged Sonnet-class default)."""
+    """Per-poster creative brief model. Default is Opus, same as the brand pass."""
     return resolve_llm_model(provider or resolve_llm_provider() or "anthropic")
 
 
@@ -273,8 +274,9 @@ def _price(name: str, default: float) -> float:
 def cost_usd(usage: dict[str, int] | None, *, kind: str = "kit") -> float:
     usage = usage or {}
     if kind == "brief":
-        price_in = _price("COMMMAKER_LLM_PRICE_IN_PER_MTOK", 3.0)
-        price_out = _price("COMMMAKER_LLM_PRICE_OUT_PER_MTOK", 15.0)
+        # Brief and judge run on Opus: $15 / $75 per million tokens.
+        price_in = _price("COMMMAKER_LLM_PRICE_IN_PER_MTOK", 15.0)
+        price_out = _price("COMMMAKER_LLM_PRICE_OUT_PER_MTOK", 75.0)
     else:
         price_in = _price("COMMMAKER_BRAND_PRICE_IN_PER_MTOK", DEFAULT_BRAND_PRICE_IN)
         price_out = _price("COMMMAKER_BRAND_PRICE_OUT_PER_MTOK", DEFAULT_BRAND_PRICE_OUT)
@@ -282,6 +284,11 @@ def cost_usd(usage: dict[str, int] | None, *, kind: str = "kit") -> float:
         usage.get("inputTokens", 0) * price_in / 1e6 + usage.get("outputTokens", 0) * price_out / 1e6,
         4,
     )
+
+
+def _judge_usd() -> float:
+    """One vision judge at Opus rates ($15 / $75 per million)."""
+    return cost_usd({"inputTokens": 2000, "outputTokens": 200}, kind="brief")
 
 
 def estimated_unit_costs() -> dict[str, Any]:
@@ -299,8 +306,9 @@ def estimated_unit_costs() -> dict[str, Any]:
             f"${DEFAULT_BRAND_PRICE_IN:.0f}/${DEFAULT_BRAND_PRICE_OUT:.0f} per MTok; cached 7 days per domain"
         ),
         "posterBriefUsd": brief,
-        "posterBriefModel": "claude-sonnet-5-5",
-        "posterWithIdeogramUsd": round(brief + IDEOGRAM_IMAGE_USD, 4),
+        "posterBriefModel": poster_brief_model("anthropic"),
+        # A passing poster is one brief, one judge, and one Ideogram image.
+        "posterWithIdeogramUsd": round(brief + _judge_usd() + IDEOGRAM_IMAGE_USD, 4),
         "ideogramImageUsd": IDEOGRAM_IMAGE_USD,
         # One Opus call now returns the profile, the kit and socialStrategy.
         # Before: a Sonnet profile call plus this Opus kit call (2). After: 1 cached call.
@@ -315,14 +323,8 @@ def estimated_unit_costs() -> dict[str, Any]:
             cost_usd({"inputTokens": 1200, "outputTokens": 400}, kind="brief"),
             4,
         ),
-        # One Sonnet vision of the picture (plus at most two brand refs), then at most one more Ideogram.
-        "ideogramJudgeUsd": round(
-            cost_usd(
-                {"inputTokens": 2000, "outputTokens": 200},
-                kind="brief",
-            ),
-            4,
-        ),
+        # One Opus vision of the picture, then at most one more Ideogram image.
+        "ideogramJudgeUsd": round(_judge_usd(), 4),
         "ideogramJudgeRetryUsd": round(
             cost_usd({"inputTokens": 2000, "outputTokens": 200}, kind="brief") + IDEOGRAM_IMAGE_USD,
             4,

@@ -26,9 +26,9 @@ fewer, almost no copy, or a single font. [bds-ig2i.fr](https://bds-ig2i.fr/) is 
 (a green crest, almost no page). Stripe and Vercel are formalised from the palette and type
 already on the page; their devices stay quiet.
 
-`COMMMAKER_BRAND_MODEL` defaults to `claude-opus-5-5` for this pass. It is cached per domain
-for seven days. Per-poster creative briefs stay on `COMMMAKER_LLM_MODEL` (default
-`claude-sonnet-5-5`). The tool schema is strict: `additionalProperties: false` and every
+`COMMMAKER_BRAND_MODEL` and `COMMMAKER_LLM_MODEL` both default to `claude-opus-5-5`.
+The brand pass is cached per domain for seven days. Per-poster creative briefs and the
+vision judge use the same Opus default. The tool schema is strict: `additionalProperties: false` and every
 property required.
 
 With no API key the same structure is filled by a sector heuristic (sport, payments,

@@ -96,8 +96,8 @@ class TestSchema(unittest.TestCase):
         images = [
             {"key": "desktopFold", "label": "Desktop", "data": "AAAA", "mediaType": "image/jpeg", "size": (1280, 800)}
         ]
-        body = bp.anthropic_vision_body(_stripe_signals(), images, model="claude-sonnet-5-5")
-        self.assertEqual(body["model"], "claude-sonnet-5-5")
+        body = bp.anthropic_vision_body(_stripe_signals(), images, model="claude-opus-5-5")
+        self.assertEqual(body["model"], "claude-opus-5-5")
         self.assertEqual(body["tool_choice"], {"type": "auto"})
         tool = body["tools"][0]
         self.assertTrue(tool["strict"])
@@ -239,9 +239,9 @@ class TestAnalyzeBrand(unittest.TestCase):
                 "https://www.stripe.com/", cache_dir=self.tmp, kit=self.kit, capture_fn=self._capture_fn
             )
             self.assertEqual(result["source"], "llm")
-            self.assertEqual(result["model"], "claude-sonnet-5-5")
+            self.assertEqual(result["model"], "claude-opus-5-5")
             self.assertEqual(result["usage"], {"inputTokens": 7400, "outputTokens": 1300})
-            self.assertAlmostEqual(result["costUsd"], 0.0417, places=4)
+            self.assertAlmostEqual(result["costUsd"], 0.2085, places=4)
             self.assertFalse(result["cached"])
             self.assertIn("Stripe logo", result["kit"]["logoSvg"])
             self.assertEqual(result["kit"]["brandProfile"]["name"], "Stripe")

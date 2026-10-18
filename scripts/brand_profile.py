@@ -49,9 +49,9 @@ VISION_MAX_EDGE = 1568
 MAX_LOGO_SVG_CHARS = 80_000
 SNAP_DELTA_E = 14.0
 
-# Sonnet-class list price (USD / million tokens); override for accounting.
-DEFAULT_PRICE_IN_PER_MTOK = 3.0
-DEFAULT_PRICE_OUT_PER_MTOK = 15.0
+# Opus list price (USD / million tokens); override for accounting.
+DEFAULT_PRICE_IN_PER_MTOK = 15.0
+DEFAULT_PRICE_OUT_PER_MTOK = 75.0
 
 PALETTE_ROLES = ("background", "surface", "primary", "secondary", "accent", "text")
 REQUIRED_PALETTE_ROLES = ("background", "primary", "accent", "text")
@@ -2046,7 +2046,7 @@ def call_brand_bundle_llm(
     images: list[dict[str, Any]],
     social: dict[str, Any],
 ) -> dict[str, Any]:
-    """Single Opus call. Poster briefs stay on the Sonnet creative-brief model."""
+    """Single Opus call. Poster briefs use the same Opus default."""
     from communication_kit import resolve_brand_model
 
     provider = resolve_llm_provider()
