@@ -14,6 +14,7 @@ SCRIPTS = os.path.dirname(os.path.abspath(__file__))
 if SCRIPTS not in sys.path:
     sys.path.insert(0, SCRIPTS)
 
+from ideogram_client import generate_layer_image  # noqa: E402
 from ideogram_client import (  # noqa: E402
     IDEOGRAM_GENERATE_URL,
     IDEOGRAM_REMIX_URL,
@@ -21,10 +22,16 @@ from ideogram_client import (  # noqa: E402
     build_structured_prompt,
     ideogram_conditioning,
 )
-from ideogram_judge import acquire_poster_picture, picture_references, poster_status_line  # noqa: E402
+from ideogram_judge import (  # noqa: E402
+    acquire_poster_picture,
+    picture_references,
+    poster_status_line,
+    review_generated_picture,
+)
 from ideogram_packet import (  # noqa: E402
     SCREENSHOTS_SKIPPED_STATUS,
     build_ideogram_packet,
+    choose_component_crops,
     clean_references,
     mostly_page_text,
     prompt_with_packet,
@@ -224,3 +231,98 @@ class TestBrandPassPacket(unittest.TestCase):
         self.assertEqual(result["statusLine"], SCREENSHOTS_SKIPPED_STATUS)
         self.assertIn("role", packet["palette"][0])
         self.assertTrue(packet["palette"][0]["hex"].startswith("#"))
+
+
+class TestComponentCrops(unittest.TestCase):
+    def test_vision_picks_graphic_crops_and_skips_page_text(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            text_path = os.path.join(tmp, "ui.png")
+            ship = os.path.join(tmp, "ship.png")
+            peel = os.path.join(tmp, "peel.png")
+            _png(
+                text_path,
+                48,
+                36,
+                lambda x, y: (16, 16, 16) if y % 2 == 0 and x % 2 == 0 else (248, 248, 246),
+            )
+            _png(ship, 48, 36, lambda x, y: (18, 18, 20) if y < 14 or y > 28 else (210, 210, 214))
+            _png(peel, 48, 36, lambda x, y: (24, 92, 214) if x > 24 and y > 16 else (12, 12, 14))
+
+            def vision(paths: list[str]) -> list[str]:
+                self.assertNotIn(text_path, paths)
+                return [ship, peel]
+
+            chosen = choose_component_crops([text_path, ship, peel], vision_fn=vision)
+            self.assertEqual(chosen, [ship, peel])
+
+    def test_crop_is_uploaded_again_when_a_black_triangle_fails(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            crop = os.path.join(tmp, "ship.png")
+            poster = os.path.join(tmp, "poster.png")
+            _png(crop, 32, 24, lambda x, y: (20, 20, 22))
+            _png(poster, 32, 24, lambda _x, _y: (0, 0, 0))
+            packet = {
+                "palette": [{"role": "primary", "hex": "#111111"}],
+                "imagery": "A hanging corrugated container on a black field.",
+                "references": [crop],
+            }
+            calls: list[str | None] = []
+
+            def fake_api(prompt: str, _size: str, **kwargs):
+                calls.append(kwargs.get("reference_path"))
+                self.assertIn("text-free asset in this visual language", prompt)
+                self.assertIn("Do not copy the words in the crop", prompt)
+                return {"data": [{"url": "https://cdn.example/x.png", "is_image_safe": True}]}
+
+            with patch("ideogram_client._download_image", return_value=b"\x89PNG\r\n\x1a\n"), patch(
+                "ideogram_client._call_generate_api", side_effect=fake_api
+            ):
+                generate_layer_image(
+                    "A black triangle",
+                    "background",
+                    "1200x627",
+                    assets_dir=tmp,
+                    api_key="test-key",
+                    treatment="quiet-type",
+                    brand_packet=packet,
+                )
+                generate_layer_image(
+                    "A black triangle. The previous image failed: generic black triangle.",
+                    "background",
+                    "1200x627",
+                    assets_dir=tmp,
+                    api_key="test-key",
+                    treatment="quiet-type",
+                    brand_packet=packet,
+                )
+            self.assertEqual(calls, [crop, crop])
+
+            seen: list[str] = []
+
+            def llm(_image, refs, _palette, _note):
+                self.assertEqual(refs, [crop])
+                if not seen:
+                    return {
+                        "passed": False,
+                        "reason": "generic black triangle",
+                        "critique": "Use the shipping container, not a triangle.",
+                        "suggestedTreatment": "same",
+                    }
+                return {"passed": True, "reason": "matches the crop", "critique": "", "suggestedTreatment": "same"}
+
+            def regenerate(prompt: str):
+                seen.append(prompt)
+                return poster, b"\x89PNG\r\n\x1a\n", {}
+
+            judged = review_generated_picture(
+                poster,
+                "Make a new text-free asset in this visual language. Do not copy the words in the crop.",
+                reference_paths=[crop],
+                llm_fn=llm,
+                regenerate=regenerate,
+                palette=["primary #111111"],
+            )
+            self.assertTrue(judged["retried"])
+            self.assertTrue(judged["passed"])
+            self.assertIn("Do not copy the words in the crop", seen[0])
+            self.assertIn("black triangle", seen[0])

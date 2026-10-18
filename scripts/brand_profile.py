@@ -576,6 +576,7 @@ def capture_site(
                 fold = os.path.join(out_dir, "desktop-fold.jpg")
                 page.screenshot(path=fold, type="jpeg", quality=82)
                 shots["desktopFold"] = fold
+                shots.update(_component_shots(page, out_dir))
                 rendered = page.evaluate(_EXTRACT_JS)
                 height = int(min(FULL_PAGE_MAX_HEIGHT, rendered.get("scrollHeight") or 900))
                 full = os.path.join(out_dir, "desktop-full.jpg")
@@ -618,6 +619,62 @@ def capture_site(
         "rendered": rendered,
         "durationSec": round(time.time() - started, 2),
     }
+
+
+_COMPONENT_JS = """
+() => {
+  document.querySelectorAll("[data-cm-component]").forEach((el) => el.removeAttribute("data-cm-component"));
+  const candidates = [];
+  const nodes = document.querySelectorAll("img, svg, canvas, video, picture, figure, section, article, div");
+  for (const el of nodes) {
+    const rect = el.getBoundingClientRect();
+    if (rect.width < 200 || rect.height < 140) continue;
+    if (rect.width > window.innerWidth * 0.96 && rect.height > window.innerHeight * 0.92) continue;
+    const tag = el.tagName.toLowerCase();
+    const style = getComputedStyle(el);
+    const background = style.backgroundImage && style.backgroundImage !== "none";
+    const media = ["img", "svg", "canvas", "video", "picture", "figure"].includes(tag);
+    const child = el.querySelector(":scope > img, :scope > svg, :scope > canvas, :scope > video, :scope > picture");
+    if (!media && !background && !child) continue;
+    candidates.push({el, area: rect.width * rect.height});
+  }
+  candidates.sort((a, b) => b.area - a.area);
+  const kept = [];
+  for (const item of candidates) {
+    const box = item.el.getBoundingClientRect();
+    const overlaps = kept.some((other) => {
+      const prev = other.el.getBoundingClientRect();
+      const width = Math.max(0, Math.min(box.right, prev.right) - Math.max(box.left, prev.left));
+      const height = Math.max(0, Math.min(box.bottom, prev.bottom) - Math.max(box.top, prev.top));
+      const smaller = Math.min(box.width * box.height, prev.width * prev.height) || 1;
+      return (width * height) / smaller > 0.7;
+    });
+    if (overlaps) continue;
+    kept.push(item);
+    if (kept.length >= 6) break;
+  }
+  kept.forEach((item, index) => item.el.setAttribute("data-cm-component", String(index)));
+  return kept.length;
+}
+"""
+
+
+def _component_shots(page: Any, out_dir: str) -> dict[str, str]:
+    """Element screenshots of hero art, cards and illustrations, not the whole page."""
+    shots: dict[str, str] = {}
+    try:
+        count = int(page.evaluate(_COMPONENT_JS) or 0)
+    except Exception:  # noqa: BLE001 — a page with no measurable components still has the fold
+        return shots
+    for index in range(min(count, 6)):
+        path = os.path.join(out_dir, f"component-{index}.jpg")
+        try:
+            page.locator(f'[data-cm-component="{index}"]').screenshot(path=path, type="jpeg", quality=80)
+        except Exception:  # noqa: BLE001 — one element can fail without dropping the page shot
+            continue
+        if os.path.isfile(path):
+            shots[f"component{index}"] = path
+    return shots
 
 
 def pixel_palette(image_path: str | None, *, colors: int = 10) -> list[dict[str, Any]]:
@@ -1587,6 +1644,61 @@ def _screenshots_skipped(capture: dict[str, Any] | None, social: dict[str, Any] 
     return not ok
 
 
+def _component_vision(paths: list[str]) -> list[str] | None:
+    """Claude picks up to two graphic crops. A miss returns None so the pixel filter stands."""
+    provider = resolve_llm_provider()
+    if provider != "anthropic" or not paths:
+        return None
+    api_key = api_key_for_provider(provider)
+    if not api_key:
+        return None
+    content: list[dict[str, Any]] = []
+    for index, path in enumerate(paths):
+        loaded = _load_image_for_vision(path, max_edge=768)
+        if not loaded:
+            continue
+        data, media, _size = loaded
+        content.append({"type": "text", "text": f"Image {index}"})
+        content.append({"type": "image", "source": {"type": "base64", "media_type": media, "data": data}})
+    if not content:
+        return None
+    content.append(
+        {
+            "type": "text",
+            "text": (
+                "These are cropped website components. Pick up to two that are graphic assets "
+                "(hero art, an illustration, a product graphic). Skip any crop that is mostly UI text. "
+                'Reply with JSON only: {"keep": [0]} using the image indexes.'
+            ),
+        }
+    )
+    try:
+        payload = _post_json(
+            f"{ANTHROPIC_API_BASE}/messages",
+            {
+                "model": resolve_llm_model(provider),
+                "max_tokens": 200,
+                "messages": [{"role": "user", "content": content}],
+            },
+            _anthropic_request_headers(api_key),
+        )
+        text = ""
+        for block in payload.get("content") or []:
+            if block.get("type") == "text":
+                text += str(block.get("text") or "")
+        match = re.search(r"\{.*\}", text, re.S)
+        if not match:
+            return None
+        keep = json.loads(match.group(0)).get("keep") or []
+        chosen = []
+        for index in keep:
+            if isinstance(index, int) and 0 <= index < len(paths):
+                chosen.append(paths[index])
+        return chosen[:2] or None
+    except Exception:  # noqa: BLE001 — pixel filter already removed page text
+        return None
+
+
 def _attach_ideogram_packet(
     result: dict[str, Any],
     profile: dict[str, Any],
@@ -1595,21 +1707,28 @@ def _attach_ideogram_packet(
     folder: str,
     social: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
-    from ideogram_packet import build_ideogram_packet
+    from ideogram_packet import build_ideogram_packet, choose_component_crops
 
-    paths: list[str] = []
-    for value in ((capture or {}).get("screenshots") or {}).values():
-        if value and value not in paths:
-            paths.append(value)
+    shots = (capture or {}).get("screenshots") or {}
+    components = [value for key, value in shots.items() if str(key).startswith("component") and value]
+    pages = [value for key, value in shots.items() if value and not str(key).startswith("component")]
     for visit in (social or {}).get("visits") or []:
         shot = visit.get("screenshot") if isinstance(visit, dict) else ""
-        if shot and shot not in paths:
-            paths.append(shot)
+        if shot and shot not in pages:
+            pages.append(shot)
     skipped = _screenshots_skipped(capture, social)
+    if skipped:
+        paths: list[str] = []
+    elif components:
+        paths = choose_component_crops(components, vision_fn=_component_vision if resolve_llm_provider() else None)
+        if not paths:
+            paths = pages
+    else:
+        paths = pages
     packet = build_ideogram_packet(
         profile,
         kit,
-        image_paths=[] if skipped else paths,
+        image_paths=paths,
         screenshots_skipped=skipped,
         out_dir=os.path.join(folder, "ideogram-refs"),
     )

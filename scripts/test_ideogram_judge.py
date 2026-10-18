@@ -339,11 +339,13 @@ class TestPictureFill(unittest.TestCase):
         self.assertIn("small inset", line)
         self.assertIn("3 attempts", line)
 
-    def test_quiet_type_is_not_sent_to_ideogram(self) -> None:
+    def test_quiet_type_is_sent_to_ideogram(self) -> None:
         kit, profile = _duo()
+        seen: list[str] = []
 
-        def generate(_prompt: str):
-            raise AssertionError("quiet-type must not call Ideogram")
+        def generate(prompt: str):
+            seen.append(prompt)
+            return "generated/assets/quiet-field.png", PNG, {"source": "ideogram-4.5"}
 
         result = acquire_poster_picture(
             {"layoutTemplate": "centered-statement", "heroStrategy": "solid", "treatment": "quiet-type"},
@@ -353,18 +355,20 @@ class TestPictureFill(unittest.TestCase):
             key_set=True,
             generate=generate,
         )
-        self.assertFalse(result["called"])
-        self.assertEqual(result["ideogramMs"], 0)
-        self.assertIn("quiet-type", result["ideogramError"])
+        self.assertTrue(result["called"])
+        self.assertTrue(result["ideogramUsed"])
+        self.assertIn("text-free asset in this visual language", seen[0])
+        self.assertIn("Do not copy the words in the crop", seen[0])
         line = poster_status_line(
             template="centered-statement",
-            ideogram_used=False,
-            error=result["ideogramError"],
+            ideogram_used=True,
+            error=None,
             treatment="quiet-type",
-            judge={"passed": None, "reason": "No image.", "attempts": 1},
+            ideogram_ms=result["ideogramMs"],
+            judge={"passed": True, "reason": "Matches the crop.", "attempts": 1},
         )
         self.assertIn("quiet-type", line)
-        self.assertIn("1 attempt", line)
+        self.assertIn("judge pass", line)
 
     def test_photo_band_does_not_cover_the_whole_canvas(self) -> None:
         band = treatment_spec("photo-band")
@@ -389,17 +393,25 @@ class TestPictureFill(unittest.TestCase):
         displayed_h = 512 * picture["scale"] / 100
         self.assertLess(displayed_h, LINKEDIN_HEIGHT - 40)
 
-    def test_failed_treatment_can_switch_without_another_image(self) -> None:
-        def llm(_path, _refs, _palette, _note):
-            return {
-                "passed": False,
-                "reason": "full-bleed was wrong for this brand.",
-                "critique": "Use a quiet type poster.",
-                "suggestedTreatment": "quiet-type",
-            }
+    def test_failed_treatment_retries_quiet_type_with_the_crop(self) -> None:
+        calls = {"n": 0}
 
-        def regen(_prompt):
-            raise AssertionError("quiet-type retry must not call Ideogram")
+        def llm(_path, _refs, _palette, _note):
+            calls["n"] += 1
+            if calls["n"] == 1:
+                return {
+                    "passed": False,
+                    "reason": "full-bleed was wrong for this brand.",
+                    "critique": "Use a quiet type poster.",
+                    "suggestedTreatment": "quiet-type",
+                }
+            return {"passed": True, "reason": "Matches the crop.", "critique": "", "suggestedTreatment": "same"}
+
+        seen: list[str] = []
+
+        def regen(prompt: str):
+            seen.append(prompt)
+            return picture, b"\x89PNG\r\n\x1a\n", {}
 
         with tempfile.TemporaryDirectory() as folder:
             picture = _save_rgb(
@@ -411,16 +423,17 @@ class TestPictureFill(unittest.TestCase):
             result = review_generated_picture(
                 picture,
                 "A full-bleed scene.",
+                reference_paths=[picture],
                 llm_fn=llm,
                 regenerate=regen,
-                region=(0, 0, 1200, 627),
                 treatment="full-sheet",
             )
-        self.assertFalse(result["passed"])
-        self.assertTrue(result["dropImage"])
+        self.assertTrue(result["passed"])
+        self.assertFalse(result["dropImage"])
         self.assertEqual(result["treatment"], "quiet-type")
-        self.assertIn("full-bleed was wrong", result["reason"])
-        self.assertEqual(result["attempts"], 1)
+        self.assertTrue(seen)
+        self.assertIn("Do not copy the words in the crop", seen[0])
+        self.assertIn("quiet-type", seen[0])
 
 
 PNG = b"\x89PNG\r\n\x1a\n" + b"\x00" * 24
@@ -542,24 +555,28 @@ class TestPictureFrameMustPost(unittest.TestCase):
         self.assertIn("0 ms", line)
         self.assertNotIn("Ideogram ·", line)
 
-    def test_type_frame_with_a_key_skips_and_says_why(self) -> None:
+    def test_quiet_type_still_calls_ideogram(self) -> None:
         kit, profile = _duo()
+        seen: list[str] = []
 
-        def generate(_prompt: str):
-            raise AssertionError("Ideogram client must not be called")
+        def generate(prompt: str):
+            seen.append(prompt)
+            return "generated/assets/vercel-field.png", PNG, {"source": "ideogram-4.5"}
 
         result = acquire_poster_picture(
-            {"layoutTemplate": "type-only", "heroStrategy": "ideogram_generate", "heroImagePrompt": "A scene"},
+            {"layoutTemplate": "mark-stage", "heroStrategy": "solid", "heroImagePrompt": ""},
             kit,
             profile,
-            template="type-only",
+            template="mark-stage",
             key_set=True,
             generate=generate,
         )
-        self.assertFalse(result["called"])
-        self.assertEqual(result["ideogramMs"], 0)
-        self.assertIn("not a picture frame", result["ideogramError"])
-        self.assertEqual(result["brief"]["heroStrategy"], "solid")
+        self.assertTrue(result["called"])
+        self.assertTrue(result["ideogramUsed"])
+        self.assertEqual(result["brief"]["heroStrategy"], "ideogram_generate")
+        self.assertEqual(result["brief"]["layoutRecipe"], "photo-hero-type")
+        self.assertIn("text-free asset in this visual language", seen[0])
+        self.assertIn("Do not copy the words in the crop", seen[0])
 
     def test_empty_image_is_not_a_judge_pass(self) -> None:
         kit, profile = _duo()

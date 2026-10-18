@@ -287,6 +287,36 @@ def clean_references(paths: list[str], out_dir: str | None, *, limit: int = 2) -
     return chosen[:limit]
 
 
+def choose_component_crops(
+    paths: list[str],
+    *,
+    vision_fn: Any | None = None,
+    limit: int = 2,
+) -> list[str]:
+    """Up to two graphic crops. Page-text screenshots are dropped before vision picks."""
+    graphic: list[str] = []
+    for path in paths:
+        if not path or not os.path.isfile(path):
+            continue
+        loaded = _load_sample(path)
+        if not loaded:
+            continue
+        width, height, pixels = loaded
+        if mostly_page_text(pixels, width, height):
+            continue
+        graphic.append(path)
+    if vision_fn and graphic:
+        try:
+            picked = vision_fn(graphic)
+        except Exception:  # noqa: BLE001 — a vision miss keeps the graphic crops
+            picked = None
+        if picked:
+            chosen = [path for path in picked if path in graphic]
+            if chosen:
+                return chosen[:limit]
+    return graphic[:limit]
+
+
 def build_ideogram_packet(
     profile: dict[str, Any] | None,
     kit: dict[str, Any] | None = None,

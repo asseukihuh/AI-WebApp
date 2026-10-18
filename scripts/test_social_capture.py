@@ -54,9 +54,9 @@ class TestPublicSocial(unittest.TestCase):
     def test_social_format_picks_the_frame_and_skips_ideogram_for_type(self) -> None:
         profile = {"socialStrategy": {"formats": ["type-only", "photo-card"], "voice": "warm", "doNotInvent": ["statistics"]}}
         self.assertEqual(brand_layout_energy({"siteName": "Airbnb", "colors": ["#e61e4d"]}, profile), "photo-card")
-        self.assertTrue(template_skips_ideogram("type-only"))
-        self.assertTrue(template_skips_ideogram("communique"))
-        self.assertTrue(template_skips_ideogram("mark-stage"))
+        self.assertFalse(template_skips_ideogram("type-only"))
+        self.assertFalse(template_skips_ideogram("communique"))
+        self.assertFalse(template_skips_ideogram("mark-stage"))
         self.assertFalse(template_needs_raster("type-only"))
         self.assertTrue(template_needs_raster("photo-card"))
         self.assertTrue(template_needs_raster("character-scene"))

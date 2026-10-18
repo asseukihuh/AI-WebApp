@@ -331,7 +331,19 @@ def treatment_spec(treatment: str | None) -> dict[str, str]:
         "quiet-type",
     ) else "full-sheet"
     if kind == "quiet-type":
-        return {"treatment": kind, "resolution": "", "aspect": "", "zone": "center", "fill": "", "quiet": "", "prompt": ""}
+        return {
+            "treatment": kind,
+            "resolution": closest_ideogram_resolution("1200x627"),
+            "aspect": "16:9",
+            "zone": "center",
+            "quiet": "The words sit on this field in editable type.",
+            "fill": (
+                "Make a new text-free asset in this visual language "
+                "(same materials, shapes, palette), for the quiet-type poster. "
+                "Do not copy the words in the crop."
+            ),
+            "prompt": "",
+        }
     if kind == "photo-band":
         return {
             "treatment": kind,
@@ -681,9 +693,11 @@ def generate_layer_image(
     packet = brand_packet if isinstance(brand_packet, dict) else (brand_profile or {}).get("ideogramPacket")
     reference_path = _reference_path(packet if isinstance(packet, dict) else None)
     if reference_path:
+        kind = treatment or "poster"
         prompt = (
-            "Use the attached image only for colour and imagery. "
-            "Make a new text-free picture. Do not keep letters or a page layout. "
+            "Make a new text-free asset in this visual language "
+            f"(same materials, shapes, palette), for the {kind} poster. "
+            "Do not copy the words in the crop. "
             + prompt
         )
     magic_prompt = resolve_magic_prompt()

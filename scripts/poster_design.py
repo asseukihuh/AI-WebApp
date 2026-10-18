@@ -740,8 +740,9 @@ def template_needs_raster(name: str | None) -> bool:
 
 
 def template_skips_ideogram(name: str | None) -> bool:
-    """Type-only statements and vector marks. No generated picture."""
-    return (name or "") in {"type-only", "communique", "mark-stage", "device-stage"}
+    """Every poster gets an Ideogram field. The template name does not skip the call."""
+    del name
+    return False
 
 
 def kit_hero_unsuitable(kit: dict[str, Any] | None) -> bool:
@@ -1119,7 +1120,9 @@ def logo_target_size(img_w: int | None, img_h: int | None) -> tuple[float, float
 
 
 TREATMENTS = ("full-sheet", "photo-band", "pattern-field", "illustration-cluster", "quiet-type")
-IMAGE_TREATMENTS = frozenset({"full-sheet", "photo-band", "pattern-field", "illustration-cluster"})
+IMAGE_TREATMENTS = frozenset(
+    {"full-sheet", "photo-band", "pattern-field", "illustration-cluster", "quiet-type"}
+)
 # Photograph above a type band. Not a full-bleed sheet.
 PHOTO_BAND: Box = (0.0, 0.0, CANVAS_W, 340.0)
 
