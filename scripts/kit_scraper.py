@@ -823,6 +823,11 @@ def scrape_kit_from_html(
         kit["accentColors"] = accent_colors
     if google_fonts:
         kit["googleFonts"] = google_fonts[:8]
+    from font_fetcher import parse_font_faces
+
+    font_files = parse_font_faces(font_blob, source_url)
+    if font_files:
+        kit["fontFiles"] = font_files[:12]
     return kit
 
 

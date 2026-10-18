@@ -1196,7 +1196,9 @@ def treatment_for_template(name: str | None) -> str:
 
 
 def choose_treatment(brief: dict[str, Any] | None, energy: str | None = None) -> str:
-    """The brief's treatment wins. Otherwise the brand energy chooses."""
+    """A photo brand uses the photo band. Otherwise the brief's treatment wins."""
+    if energy in ("photo-block", "photo-card"):
+        return "photo-band"
     raw = (brief or {}).get("treatment")
     if raw in TREATMENTS:
         return str(raw)

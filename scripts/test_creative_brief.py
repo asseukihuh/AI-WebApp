@@ -571,7 +571,9 @@ class TestLayoutEnergy(unittest.TestCase):
         self.assertEqual(brief["layoutTemplate"], "photo-block")
         self.assertEqual(brief["heroStrategy"], "ideogram_generate")
         self.assertNotIn("remix", (brief.get("heroImagePrompt") or "").lower())
-        self.assertIn("right half", brief["heroImagePrompt"])
+        self.assertIn("home interior", brief["heroImagePrompt"].lower())
+        self.assertIn("abstract blur", brief["heroImagePrompt"].lower())
+        self.assertNotIn("right half", brief["heroImagePrompt"].lower())
 
     def test_photo_standin_is_not_a_flat_gradient(self) -> None:
         kit = {"siteName": "Airbnb", "colors": ["#e61e4d", "#ffffff"]}

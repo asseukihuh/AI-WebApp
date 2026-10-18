@@ -508,6 +508,36 @@ def _blob_has(blob: str, needles: tuple[str, ...]) -> bool:
     return any(needle in blob for needle in needles)
 
 
+def _brand_copy(kit: dict[str, Any] | None, brand_profile: dict[str, Any] | None) -> str:
+    profile = brand_profile if isinstance(brand_profile, dict) else {}
+    bits = [
+        str((kit or {}).get("siteName") or ""),
+        str((kit or {}).get("tagline") or ""),
+        str((kit or {}).get("headline") or ""),
+        str(profile.get("name") or ""),
+        str(profile.get("tagline") or ""),
+    ]
+    return " ".join(bits).casefold()
+
+
+def brand_is_photographic(kit: dict[str, Any] | None, brand_profile: dict[str, Any] | None = None) -> bool:
+    """Hospitality and photography brands. Their poster is a picture, not a pattern."""
+    medium, blob = _imagery_blob(kit, brand_profile)
+    widened = f"{blob} {_brand_copy(kit, brand_profile)}"
+    return medium in ("photography", "photo", "editorial") or _blob_has(
+        widened, ("photograph", "photography", "interior", "lifestyle", "hospitality", "vacation rental", "airbnb")
+    )
+
+
+def brand_wants_home_interior(kit: dict[str, Any] | None, brand_profile: dict[str, Any] | None = None) -> bool:
+    """Airbnb and other stay brands. The picture is one home, not a UI card."""
+    widened = f"{_imagery_blob(kit, brand_profile)[1]} {_brand_copy(kit, brand_profile)}"
+    return _blob_has(
+        widened,
+        ("interior", "hospitality", "vacation", "airbnb", "home", "stay", "rental"),
+    )
+
+
 _SOCIAL_ENERGY = {
     "type-only": "type-only",
     "photo-card": "photo-card",
@@ -543,23 +573,25 @@ def brand_layout_energy(
     profile = brand_profile if isinstance(brand_profile, dict) else None
     if profile is None and isinstance(kit.get("brandProfile"), dict):
         profile = kit["brandProfile"]
-    social = (profile or {}).get("socialStrategy") if isinstance(profile, dict) else None
-    social_energy = _energy_from_social(social)
-    if social_energy:
-        return social_energy
     medium, blob = _imagery_blob(kit, brand_profile)
     profile = brand_profile if isinstance(brand_profile, dict) else None
     if profile is None and isinstance(kit.get("brandProfile"), dict):
         profile = kit["brandProfile"]
+    widened = f"{blob} {_brand_copy(kit, profile)}"
+    # A hospitality or photo brand is a photograph, even when a social format says gradient.
+    if medium in ("photography", "photo", "editorial") or _blob_has(
+        widened, ("photograph", "photography", "interior", "lifestyle", "hospitality", "vacation rental")
+    ):
+        return "photo-block"
+    social = (profile or {}).get("socialStrategy") if isinstance(profile, dict) else None
+    social_energy = _energy_from_social(social)
+    if social_energy:
+        return social_energy
     roles = brand_roles(kit, profile)
     symbol = _logo_is_symbol(kit)
     imagery = has_imagery_direction(kit, profile)
     usable_photo = bool(kit.get("heroImageUrl")) and not kit_hero_unsuitable(kit)
     thin = bool((kit.get("communicationKit") or {}).get("thinSite")) if isinstance(kit.get("communicationKit"), dict) else False
-    if medium in ("photography", "photo", "editorial") or _blob_has(
-        blob, ("photograph", "photography", "interior", "lifestyle", "hospitality")
-    ):
-        return "photo-block"
     if medium in ("illustration", "illustrations") or _blob_has(
         blob, ("illustration", "illustrated", "mascot", "character")
     ):
@@ -1535,10 +1567,15 @@ def _energy_image_prompt(
         return captured
     if energy == "photo-block":
         scene = captured or (
-            "A text-free photograph of a sunlit interior, warm materials and soft daylight, "
-            "no people, no signs, no letters"
+            "One text-free photograph of a home interior, a real room in sharp focus, "
+            "furniture and daylight"
         )
-        return scene + " The photograph fills the right half; the left half stays a plain flat colour."
+        if brand_wants_home_interior(kit, brand_profile) and "interior" not in scene.casefold():
+            scene = "One text-free photograph of a home interior. " + scene
+        return (
+            scene
+            + " The photograph fills the frame. No UI card, no headline, no button, no abstract blur."
+        )
     if energy == "circle-stage":
         return raster_scene_prompt("circle-stage", kit, brand_profile, existing=captured)
     if energy == "product-card":

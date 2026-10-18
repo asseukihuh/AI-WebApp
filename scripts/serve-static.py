@@ -766,11 +766,22 @@ class CommMakerHandler(http.server.SimpleHTTPRequestHandler):
                 ideogram_judge = None
             type_report = (batch.get("meta") or {}).get("typeQuality") or {}
             if ideogram_used and type_report and not type_report.get("passed"):
-                ideogram_judge = dict(ideogram_judge or {})
-                ideogram_judge["passed"] = False
-                ideogram_judge["reason"] = type_report.get("reason") or "Weak type."
-                ideogram_judge.setdefault("attempts", 1)
-                ideogram_judge.setdefault("treatment", poster_treatment)
+                reasons = [
+                    part.strip()
+                    for part in str(type_report.get("reason") or "").split(";")
+                    if part.strip() and "brand font failed" not in part.casefold()
+                ]
+                if reasons:
+                    ideogram_judge = dict(ideogram_judge or {})
+                    ideogram_judge["passed"] = False
+                    picture_reason = str(ideogram_judge.get("reason") or "").strip()
+                    extra = "; ".join(reasons)
+                    if picture_reason and "brand font failed" not in picture_reason.casefold():
+                        ideogram_judge["reason"] = f"{picture_reason}; {extra}"
+                    else:
+                        ideogram_judge["reason"] = extra
+                    ideogram_judge.setdefault("attempts", 1)
+                    ideogram_judge.setdefault("treatment", poster_treatment)
             if ideogram_judge:
                 payload["ideogramJudge"] = ideogram_judge
             if ideogram_fallback_message:
@@ -785,6 +796,7 @@ class CommMakerHandler(http.server.SimpleHTTPRequestHandler):
                 treatment=(ideogram_judge or {}).get("treatment") or poster_treatment or None,
                 screenshots_skipped=bool((acquired.get("ideogramPacket") or {}).get("screenshotsSkipped")),
                 brand_font_failed=bool((batch.get("meta") or {}).get("brandFontFailed")),
+                brand_font_error=(batch.get("meta") or {}).get("brandFontError"),
             )
             sys.stderr.write(
                 "CommMaker poster: template=%s ideogramUsed=%s ideogramMs=%s ideogramError=%s\n"

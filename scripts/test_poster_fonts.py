@@ -11,7 +11,13 @@ SCRIPTS = os.path.dirname(os.path.abspath(__file__))
 if SCRIPTS not in sys.path:
     sys.path.insert(0, SCRIPTS)
 
-from font_fetcher import parse_google_font_links, pick_body_font, pick_headline_font  # noqa: E402
+from font_fetcher import (  # noqa: E402
+    parse_font_faces,
+    parse_google_font_links,
+    pick_body_font,
+    pick_headline_font,
+    resolve_poster_fonts,
+)
 from kit_scraper import scrape_kit_from_html  # noqa: E402
 from image_probe import svg_dimensions_from_text  # noqa: E402
 from poster_compiler import (  # noqa: E402
@@ -127,6 +133,89 @@ def test_google_font_link_parse() -> None:
     assert parsed[0]["cssUrl"].startswith("https://fonts.googleapis.com/")
 
 
+def test_airbnb_lockup_keeps_the_symbol_and_the_variable_font() -> None:
+    import tempfile
+
+    from poster_compiler import crop_lockup_svg
+
+    svg = (
+        '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 120 32" width="120" height="32">'
+        '<path d="M4 4h24v24H4z"/>'
+        '<path d="M48 8h60v16H48z"/>'
+        "</svg>"
+    )
+    cropped = crop_lockup_svg(svg)
+    assert "M4 4h24v24H4z" in cropped
+    assert "M48 8h60v16H48z" not in cropped
+    assert "viewBox=\"0 0" in cropped
+    css = (
+        '@font-face { font-family: "Airbnb Cereal VF"; '
+        'src: url(https://a0.muscache.com/airbnb/static/fonts/cereal.woff2) format("woff2"); '
+        "font-weight: 300 900; }"
+    )
+    faces = parse_font_faces(css, "https://www.airbnb.com/")
+    assert faces[0]["family"] == "Airbnb Cereal VF"
+    assert faces[0]["url"].endswith("cereal.woff2")
+    kit = scrape_kit_from_html(f"<style>{css}</style><h1>Stay somewhere new</h1>", "https://www.airbnb.com/")
+    assert any(item["url"].endswith("cereal.woff2") for item in kit.get("fontFiles") or [])
+    font_kit = {
+        "siteName": "Airbnb",
+        "fonts": ["Airbnb Cereal VF", "Circular"],
+        "colors": ["#ff5a5f"],
+        "fontFiles": faces,
+        "logoSvg": cropped,
+    }
+    profile = {"typography": {"display": {"family": "Airbnb Cereal VF", "weights": [700]}}}
+
+    def fetch_ok(url: str) -> bytes:
+        if url.endswith(".woff2"):
+            return b"wOF2" + b"\x00" * 40
+        raise OSError(url)
+
+    def fetch_fail(url: str) -> bytes:
+        raise OSError(url)
+
+    with tempfile.TemporaryDirectory() as tmp:
+        loaded = resolve_poster_fonts(font_kit, tmp, fetcher=fetch_ok)
+        assert "Airbnb Cereal VF" in loaded["woff2"]
+        assert "fontFailure" not in loaded
+        assets = os.path.join(tmp, "generated", "assets")
+        os.makedirs(assets)
+        logo_path = os.path.join(assets, "logo.svg")
+        with open(logo_path, "w", encoding="utf-8") as handle:
+            handle.write(svg)
+        batch = compile_poster_batch(
+            font_kit,
+            _session(),
+            creative_brief={
+                "headline": "Stay somewhere new",
+                "subhead": "Homes with a kitchen",
+                "layoutTemplate": "photo-block",
+                "treatment": "photo-band",
+                "heroStrategy": "ideogram_generate",
+            },
+            hero_relative_path="generated/assets/home.png",
+            hero_width=1440,
+            hero_height=720,
+            logo_relative_path="generated/assets/logo.svg",
+            logo_width=120,
+            logo_height=32,
+            assets_dir=assets,
+            fonts_resolved=loaded,
+            brand_profile=profile,
+        )
+        assert batch["meta"]["brandFontFailed"] is False
+        logo = next(item for item in batch["placements"] if item.get("name") == "Logo")
+        assert "logo-symbol-" in logo["path"]
+        headline = next(step for step in batch["steps"] if step["params"].get("name") == "Headline")
+        assert headline["params"]["font"] == "Airbnb Cereal VF"
+        assert headline["params"]["box"][0] > 80
+        assert any(step["params"].get("name") == "Type band" for step in batch["steps"])
+    with tempfile.TemporaryDirectory() as failed_dir:
+        failed = resolve_poster_fonts(font_kit, failed_dir, fetcher=fetch_fail)
+        assert "cereal.woff2" in failed["fontFailure"]
+
+
 def test_logo_placements_with_hero() -> None:
     svg_dims = svg_dimensions_from_text(_STRIPE_LOGO_SVG)
     assert svg_dims == (512, 120)
@@ -166,6 +255,7 @@ def main() -> int:
     test_pick_helpers()
     test_batch_fonts_differ()
     test_google_font_link_parse()
+    test_airbnb_lockup_keeps_the_symbol_and_the_variable_font()
     test_logo_placements_with_hero()
     print("poster font tests OK")
     return 0
