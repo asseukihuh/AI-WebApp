@@ -74,6 +74,10 @@ LayoutTemplateName = Literal[
     "text-panel",
     "centered-statement",
     "device-stage",
+    "photo-block",
+    "circle-stage",
+    "mark-stage",
+    "product-card",
 ]
 LAYOUT_TEMPLATES: tuple[str, ...] = (
     "full-bleed-scrim",
@@ -81,6 +85,10 @@ LAYOUT_TEMPLATES: tuple[str, ...] = (
     "text-panel",
     "centered-statement",
     "device-stage",
+    "photo-block",
+    "circle-stage",
+    "mark-stage",
+    "product-card",
 )
 HEADLINE_SCALES: tuple[str, ...] = ("xl", "lg", "md")
 HEADLINE_WEIGHTS: tuple[str, ...] = ("bold", "extrabold")
@@ -526,6 +534,84 @@ TEMPLATES: dict[str, LayoutTemplate] = {
         ideogram_layout_note="asymmetric colour block on the left; one large graphic device on the right",
         panel_box=(0, 0, 640, CANVAS_H),
         max_headline_lines=3,
+    ),
+    "photo-block": LayoutTemplate(
+        name="photo-block",
+        text_x=col_x(0),
+        text_w=span_w(4),
+        anchor="center",
+        align="left",
+        image_region=(560, 0, CANVAS_W - 560, CANVAS_H),
+        image_align="right",
+        scrim="none",
+        surface="panel",
+        logo_align="left",
+        accent_center=(CANVAS_W * 0.74, CANVAS_H * 0.48),
+        ideogram_subject_bboxes=((80, 560, 980, 1000),),
+        ideogram_background=(
+            "a text-free photograph filling the right half, with a plain flat colour on the left "
+            "for type"
+        ),
+        ideogram_layout_note="colour headline block on the left, photograph cropped on the right",
+        panel_box=(0, 0, 560, CANVAS_H),
+        max_headline_lines=4,
+    ),
+    "circle-stage": LayoutTemplate(
+        name="circle-stage",
+        text_x=col_x(0),
+        text_w=span_w(5),
+        anchor="center",
+        align="left",
+        image_region=(700, 104, 400, 400),
+        image_align="center",
+        scrim="none",
+        surface="none",
+        logo_align="left",
+        accent_center=(900, 304),
+        ideogram_subject_bboxes=((80, 700, 980, 980),),
+        ideogram_background=(
+            "a paper-coloured field with one large circular illustration on the right and an empty "
+            "left side for type, no letters and no extra characters"
+        ),
+        ideogram_layout_note="illustration inside a circle on the right, type on the open left",
+        max_headline_lines=4,
+    ),
+    "mark-stage": LayoutTemplate(
+        name="mark-stage",
+        text_x=col_x(2),
+        text_w=span_w(8),
+        anchor="bottom",
+        align="center",
+        image_region=(420, 36, 360, 320),
+        image_align="center",
+        scrim="none",
+        surface="none",
+        logo_align="center",
+        accent_center=None,
+        ideogram_subject_bboxes=(),
+        ideogram_background="unused: the symbol is placed as vectors, not painted",
+        ideogram_layout_note="stark flat field, one large symbol centred, type along the bottom",
+        max_headline_lines=2,
+    ),
+    "product-card": LayoutTemplate(
+        name="product-card",
+        text_x=col_x(1),
+        text_w=span_w(10),
+        anchor="bottom",
+        align="center",
+        image_region=(390, 44, 420, 300),
+        image_align="center",
+        scrim="none",
+        surface="none",
+        logo_align="center",
+        accent_center=(600, 190),
+        ideogram_subject_bboxes=((40, 400, 280, 820),),
+        ideogram_background=(
+            "a flat brand colour with one product pack centred in the upper half, no readable "
+            "labels, no logos, caption space left along the bottom"
+        ),
+        ideogram_layout_note="product centred on a flat colour, short caption along the bottom",
+        max_headline_lines=2,
     ),
 }
 
@@ -1123,16 +1209,21 @@ def audit_plan(
     if plan.align == "left":
         asymmetric = True
         asymmetry_detail = "text mass on the left, open field opposite"
-    elif plan.template == "centered-statement":
+    elif plan.template in ("centered-statement", "mark-stage", "product-card"):
         zone_w = plan.text_zone[2] if plan.text_zone else 0
         asymmetric = plan.text_zone is None or zone_w <= span_w(10) + 1
-        asymmetry_detail = "statement centred, imagery held at the edges"
+        asymmetry_detail = "picture centred, type held to one edge"
     else:
         asymmetric = False
         asymmetry_detail = "centred stack on a non-statement template"
     add("asymmetry", asymmetric, asymmetry_detail)
     tpl = get_template(plan.template)
-    layered = tpl.surface != "none" or tpl.scrim != "none" or bool(devices)
+    layered = (
+        tpl.surface != "none"
+        or tpl.scrim != "none"
+        or bool(devices)
+        or plan.template in ("circle-stage", "mark-stage", "product-card", "photo-block")
+    )
     add(
         "layered-depth",
         layered,
@@ -1142,6 +1233,10 @@ def audit_plan(
         "full-bleed-scrim",
         "centered-statement",
         "device-stage",
+        "photo-block",
+        "circle-stage",
+        "mark-stage",
+        "product-card",
     )
     add("colour-blocking", blocked, "colour block, card, or full-bleed field")
     thumb_ok = head.get("size", 0) >= HEADLINE_MIN_SIZE and (not sub or sub.get("size", 0) >= SUBLINE_MIN_SIZE)

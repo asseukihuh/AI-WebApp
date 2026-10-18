@@ -19,6 +19,7 @@ if SCRIPTS not in sys.path:
 from creative_brief import (  # noqa: E402
     CREATIVE_BRIEF_JSON_SCHEMA,
     _anthropic_messages_body,
+    brand_layout_energy,
     _anthropic_request_headers,
     _anthropic_tool_schema,
     _call_anthropic,
@@ -512,6 +513,87 @@ class TestPosterWithBrief(unittest.TestCase):
         stored = meta.get("creativeBrief") or {}
         self.assertEqual(stored.get("layoutRecipe"), "photo-hero-type")
         self.assertFalse(meta.get("hasHero"))
+
+
+class TestLayoutEnergy(unittest.TestCase):
+    def _stripe(self) -> tuple[dict, dict]:
+        with open(os.path.join(SCRIPTS, "fixtures", "kit-stripe.json"), encoding="utf-8") as handle:
+            kit = json.load(handle)
+        with open(os.path.join(SCRIPTS, "fixtures", "brand-profile-stripe.json"), encoding="utf-8") as handle:
+            profile = json.load(handle)
+        return kit, profile
+
+    def test_energy_is_not_one_template(self) -> None:
+        stripe, profile = self._stripe()
+        self.assertEqual(brand_layout_energy(stripe, profile), "gradient-field")
+        stripe_brief = build_fallback_brief(stripe, {"crisisMessage": "New student plan", "crisisFacts": "Reduced fees."}, brand_profile=profile)
+        self.assertEqual(stripe_brief["layoutTemplate"], "full-bleed-scrim")
+
+        with open(os.path.join(SCRIPTS, "fixtures", "kit-vercel.json"), encoding="utf-8") as handle:
+            vercel = json.load(handle)
+        self.assertEqual(brand_layout_energy(vercel, None), "mark-stage")
+        vercel_brief = build_fallback_brief(vercel, {"crisisMessage": "Preview deployments are instant", "crisisFacts": "Push a branch."})
+        self.assertEqual(vercel_brief["layoutTemplate"], "mark-stage")
+        self.assertNotEqual(vercel_brief["heroStrategy"], "ideogram_generate")
+
+        photo = {
+            "siteName": "Airbnb",
+            "colors": ["#e61e4d", "#ffffff"],
+            "logoSvg": '<svg viewBox="0 0 32 32"><path d="M0 0"/></svg>',
+        }
+        photo_profile = {"imageryStyle": {"primaryMedium": "photography", "motifs": ["interiors", "places"]}}
+        self.assertEqual(brand_layout_energy(photo, photo_profile), "photo-block")
+        drawn = {
+            "siteName": "Duolingo",
+            "colors": ["#78c800", "#ffffff"],
+            "logoSvg": '<svg viewBox="0 0 64 64"><circle cx="32" cy="32" r="20"/></svg>',
+        }
+        drawn_profile = {"imageryStyle": {"primaryMedium": "illustration", "motifs": ["mascot"]}}
+        self.assertEqual(brand_layout_energy(drawn, drawn_profile), "circle-stage")
+
+    def test_ideogram_keeps_the_energy_frame_and_does_not_remix(self) -> None:
+        photo = {
+            "siteName": "Airbnb",
+            "colors": ["#e61e4d", "#ffffff"],
+            "logoSvg": '<svg viewBox="0 0 32 32"><path d="M0 0"/></svg>',
+        }
+        profile = {
+            "imageryStyle": {
+                "primaryMedium": "photography",
+                "ideogramPrompt": "A sunlit home interior, no text",
+            }
+        }
+        with patch.dict(os.environ, {"IDEOGRAM_API_KEY": "test-key"}):
+            brief = build_fallback_brief(photo, {"crisisMessage": "Stay somewhere new", "crisisFacts": "Homes with a kitchen."}, brand_profile=profile)
+        self.assertEqual(brief["layoutTemplate"], "photo-block")
+        self.assertEqual(brief["heroStrategy"], "ideogram_generate")
+        self.assertNotIn("remix", (brief.get("heroImagePrompt") or "").lower())
+        self.assertIn("right half", brief["heroImagePrompt"])
+
+    def test_photo_standin_is_not_a_flat_gradient(self) -> None:
+        kit = {"siteName": "Airbnb", "colors": ["#e61e4d", "#ffffff"]}
+        profile = {"imageryStyle": {"primaryMedium": "photography", "motifs": ["interiors"]}}
+        batch = compile_poster_batch(
+            kit,
+            {"suggestedHeadline": "Stay somewhere new", "brief": {"facts": "Homes with a kitchen."}},
+            creative_brief={
+                "headline": "Stay somewhere new",
+                "subhead": "Homes with a kitchen, verified on the map.",
+                "cta": "Explore stays",
+                "layoutRecipe": "photo-hero-type",
+                "heroStrategy": "gradient_from_palette",
+                "logoTreatment": "wordmark-white",
+                "layoutTemplate": "photo-block",
+                "headlineScale": "lg",
+                "ctaStyle": "pill",
+            },
+            brand_profile=profile,
+        )
+        names = [step.get("params", {}).get("name") for step in batch["steps"]]
+        self.assertIn("Photo wall", names)
+        self.assertIn("Brand panel", names)
+        self.assertNotIn("Brand gradient", [item.get("name") for item in batch.get("backgroundPlacements") or []])
+        self.assertEqual(batch["meta"]["layoutTemplate"], "photo-block")
 
 
 if __name__ == "__main__":

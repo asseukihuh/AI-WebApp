@@ -45,7 +45,7 @@ from typing import Any
 
 import communication_kit as kit_design
 import poster_design as design
-from creative_brief import clean_composition, default_composition, sharper_subline
+from creative_brief import brand_layout_energy, clean_composition, default_composition, sharper_subline
 
 LINKEDIN_WIDTH = 1200
 LINKEDIN_HEIGHT = 627
@@ -728,6 +728,69 @@ def _native_brand_gradient_steps(stops: list[tuple[float, str]]) -> list[dict[st
     ]
 
 
+def _shape_step(kind: str, name: str, rect: list[float], fill: str, radii: float | None = None) -> dict[str, Any]:
+    params: dict[str, Any] = {
+        "kind": kind,
+        "name": name,
+        "rect": [round(v, 1) for v in rect],
+        "fill": fill,
+    }
+    if kind == "roundedRect":
+        params["radii"] = 28 if radii is None else radii
+    return {"command": "shape.create", "params": params}
+
+
+def _dark_neutral(kit: dict[str, Any] | None, roles: design.BrandRoles) -> str:
+    """Near-black from the captured palette, so a stark mark is not painted in a CSS accent."""
+    for color in list(design.kit_palette(kit)) + [roles.dark, roles.brand]:
+        rgb = design.hex_to_rgb(color)
+        if design.relative_luminance(rgb) < 0.08 and design.chroma(rgb) < 0.12:
+            return color
+    return "#111111"
+
+
+def _ground_color(
+    template_name: str,
+    energy: str,
+    kit: dict[str, Any] | None,
+    roles: design.BrandRoles,
+) -> str | None:
+    """Flat field for layouts that are not a diagonal gradient. None keeps the gradient path."""
+    if template_name == "mark-stage":
+        return _dark_neutral(kit, roles)
+    if template_name == "circle-stage" or (template_name == "centered-statement" and energy == "quiet-type"):
+        light = roles.light
+        if design.relative_luminance(design.hex_to_rgb(light)) > 0.75:
+            return light
+        return "#f6f3ee"
+    if template_name == "product-card":
+        return roles.brand
+    if template_name == "device-stage":
+        return design.mix_hex(roles.brand, "#ffffff", 0.78)
+    if template_name == "photo-block":
+        return "#f3eadf"
+    return None
+
+
+def _photo_standin_steps(region: tuple[float, float, float, float], accent: str) -> list[dict[str, Any]]:
+    """A text-free interior crop used when Ideogram is not available."""
+    x, y, w, h = region
+    return [
+        _shape_step("rect", "Photo wall", [x, y, w, h], "#f3eadf"),
+        _shape_step("ellipse", "Photo window", [x + w * 0.52, y + 36, w * 0.4, h * 0.46], "#fffaf4"),
+        _shape_step("roundedRect", "Photo furniture", [x + 40, y + h * 0.62, w * 0.7, h * 0.26], "#d7c0a4"),
+        _shape_step("ellipse", "Photo accent", [x + w * 0.58, y + h * 0.55, 150, 110], accent),
+    ]
+
+
+def _product_standin_steps(region: tuple[float, float, float, float], accent: str) -> list[dict[str, Any]]:
+    x, y, w, h = region
+    return [
+        _shape_step("roundedRect", "Product card", [x, y, w, h], "#fffdf8"),
+        _shape_step("roundedRect", "Product pack", [x + w * 0.18, y + h * 0.16, w * 0.64, h * 0.62], accent),
+    ]
+
+
 def _brand_glow_steps(color: str) -> list[dict[str, Any]]:
     return [
         {
@@ -1035,6 +1098,14 @@ def compile_poster_batch(
 
     tpl = design.get_template(template_name)
     plan = _plan(tpl.name)
+    energy = brand_layout_energy(kit, brand_profile)
+    ground = _ground_color(tpl.name, energy, kit, roles)
+    if ground:
+        identity_field = False
+
+        def _sampler_for(tpl: design.LayoutTemplate) -> design.Sampler:
+            return design.solid_sampler(ground)
+
     surface = _surface_color(tpl)
     scrim_alpha: float | None = 0.0
     scrim_color = roles.dark
@@ -1067,7 +1138,21 @@ def compile_poster_batch(
     background_placements: list[dict[str, Any]] = []
 
     brand_gradient_rel: str | None = None
-    if not has_photo_hero:
+    if ground:
+        steps.append(
+            {"command": "layer.newFillLayer.solidColor", "params": {"color": ground, "name": "Field"}}
+        )
+        picture_accent = roles.accent or roles.brand
+        if design.relative_luminance(design.hex_to_rgb(picture_accent)) > 0.85:
+            picture_accent = roles.brand
+        if tpl.name == "photo-block" and not has_photo_hero:
+            steps.extend(_photo_standin_steps(tpl.image_region, picture_accent))
+        elif tpl.name == "product-card" and not has_photo_hero:
+            steps.extend(_product_standin_steps(tpl.image_region, picture_accent))
+        elif tpl.name == "circle-stage":
+            rx, ry, rw, rh = tpl.image_region
+            steps.append(_shape_step("ellipse", "Illustration plate", [rx, ry, rw, rh], picture_accent))
+    elif not has_photo_hero:
         if force_solid_bg:
             steps.append(
                 {"command": "layer.newFillLayer.solidColor", "params": {"color": roles.brand, "name": "Brand solid"}}
@@ -1256,9 +1341,24 @@ def compile_poster_batch(
                 "name": "Logo",
             }
         )
+        if tpl.name == "mark-stage":
+            target_w = 260.0
+            foreground_placements[-1]["center"] = [LINKEDIN_WIDTH / 2, 132]
+            foreground_placements[-1]["scale"] = round(
+                logo_scale_percent(logo_width or 0, target_width=int(target_w)), 2
+            )
+            mark_share = 0.35
+        elif tpl.name == "circle-stage":
+            rx, ry, rw, rh = tpl.image_region
+            target_w = rw * 0.72
+            foreground_placements[-1]["center"] = [rx + rw / 2, ry + rh / 2]
+            foreground_placements[-1]["scale"] = round(
+                logo_scale_percent(logo_width or 0, target_width=int(target_w)), 2
+            )
+            mark_share = 0.35
         wants_mark = any(item.get("source") == "logo-geometry" for item in composition.get("visuals") or [])
         symbol = bool(logo_width and logo_height and logo_width / logo_height < 2.2)
-        if wants_mark and symbol:
+        if wants_mark and symbol and tpl.name not in ("mark-stage", "circle-stage"):
             target_w = 460.0
             mark_h = target_w * (logo_height / logo_width)
             mark_share = (target_w * mark_h) / (design.CANVAS_W * design.CANVAS_H)
@@ -1272,7 +1372,13 @@ def compile_poster_batch(
                 }
             )
 
-    if has_photo_hero or identity_field:
+    if has_photo_hero or identity_field or tpl.name in (
+        "photo-block",
+        "circle-stage",
+        "mark-stage",
+        "product-card",
+        "device-stage",
+    ):
         visual_share = 1.0
     else:
         visual_share = mark_share

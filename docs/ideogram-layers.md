@@ -48,6 +48,8 @@ Ideogram 4.0 only accepts [preset resolutions](https://developer.ideogram.ai/api
 
 ## APIs
 
+The layout frame comes from the brand's energy (`photo-block`, `circle-stage`, `product-card`, `full-bleed-scrim`). Ideogram fills that frame with a text-free raster behind the editable type. A crest or triangle stays a PhotoCraft vector; those layouts do not call Ideogram.
+
 - **Generate:** `POST https://api.ideogram.ai/v2/image/generate/ideogram-4`
 - **Not used:** `POST /v2/image/remix/ideogram-4` accepts one image, but the prompt is an edit and the source is kept, so a page screenshot would come back with its text and logos.
 
