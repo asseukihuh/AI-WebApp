@@ -18,22 +18,21 @@ IDEOGRAM_REMIX_URL = "https://api.ideogram.ai/v2/image/remix/ideogram-4"
 def ideogram_conditioning() -> dict[str, str | bool]:
     """How a poster field is conditioned on the website.
 
-    Ideogram 4.5 generate accepts one source image on the multipart ``images`` field.
-    The first file is the image being edited; this call sends one clean reference and
-    no mask, and the prompt tells 4.5 to make a new text-free picture from its colour
-    and imagery. Remix is not used, because remix keeps text from the source. A page
-    screenshot is not that file.
+    Every graphic crop is uploaded on the multipart ``images`` field (up to five). They are examples for
+    one poster, not a single source to copy. Remix is not used, because remix keeps
+    text from the source. A page screenshot is not one of those files.
     """
     return {
         "generateUrl": IDEOGRAM_GENERATE_URL,
         "generateAcceptsReferenceImage": True,
         "imageField": "images",
+        "maxExampleImages": 5,
         "remixUrl": IDEOGRAM_REMIX_URL,
         "remixKeepsSourceText": True,
         "mode": "reference-image",
         "note": (
-            "Ideogram 4.5 generate accepts one image on the images field. "
-            "One clean reference is sent with the prompt. Remix is not used, because remix keeps "
+            "Ideogram 4.5 generate accepts up to five images on the images field. "
+            "Every graphic crop is sent as an example. Remix is not used, because remix keeps "
             "text from the source. Palette hexes and the imagery line stay in the text prompt."
         ),
     }
@@ -340,7 +339,7 @@ def treatment_spec(treatment: str | None) -> dict[str, str]:
             "fill": (
                 "Make a new text-free asset in this visual language "
                 "(same materials, shapes, palette), for the quiet-type poster. "
-                "Do not copy the words in the crop."
+                "Do not copy the words in the examples."
             ),
             "prompt": "",
         }
@@ -480,13 +479,18 @@ def _image_media_type(path: str) -> str | None:
     return None
 
 
-def _reference_path(packet: dict | None) -> str | None:
-    """First clean reference file. Page screenshots are already excluded from the packet."""
+def _reference_paths(packet: dict | None) -> list[str]:
+    """Every graphic example, up to the five Ideogram 4.5 will accept."""
+    from ideogram_packet import MAX_IDEOGRAM_EXAMPLES
+
+    found: list[str] = []
     for raw in (packet or {}).get("references") or []:
         path = str(raw or "")
-        if path and os.path.isfile(path) and _image_media_type(path):
-            return path
-    return None
+        if path and os.path.isfile(path) and _image_media_type(path) and path not in found:
+            found.append(path)
+        if len(found) >= MAX_IDEOGRAM_EXAMPLES:
+            break
+    return found
 
 
 def _encode_form(fields: list[tuple[str, str]], files: list[tuple[str, str, bytes, str]]) -> tuple[bytes, str]:
@@ -517,17 +521,28 @@ def _call_generate_api(
     rendering_speed: RenderingSpeed,
     magic_prompt: MagicPrompt = "off",
     reference_path: str | None = None,
+    reference_paths: list[str] | None = None,
 ) -> dict:
-    """POST Ideogram 4.5. ``images`` carries one clean reference when we have one."""
-    media = _image_media_type(reference_path or "") if reference_path else None
-    image_bytes = b""
-    if reference_path and media:
-        with open(reference_path, "rb") as handle:
+    """POST Ideogram 4.5. Every example is a repeated ``images`` part. One poster comes back."""
+    from ideogram_packet import MAX_IDEOGRAM_EXAMPLES
+
+    paths: list[str] = []
+    for path in list(reference_paths or []) + ([reference_path] if reference_path else []):
+        if path and path not in paths and _image_media_type(path):
+            paths.append(path)
+        if len(paths) >= MAX_IDEOGRAM_EXAMPLES:
+            break
+    files: list[tuple[str, str, bytes, str]] = []
+    for path in paths:
+        media = _image_media_type(path)
+        if not media:
+            continue
+        with open(path, "rb") as handle:
             image_bytes = handle.read(MAX_LAYER_BYTES + 1)
         if len(image_bytes) > MAX_LAYER_BYTES:
-            image_bytes = b""
-            media = None
-    has_image = bool(image_bytes and media)
+            continue
+        files.append(("images", os.path.basename(path), image_bytes, media))
+    has_image = bool(files)
     fields = [
         ("prompt", prompt),
         ("size", resolution),
@@ -536,9 +551,6 @@ def _call_generate_api(
         ("magic_prompt", magic_prompt),
         ("async", "false"),
     ]
-    files: list[tuple[str, str, bytes, str]] = []
-    if has_image and reference_path and media:
-        files.append(("images", os.path.basename(reference_path), image_bytes, media))
     body, content_type = _encode_form(fields, files)
     req = urllib.request.Request(
         IDEOGRAM_GENERATE_URL,
@@ -691,13 +703,14 @@ def generate_layer_image(
     )
     prompt = structured_prompt_text(structured)
     packet = brand_packet if isinstance(brand_packet, dict) else (brand_profile or {}).get("ideogramPacket")
-    reference_path = _reference_path(packet if isinstance(packet, dict) else None)
-    if reference_path:
+    reference_paths = _reference_paths(packet if isinstance(packet, dict) else None)
+    if reference_paths:
         kind = treatment or "poster"
         prompt = (
-            "Make a new text-free asset in this visual language "
+            f"These {len(reference_paths)} attached images are examples of the visual language. "
+            "Use all of them to make one new text-free asset "
             f"(same materials, shapes, palette), for the {kind} poster. "
-            "Do not copy the words in the crop. "
+            "Do not copy the words in the examples. "
             + prompt
         )
     magic_prompt = resolve_magic_prompt()
@@ -708,7 +721,7 @@ def generate_layer_image(
         api_key=key,
         rendering_speed=resolve_rendering_speed(),
         magic_prompt=magic_prompt,
-        reference_path=reference_path,
+        reference_paths=reference_paths,
     )
     data = payload.get("data") or []
     if not data:
@@ -723,8 +736,9 @@ def generate_layer_image(
     image_bytes = _download_image(url)
     cutout = bool(remove_bg and role == "accent" and accent_cutout_enabled())
     cache_prompt = prompt
-    if reference_path:
-        cache_prompt = f"{prompt}\nreference:{hashlib.sha256(reference_path.encode('utf-8')).hexdigest()[:12]}"
+    if reference_paths:
+        digest = hashlib.sha256("\n".join(reference_paths).encode("utf-8")).hexdigest()[:12]
+        cache_prompt = f"{prompt}\nreferences:{digest}"
     basename = layer_cache_basename_for_prompt(
         cache_prompt, api_resolution, role=role, cutout=cutout
     )
@@ -738,8 +752,8 @@ def generate_layer_image(
     meta: dict = {
         "role": role,
         "source": "ideogram-4.5",
-        "referenceImageSent": bool(reference_path),
-        "referenceImage": reference_path,
+        "referenceImageSent": bool(reference_paths),
+        "referenceImages": reference_paths,
         "imagePrompt": scene,
         "structuredPrompt": structured,
         "magicPrompt": magic_prompt,

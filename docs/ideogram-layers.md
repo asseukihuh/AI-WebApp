@@ -50,7 +50,7 @@ Ideogram 4.5 sizes are sent as `size`. Without a reference image the size is a s
 
 The layout frame comes from the brand's energy (`photo-block`, `circle-stage`, `product-card`, `full-bleed-scrim`). Ideogram fills that frame with a text-free raster behind the editable type. A crest or triangle stays a PhotoCraft vector; those layouts do not call Ideogram.
 
-- **Generate:** `POST https://api.ideogram.ai/v2/image/generate/ideogram-4-5` (multipart). One clean reference is uploaded as `images` when the brand packet has one. The prompt still carries the palette hexes and the imagery line.
+- **Generate:** `POST https://api.ideogram.ai/v2/image/generate/ideogram-4-5` (multipart). Every graphic example is uploaded as `images` (up to five). They are examples for one poster. The prompt still carries the palette hexes and the imagery line.
 - **Not used:** `POST /v2/image/remix/ideogram-4` keeps text from the source, so a page screenshot would come back with its letters.
 
 Page screenshots stay vision input for the brief. A file that is mostly UI text is not uploaded. `magic_prompt` stays off.

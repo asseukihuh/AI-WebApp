@@ -128,13 +128,15 @@ class TestPacketPrompt(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             photo = os.path.join(tmp, "photo.png")
             _png(photo, 32, 24, lambda x, y: (20 + x, 90, 140))
+            peel = os.path.join(tmp, "peel.png")
+            _png(peel, 32, 24, lambda x, y: (30, 90, 200) if x > 16 else (12, 12, 14))
             with patch("urllib.request.urlopen", return_value=mock_resp) as opened:
                 _call_generate_api(
                     "A field",
                     "1280x720",
                     api_key="test-key",
                     rendering_speed="default",
-                    reference_path=photo,
+                    reference_paths=[photo, peel],
                 )
         request = opened.call_args[0][0]
         self.assertEqual(request.full_url, IDEOGRAM_GENERATE_URL)
@@ -144,8 +146,10 @@ class TestPacketPrompt(unittest.TestCase):
         self.assertIn(b"A field", raw)
         self.assertIn(b'name="size"', raw)
         self.assertIn(b"1280x720", raw)
-        self.assertIn(b'name="images"', raw)
+        self.assertEqual(raw.count(b'name="images"'), 2)
         self.assertIn(b"photo.png", raw)
+        self.assertIn(b"peel.png", raw)
+        self.assertIn(b'name="num_images"', raw)
         self.assertNotIn(b"style_reference_images", raw)
         self.assertNotIn(b"remix", request.full_url.encode())
 
@@ -258,20 +262,23 @@ class TestComponentCrops(unittest.TestCase):
     def test_crop_is_uploaded_again_when_a_black_triangle_fails(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             crop = os.path.join(tmp, "ship.png")
+            peel = os.path.join(tmp, "peel.png")
             poster = os.path.join(tmp, "poster.png")
             _png(crop, 32, 24, lambda x, y: (20, 20, 22))
+            _png(peel, 32, 24, lambda x, y: (24, 90, 210) if x > 16 else (10, 10, 12))
             _png(poster, 32, 24, lambda _x, _y: (0, 0, 0))
             packet = {
                 "palette": [{"role": "primary", "hex": "#111111"}],
                 "imagery": "A hanging corrugated container on a black field.",
-                "references": [crop],
+                "references": [crop, peel],
             }
-            calls: list[str | None] = []
+            calls: list[list[str]] = []
 
             def fake_api(prompt: str, _size: str, **kwargs):
-                calls.append(kwargs.get("reference_path"))
-                self.assertIn("text-free asset in this visual language", prompt)
-                self.assertIn("Do not copy the words in the crop", prompt)
+                calls.append(list(kwargs.get("reference_paths") or []))
+                self.assertIn("examples of the visual language", prompt)
+                self.assertIn("Use all of them", prompt)
+                self.assertIn("Do not copy the words in the examples", prompt)
                 return {"data": [{"url": "https://cdn.example/x.png", "is_image_safe": True}]}
 
             with patch("ideogram_client._download_image", return_value=b"\x89PNG\r\n\x1a\n"), patch(
@@ -295,12 +302,12 @@ class TestComponentCrops(unittest.TestCase):
                     treatment="quiet-type",
                     brand_packet=packet,
                 )
-            self.assertEqual(calls, [crop, crop])
+            self.assertEqual(calls, [[crop, peel], [crop, peel]])
 
             seen: list[str] = []
 
             def llm(_image, refs, _palette, _note):
-                self.assertEqual(refs, [crop])
+                self.assertEqual(refs, [crop, peel])
                 if not seen:
                     return {
                         "passed": False,
@@ -316,13 +323,13 @@ class TestComponentCrops(unittest.TestCase):
 
             judged = review_generated_picture(
                 poster,
-                "Make a new text-free asset in this visual language. Do not copy the words in the crop.",
-                reference_paths=[crop],
+                "Make a new text-free asset in this visual language. Do not copy the words in the examples.",
+                reference_paths=[crop, peel],
                 llm_fn=llm,
                 regenerate=regenerate,
                 palette=["primary #111111"],
             )
             self.assertTrue(judged["retried"])
             self.assertTrue(judged["passed"])
-            self.assertIn("Do not copy the words in the crop", seen[0])
+            self.assertIn("Do not copy the words in the examples", seen[0])
             self.assertIn("black triangle", seen[0])

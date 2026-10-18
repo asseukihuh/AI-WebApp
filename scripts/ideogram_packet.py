@@ -13,6 +13,8 @@ import subprocess
 from typing import Any
 
 SCREENSHOTS_SKIPPED_STATUS = "screenshots skipped, Ideogram only received colours"
+# Ideogram 4.5 accepts at most five source images. Every graphic crop is an example.
+MAX_IDEOGRAM_EXAMPLES = 5
 
 _GENERIC_MARKERS = (
     "abstract flowing brand-colored shapes",
@@ -254,8 +256,8 @@ def _best_tile(
     return best[1] if best else None
 
 
-def clean_references(paths: list[str], out_dir: str | None, *, limit: int = 2) -> list[str]:
-    """Up to two files with no page text: a photo, a pattern, or a logo on its backdrop.
+def clean_references(paths: list[str], out_dir: str | None, *, limit: int = MAX_IDEOGRAM_EXAMPLES) -> list[str]:
+    """Graphic files with no page text: a photo, a pattern, or a logo on its backdrop.
 
     A screenshot that is mostly UI text is not passed through. A quiet crop of that
     file is kept when one exists.
@@ -291,9 +293,9 @@ def choose_component_crops(
     paths: list[str],
     *,
     vision_fn: Any | None = None,
-    limit: int = 2,
+    limit: int = MAX_IDEOGRAM_EXAMPLES,
 ) -> list[str]:
-    """Up to two graphic crops. Page-text screenshots are dropped before vision picks."""
+    """Graphic crops used as examples. Page-text screenshots are dropped before vision picks."""
     graphic: list[str] = []
     for path in paths:
         if not path or not os.path.isfile(path):
@@ -338,9 +340,9 @@ def build_ideogram_packet(
         "coloursOnly": bool(screenshots_skipped) or not imagery,
         "referenceImageSent": bool(references),
         "referenceNote": (
-            "Ideogram 4.5 generate accepts one image on the images field. "
-            "One clean reference is sent when one exists. Remix is not used, because remix keeps "
-            "text from the source. Palette hexes and the imagery line stay in the text prompt."
+            "Ideogram 4.5 generate accepts up to five images on the images field. "
+            "Every graphic crop is sent as an example for the one poster. Remix is not used, "
+            "because remix keeps text from the source. Palette hexes and the imagery line stay in the text prompt."
         ),
     }
     if screenshots_skipped:

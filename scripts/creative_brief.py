@@ -1155,7 +1155,7 @@ When heroStrategy is ideogram_generate:
 - Set ideogramLayers to background-plus-accent only when a distinct subject helps the story; background-only for abstract texture-only heroes and always for centered-statement.
 - accentImagePrompt (background-plus-accent only): one isolated object, same rules as heroImagePrompt.
 Never describe homepage screenshots, browser chrome, or literal OG triangles.
-When the brand has an imagery direction, set field to ideogram and heroStrategy to ideogram_generate. heroImagePrompt describes that captured language (palette, motifs, lighting) and nothing else. Ideogram 4.5 can take one clean reference image (a photo, a pattern, or a logo on its backdrop). Screenshots above are for you. Ideogram cannot receive them when they are mostly page text. Do not describe UI, type, logos or the page layout in heroImagePrompt.
+When the brand has an imagery direction, set field to ideogram and heroStrategy to ideogram_generate. heroImagePrompt describes that captured language (palette, motifs, lighting) and nothing else. Ideogram 4.5 can take several example images (photos, patterns, or a logo on its backdrop). Screenshots above are for you. Ideogram cannot receive them when they are mostly page text. Do not describe UI, type, logos or the page layout in heroImagePrompt.
 When heroStrategy is not ideogram_generate, set heroImagePrompt and accentImagePrompt to empty strings and ideogramLayers to background-only.
 When cta is not needed, set cta to an empty string and ctaStyle to none.
 Headline should state the update clearly; subhead supports with brand context or next step."""
@@ -1222,7 +1222,7 @@ def _anthropic_messages_body(
             "You produce concise marketing creative briefs. "
             "You MUST call submit_creative_brief exactly once with complete structured fields. "
             "Screenshots are vision context only. Ideogram cannot receive them when they are page text. "
-            "One clean reference image may be uploaded on the Ideogram 4.5 images field."
+            "Every graphic example may be uploaded on the Ideogram 4.5 images field."
         ),
         "messages": [{"role": "user", "content": content}],
         "tools": [_anthropic_submit_tool()],

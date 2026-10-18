@@ -651,7 +651,7 @@ _COMPONENT_JS = """
     });
     if (overlaps) continue;
     kept.push(item);
-    if (kept.length >= 6) break;
+    if (kept.length >= 8) break;
   }
   kept.forEach((item, index) => item.el.setAttribute("data-cm-component", String(index)));
   return kept.length;
@@ -666,7 +666,7 @@ def _component_shots(page: Any, out_dir: str) -> dict[str, str]:
         count = int(page.evaluate(_COMPONENT_JS) or 0)
     except Exception:  # noqa: BLE001 — a page with no measurable components still has the fold
         return shots
-    for index in range(min(count, 6)):
+    for index in range(min(count, 8)):
         path = os.path.join(out_dir, f"component-{index}.jpg")
         try:
             page.locator(f'[data-cm-component="{index}"]').screenshot(path=path, type="jpeg", quality=80)
@@ -1694,7 +1694,7 @@ def _component_vision(paths: list[str]) -> list[str] | None:
         for index in keep:
             if isinstance(index, int) and 0 <= index < len(paths):
                 chosen.append(paths[index])
-        return chosen[:2] or None
+        return chosen[:5] or None
     except Exception:  # noqa: BLE001 — pixel filter already removed page text
         return None
 

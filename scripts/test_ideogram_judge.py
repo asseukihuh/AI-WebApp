@@ -200,7 +200,7 @@ class TestPictureJudge(unittest.TestCase):
         self.assertEqual(result["reason"], "Flat empty disc, no subject.")
         self.assertEqual(seen["calls"], 3)
         self.assertEqual(seen["regen"], 2)
-        self.assertEqual(len(seen["refs"]), 2)
+        self.assertEqual(len(seen["refs"]), 3)
         self.assertIn("green character", seen["prompt"])
         self.assertIn("Flat empty disc", seen["prompt"])
         self.assertIn("Fill the frame", seen["prompt"])
@@ -358,7 +358,7 @@ class TestPictureFill(unittest.TestCase):
         self.assertTrue(result["called"])
         self.assertTrue(result["ideogramUsed"])
         self.assertIn("text-free asset in this visual language", seen[0])
-        self.assertIn("Do not copy the words in the crop", seen[0])
+        self.assertIn("Do not copy the words in the examples", seen[0])
         line = poster_status_line(
             template="centered-statement",
             ideogram_used=True,
@@ -432,7 +432,7 @@ class TestPictureFill(unittest.TestCase):
         self.assertFalse(result["dropImage"])
         self.assertEqual(result["treatment"], "quiet-type")
         self.assertTrue(seen)
-        self.assertIn("Do not copy the words in the crop", seen[0])
+        self.assertIn("Do not copy the words in the examples", seen[0])
         self.assertIn("quiet-type", seen[0])
 
 
@@ -576,7 +576,7 @@ class TestPictureFrameMustPost(unittest.TestCase):
         self.assertEqual(result["brief"]["heroStrategy"], "ideogram_generate")
         self.assertEqual(result["brief"]["layoutRecipe"], "photo-hero-type")
         self.assertIn("text-free asset in this visual language", seen[0])
-        self.assertIn("Do not copy the words in the crop", seen[0])
+        self.assertIn("Do not copy the words in the examples", seen[0])
 
     def test_empty_image_is_not_a_judge_pass(self) -> None:
         kit, profile = _duo()

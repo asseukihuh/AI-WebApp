@@ -28,9 +28,9 @@ from creative_brief import (
     resolve_llm_provider,
 )
 
-# Small on purpose: the generated PNG plus at most two brand references.
+# The generated PNG plus every example crop Ideogram was shown (at most five).
 JUDGE_MAX_EDGE = 768
-JUDGE_MAX_REFERENCES = 2
+JUDGE_MAX_REFERENCES = 5
 JUDGE_MAX_TOKENS = 300
 
 # ~2000 in (picture + two refs + the rubric) and ~200 out at Sonnet $3 / $15 per MTok.
@@ -75,8 +75,8 @@ Fail when any of these are true:
 - The colours are not the brand palette.
 - The type is weak: a system font, a headline under 54px, a subline too close to the headline size, or a headline of more than 8 words.
 - The logo or the headline contrast against the pixels behind it is under 4.5:1.
-- The colours or the imagery do not match the brand palette and the component crop.
-- It is a generic black triangle or simple mark with no relation to the component crop.
+- The colours or the imagery do not match the brand palette and the example images.
+- It is a generic black triangle or simple mark with no relation to the example images.
 
 Quality bar: Linearity business posters (https://www.linearity.io/templates/business-templates/posters/): one composition across the whole sheet, in the brand's own colours and imagery. A full-bleed photograph with room for type, a pattern that fills the sheet, a graphic field with a type band, or an illustration with room for type in the middle. Not a text column beside a picture box.
 
@@ -139,8 +139,8 @@ def _user_text(palette: list[str] | None, imagery_note: str) -> str:
     note = (imagery_note or "").strip() or "not described"
     return (
         f"{_RUBRIC}\n"
-        "Compare image 1 to this palette and to the component crop. "
-        "Fail a generic black triangle that has no relation to that crop.\n"
+        "Compare image 1 to this palette and to every example image. "
+        "Fail a generic black triangle that has no relation to those examples.\n"
         f"Brand palette: {colours}.\nImagery: {_truncate(note, 240)}"
     )
 
@@ -349,7 +349,7 @@ def _picture_prompt(
                 f"{prompt}. Treatment {kind}. {spec['fill']} {spec.get('quiet') or ''} "
                 "Make a new text-free asset in this visual language "
                 "(same materials, shapes, palette), for the "
-                f"{kind} poster. Do not copy the words in the crop."
+                f"{kind} poster. Do not copy the words in the examples."
             )
     except Exception:  # noqa: BLE001 — the scene prompt still POSTs
         prompt = f"{prompt}. Match the brand's colours and imagery. No lettering."
@@ -495,7 +495,7 @@ def retry_prompt(prompt: str, reason: str, critique: str, layout: str = "") -> s
         f"{prompt.strip()}\n\n"
         f"The previous image failed a picture check: {note} "
         "Make a new text-free asset in this visual language "
-        "(same materials, shapes, palette). Do not copy the words in the crop. "
+        "(same materials, shapes, palette). Do not copy the words in the examples. "
         "Show that instead. Fill the frame, subject large, no empty margin inside the image. "
         "No letters, no words, no logo, no frame, no border."
     )
