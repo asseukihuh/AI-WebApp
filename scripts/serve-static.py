@@ -536,10 +536,10 @@ class CommMakerHandler(http.server.SimpleHTTPRequestHandler):
                     hero_rel = str(acquired["path"])
                     bg_meta = acquired.get("meta") or {}
                     generated_assets.append(
-                        {"role": "background", "path": hero_rel, "source": "ideogram-4"}
+                        {"role": "background", "path": hero_rel, "source": "ideogram-4.5"}
                     )
                     hero_meta = {
-                        "heroSource": "ideogram-4",
+                        "heroSource": "ideogram-4.5",
                         "heroImagePrompt": picture_prompt,
                         "ideogramResolution": bg_meta.get("ideogramResolution"),
                         "ideogramLayers": "background-only",
@@ -608,7 +608,7 @@ class CommMakerHandler(http.server.SimpleHTTPRequestHandler):
                         elif judge.get("imagePath"):
                             hero_rel = str(judge["imagePath"])
                             generated_assets[-1]["path"] = hero_rel
-                            generated_assets[-1]["source"] = "ideogram-4-retry"
+                            generated_assets[-1]["source"] = "ideogram-4.5-retry"
                             kit["heroImageUrl"] = f"/{hero_rel}"
                             hero_meta["retried"] = True
                             picture_path = os.path.join(ROOT, hero_rel)

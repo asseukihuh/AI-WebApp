@@ -331,7 +331,7 @@ def render_case(
     if case["background"]:
         if use_ideogram:
             hero_rel = _ideogram_background(root, case)
-            hero_source = "ideogram-4" if hero_rel else None
+            hero_source = "ideogram-4.5" if hero_rel else None
         if not hero_rel:
             hero_rel = ensure_standin(root, case["background"])
             hero_source = f"standin-{case['background']}"

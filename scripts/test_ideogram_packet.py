@@ -109,24 +109,38 @@ class TestPacketPrompt(unittest.TestCase):
         self.assertIn("primary #635bff", text)
         self.assertIn("blurple ribbons", text)
 
-    def test_generate_api_has_no_reference_image_field(self) -> None:
+    def test_generate_api_uploads_one_clean_reference(self) -> None:
         note = ideogram_conditioning()
-        self.assertFalse(note["generateAcceptsReferenceImage"])
+        self.assertTrue(note["generateAcceptsReferenceImage"])
+        self.assertIn("ideogram-4-5", IDEOGRAM_GENERATE_URL)
         self.assertNotEqual(IDEOGRAM_GENERATE_URL, IDEOGRAM_REMIX_URL)
         mock_resp = MagicMock()
         mock_resp.read.return_value = b'{"data":[]}'
         mock_resp.__enter__ = lambda _self: _self
         mock_resp.__exit__ = MagicMock(return_value=False)
-        with patch("urllib.request.urlopen", return_value=mock_resp) as opened:
-            _call_generate_api("A field", "1280x720", api_key="test-key", rendering_speed="default")
+        with tempfile.TemporaryDirectory() as tmp:
+            photo = os.path.join(tmp, "photo.png")
+            _png(photo, 32, 24, lambda x, y: (20 + x, 90, 140))
+            with patch("urllib.request.urlopen", return_value=mock_resp) as opened:
+                _call_generate_api(
+                    "A field",
+                    "1280x720",
+                    api_key="test-key",
+                    rendering_speed="default",
+                    reference_path=photo,
+                )
         request = opened.call_args[0][0]
         self.assertEqual(request.full_url, IDEOGRAM_GENERATE_URL)
         self.assertNotIn("remix", request.full_url)
-        body = json.loads(request.data.decode("utf-8"))
-        self.assertNotIn("image", body)
-        self.assertNotIn("images", body)
-        self.assertNotIn("style_reference_images", body)
-        self.assertEqual(body["prompt"], "A field")
+        raw = request.data
+        self.assertIn(b'name="prompt"', raw)
+        self.assertIn(b"A field", raw)
+        self.assertIn(b'name="size"', raw)
+        self.assertIn(b"1280x720", raw)
+        self.assertIn(b'name="images"', raw)
+        self.assertIn(b"photo.png", raw)
+        self.assertNotIn(b"style_reference_images", raw)
+        self.assertNotIn(b"remix", request.full_url.encode())
 
 
 class TestPosterUsesPacket(unittest.TestCase):
@@ -145,7 +159,7 @@ class TestPosterUsesPacket(unittest.TestCase):
             )
             self.assertEqual(packet["imagery"], "Sunlit interiors and warm timber.")
             self.assertEqual(packet["references"], [photo])
-            self.assertFalse(packet["referenceImageSent"])
+            self.assertTrue(packet["referenceImageSent"])
             kit = {"siteName": "Airbnb", "colors": ["#ff5a5f"], "ideogramPacket": packet}
             profile = {"ideogramPacket": packet}
 

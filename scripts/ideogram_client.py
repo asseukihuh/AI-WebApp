@@ -1,4 +1,4 @@
-"""Ideogram 4.0 raster layers for CommMaker LinkedIn posters."""
+"""Ideogram 4.5 raster layers for CommMaker LinkedIn posters."""
 
 from __future__ import annotations
 
@@ -11,29 +11,30 @@ import urllib.error
 import urllib.request
 from typing import Literal
 
-IDEOGRAM_GENERATE_URL = "https://api.ideogram.ai/v2/image/generate/ideogram-4"
+IDEOGRAM_GENERATE_URL = "https://api.ideogram.ai/v2/image/generate/ideogram-4-5"
 IDEOGRAM_REMIX_URL = "https://api.ideogram.ai/v2/image/remix/ideogram-4"
 
 
 def ideogram_conditioning() -> dict[str, str | bool]:
     """How a poster field is conditioned on the website.
 
-    Ideogram 4 generate (the endpoint CommMaker calls) takes a prompt and a resolution.
-    It has no style-reference, character-reference, or image input. Remix accepts one
-    image, but the prompt is an edit instruction and the source is preserved, so a page
-    screenshot would come back with its text and logos. Screenshots are therefore shown
-    to the brief model, and only the text-free prompt plus the palette are sent here.
+    Ideogram 4.5 generate accepts one source image on the multipart ``images`` field.
+    The first file is the image being edited; this call sends one clean reference and
+    no mask, and the prompt tells 4.5 to make a new text-free picture from its colour
+    and imagery. Remix is not used, because remix keeps text from the source. A page
+    screenshot is not that file.
     """
     return {
         "generateUrl": IDEOGRAM_GENERATE_URL,
-        "generateAcceptsReferenceImage": False,
+        "generateAcceptsReferenceImage": True,
+        "imageField": "images",
         "remixUrl": IDEOGRAM_REMIX_URL,
         "remixKeepsSourceText": True,
-        "mode": "vision-prompt",
+        "mode": "reference-image",
         "note": (
-            "Ideogram 4 generate has no image reference field and no style-reference field. "
-            "No reference image is sent. Remix is not used, because remix keeps text from the source. "
-            "Palette hexes and the one-line imagery description go in the text prompt."
+            "Ideogram 4.5 generate accepts one image on the images field. "
+            "One clean reference is sent with the prompt. Remix is not used, because remix keeps "
+            "text from the source. Palette hexes and the imagery line stay in the text prompt."
         ),
     }
 IDEOGRAM_REMOVE_BG_URL = "https://api.ideogram.ai/v2/image/remove-background/ideogram-1"
@@ -447,6 +448,55 @@ def _download_image(url: str) -> bytes:
     return data
 
 
+def _quality_for_speed(speed: RenderingSpeed, *, has_image: bool) -> str:
+    """4.5 uses ``quality``. ``very_low`` is only valid when a source image is attached."""
+    if speed == "turbo":
+        return "very_low" if has_image else "low"
+    if speed == "quality":
+        return "high"
+    return "medium"
+
+
+def _image_media_type(path: str) -> str | None:
+    lower = path.lower()
+    if lower.endswith(".png"):
+        return "image/png"
+    if lower.endswith(".webp"):
+        return "image/webp"
+    if lower.endswith(".jpg") or lower.endswith(".jpeg"):
+        return "image/jpeg"
+    return None
+
+
+def _reference_path(packet: dict | None) -> str | None:
+    """First clean reference file. Page screenshots are already excluded from the packet."""
+    for raw in (packet or {}).get("references") or []:
+        path = str(raw or "")
+        if path and os.path.isfile(path) and _image_media_type(path):
+            return path
+    return None
+
+
+def _encode_form(fields: list[tuple[str, str]], files: list[tuple[str, str, bytes, str]]) -> tuple[bytes, str]:
+    boundary = f"----CommMaker{uuid.uuid4().hex}"
+    chunks: list[bytes] = []
+    for name, value in fields:
+        chunks.append(
+            f'--{boundary}\r\nContent-Disposition: form-data; name="{name}"\r\n\r\n{value}\r\n'.encode()
+        )
+    for name, filename, data, content_type in files:
+        chunks.append(
+            (
+                f'--{boundary}\r\nContent-Disposition: form-data; name="{name}"; filename="{filename}"\r\n'
+                f"Content-Type: {content_type}\r\n\r\n"
+            ).encode()
+        )
+        chunks.append(data)
+        chunks.append(b"\r\n")
+    chunks.append(f"--{boundary}--\r\n".encode())
+    return b"".join(chunks), f"multipart/form-data; boundary={boundary}"
+
+
 def _call_generate_api(
     prompt: str,
     resolution: str,
@@ -454,21 +504,36 @@ def _call_generate_api(
     api_key: str,
     rendering_speed: RenderingSpeed,
     magic_prompt: MagicPrompt = "off",
+    reference_path: str | None = None,
 ) -> dict:
-    body = {
-        "prompt": prompt,
-        "resolution": resolution,
-        "num_images": 1,
-        "rendering_speed": rendering_speed,
-        "magic_prompt": magic_prompt,
-        "async": False,
-    }
+    """POST Ideogram 4.5. ``images`` carries one clean reference when we have one."""
+    media = _image_media_type(reference_path or "") if reference_path else None
+    image_bytes = b""
+    if reference_path and media:
+        with open(reference_path, "rb") as handle:
+            image_bytes = handle.read(MAX_LAYER_BYTES + 1)
+        if len(image_bytes) > MAX_LAYER_BYTES:
+            image_bytes = b""
+            media = None
+    has_image = bool(image_bytes and media)
+    fields = [
+        ("prompt", prompt),
+        ("size", resolution),
+        ("num_images", "1"),
+        ("quality", _quality_for_speed(rendering_speed, has_image=has_image)),
+        ("magic_prompt", magic_prompt),
+        ("async", "false"),
+    ]
+    files: list[tuple[str, str, bytes, str]] = []
+    if has_image and reference_path and media:
+        files.append(("images", os.path.basename(reference_path), image_bytes, media))
+    body, content_type = _encode_form(fields, files)
     req = urllib.request.Request(
         IDEOGRAM_GENERATE_URL,
-        data=json.dumps(body).encode("utf-8"),
+        data=body,
         headers={
             "Api-Key": api_key,
-            "Content-Type": "application/json",
+            "Content-Type": content_type,
         },
         method="POST",
     )
@@ -585,10 +650,11 @@ def generate_layer_image(
     brand_packet: dict | None = None,
 ) -> tuple[str, bytes, dict]:
     """
-    Generate a raster layer via Ideogram 4.0 and cache under ``assets_dir``.
+    Generate a raster layer via Ideogram 4.5 and cache under ``assets_dir``.
 
-    ``prompt`` is a scene description; it is sanitized and wrapped in a structured Ideogram 4
-    JSON caption (no text elements, template subject boxes, brand palette) before sending.
+    ``prompt`` is a scene description; it is sanitized and wrapped in a structured JSON
+    caption (no text elements, template subject boxes, brand palette). When the brand
+    packet has a clean reference, that file is uploaded on the ``images`` field.
 
     Returns ``(relative_path, image_bytes, meta)`` where relative_path is like
     ``generated/assets/layer-ideogram-background-<hash>.png``.
@@ -612,6 +678,14 @@ def generate_layer_image(
         brand_packet=brand_packet,
     )
     prompt = structured_prompt_text(structured)
+    packet = brand_packet if isinstance(brand_packet, dict) else (brand_profile or {}).get("ideogramPacket")
+    reference_path = _reference_path(packet if isinstance(packet, dict) else None)
+    if reference_path:
+        prompt = (
+            "Use the attached image only for colour and imagery. "
+            "Make a new text-free picture. Do not keep letters or a page layout. "
+            + prompt
+        )
     magic_prompt = resolve_magic_prompt()
     api_resolution = resolve_layer_resolution(role, resolution)
     payload = _call_generate_api(
@@ -620,6 +694,7 @@ def generate_layer_image(
         api_key=key,
         rendering_speed=resolve_rendering_speed(),
         magic_prompt=magic_prompt,
+        reference_path=reference_path,
     )
     data = payload.get("data") or []
     if not data:
@@ -633,8 +708,11 @@ def generate_layer_image(
 
     image_bytes = _download_image(url)
     cutout = bool(remove_bg and role == "accent" and accent_cutout_enabled())
+    cache_prompt = prompt
+    if reference_path:
+        cache_prompt = f"{prompt}\nreference:{hashlib.sha256(reference_path.encode('utf-8')).hexdigest()[:12]}"
     basename = layer_cache_basename_for_prompt(
-        prompt, api_resolution, role=role, cutout=cutout
+        cache_prompt, api_resolution, role=role, cutout=cutout
     )
     os.makedirs(assets_dir, exist_ok=True)
     abs_path = os.path.join(assets_dir, basename)
@@ -645,7 +723,9 @@ def generate_layer_image(
     rel_path = f"generated/assets/{basename}"
     meta: dict = {
         "role": role,
-        "source": "ideogram-4",
+        "source": "ideogram-4.5",
+        "referenceImageSent": bool(reference_path),
+        "referenceImage": reference_path,
         "imagePrompt": scene,
         "structuredPrompt": structured,
         "magicPrompt": magic_prompt,
@@ -656,7 +736,7 @@ def generate_layer_image(
     }
     if api_resolution != (resolution or "").replace(" ", "").lower():
         meta["resolutionNote"] = (
-            f"Ideogram 4 uses preset sizes; requested {resolution}, generated at {api_resolution}."
+            f"Ideogram 4.5 uses preset sizes; requested {resolution}, generated at {api_resolution}."
         )
 
     if cutout:
@@ -696,7 +776,7 @@ def generate_hero_image(
         api_key=api_key,
     )
     legacy_meta = {
-        "heroSource": meta.get("source", "ideogram-4"),
+        "heroSource": meta.get("source", "ideogram-4.5"),
         "heroImagePrompt": meta.get("imagePrompt", prompt),
         "ideogramResolution": meta.get("ideogramResolution"),
         "requestedResolution": meta.get("requestedResolution", resolution),

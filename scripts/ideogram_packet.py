@@ -306,11 +306,11 @@ def build_ideogram_packet(
         "references": references,
         "screenshotsSkipped": bool(screenshots_skipped),
         "coloursOnly": bool(screenshots_skipped) or not imagery,
-        "referenceImageSent": False,
+        "referenceImageSent": bool(references),
         "referenceNote": (
-            "Ideogram 4 generate has no image reference field and no style-reference field. "
-            "No reference image is sent. Remix is not used, because remix keeps text from the source. "
-            "Palette hexes and the imagery line are in the text prompt."
+            "Ideogram 4.5 generate accepts one image on the images field. "
+            "One clean reference is sent when one exists. Remix is not used, because remix keeps "
+            "text from the source. Palette hexes and the imagery line stay in the text prompt."
         ),
     }
     if screenshots_skipped:

@@ -27,11 +27,13 @@ from creative_brief import CREATIVE_BRIEF_JSON_SCHEMA, _normalize_brief  # noqa:
 
 
 class TestIdeogramConditioning(unittest.TestCase):
-    def test_generate_has_no_style_reference(self) -> None:
+    def test_generate_accepts_one_reference_image(self) -> None:
         note = ideogram_conditioning()
-        self.assertFalse(note["generateAcceptsReferenceImage"])
+        self.assertTrue(note["generateAcceptsReferenceImage"])
+        self.assertEqual(note["imageField"], "images")
+        self.assertIn("ideogram-4-5", note["generateUrl"])
         self.assertTrue(note["remixKeepsSourceText"])
-        self.assertIn("no image reference", str(note["note"]).lower())
+        self.assertIn("images field", str(note["note"]).lower())
         self.assertIn("palette", str(note["note"]).lower())
 
 
@@ -73,7 +75,7 @@ class TestIdeogramGenerateMocked(unittest.TestCase):
             )
             self.assertTrue(rel.startswith("generated/assets/layer-ideogram-background-"))
             self.assertEqual(data[:4], b"\x89PNG")
-            self.assertEqual(meta["heroSource"], "ideogram-4")
+            self.assertEqual(meta["heroSource"], "ideogram-4.5")
             self.assertEqual(meta["ideogramResolution"], "1280x720")
             basename = rel.split("/")[-1]
             self.assertTrue(os.path.isfile(os.path.join(tmp, basename)))

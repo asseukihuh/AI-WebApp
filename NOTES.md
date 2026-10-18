@@ -9,7 +9,7 @@ Project update tracking, changelog, and roadmap for `ai-webapp`.
 ### 2026-10-18 - Website and social images feed the Ideogram prompt
 
 - The brand pass stores a small packet: palette hexes with roles, one imagery line written from the site screenshots and public social images, and up to two reference files that are not page text.
-- Ideogram 4 generate (`POST /v2/image/generate/ideogram-4`) has no image or style-reference field. A reference image is not sent. Remix is not called. The hexes and the imagery line are in the text prompt. The judge compares the poster to that same palette and those reference files.
+- Posters call Ideogram 4.5 (`POST /v2/image/generate/ideogram-4-5`). That generate call accepts one image on the `images` field. One clean reference is uploaded with the prompt. Remix is not called. The hexes and the imagery line stay in the text prompt. The judge compares the poster to that same palette and those reference files.
 - When Playwright is missing, the status line says screenshots were skipped, so Ideogram only received colours.
 
 ### 2026-10-18 - Logo and headline colour follow the field

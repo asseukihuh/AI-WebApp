@@ -44,16 +44,16 @@ Without a key (or on API error), the server falls back to scraped kit photo or b
 | Background | `1280x720` | Closest landscape to LinkedIn 1200×627; compiler **cover**-fills |
 | Accent | `1024x1024` | Sized for ~45% width placement on the right |
 
-Ideogram 4.0 only accepts [preset resolutions](https://developer.ideogram.ai/api-reference/images/generate/ideogram-4); CommMaker maps requested sizes to the nearest preset.
+Ideogram 4.5 sizes are sent as `size`. Without a reference image the size is a supported preset; CommMaker maps the poster to the nearest one.
 
 ## APIs
 
 The layout frame comes from the brand's energy (`photo-block`, `circle-stage`, `product-card`, `full-bleed-scrim`). Ideogram fills that frame with a text-free raster behind the editable type. A crest or triangle stays a PhotoCraft vector; those layouts do not call Ideogram.
 
-- **Generate:** `POST https://api.ideogram.ai/v2/image/generate/ideogram-4`
-- **Not used:** `POST /v2/image/remix/ideogram-4` accepts one image, but the prompt is an edit and the source is kept, so a page screenshot would come back with its text and logos.
+- **Generate:** `POST https://api.ideogram.ai/v2/image/generate/ideogram-4-5` (multipart). One clean reference is uploaded as `images` when the brand packet has one. The prompt still carries the palette hexes and the imagery line.
+- **Not used:** `POST /v2/image/remix/ideogram-4` keeps text from the source, so a page screenshot would come back with its letters.
 
-Ideogram 4 generate has **no** style-reference, character-reference, or image field. Website screenshots are attached to the creative-brief call as vision input so the model can describe the captured gradient language, motifs and palette. The generate request then sends that text-free prompt plus `color_palette`. `magic_prompt` stays off.
+Page screenshots stay vision input for the brief. A file that is mostly UI text is not uploaded. `magic_prompt` stays off.
 - **Cutout (accent):** `POST https://api.ideogram.ai/v2/image/remove-background/ideogram-1` (multipart `image` field)
 
 Header: `Api-Key: $IDEOGRAM_API_KEY`
@@ -74,7 +74,7 @@ Header: `Api-Key: $IDEOGRAM_API_KEY`
 | Field | When |
 |-------|------|
 | `generatedAssets` | `[{ role, path, source }]` for each Ideogram raster |
-| `heroSource` | `ideogram-4` on success |
+| `heroSource` | `ideogram-4.5` on success |
 | `ideogramLayers` | Brief layer mode used |
 | `heroImagePrompt` | Background prompt |
 | `ideogramResolution` | Background preset (e.g. `1280x720`) |
