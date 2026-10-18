@@ -215,6 +215,44 @@ def test_airbnb_lockup_keeps_the_symbol_and_the_variable_font() -> None:
         failed = resolve_poster_fonts(font_kit, failed_dir, fetcher=fetch_fail)
         assert "cereal.woff2" in failed["fontFailure"]
 
+    # No downloadable src for Cereal. The next captured family that has a file is used.
+    # The status still names Cereal, and the poster is not failed for the missing file.
+    fallback_kit = {
+        "siteName": "Airbnb",
+        "fonts": ["Airbnb Cereal VF", "Circular", "Roboto", "Helvetica Neue"],
+        "colors": ["#ff5a5f"],
+        "fontFiles": [
+            {
+                "family": "Circular",
+                "url": "https://a0.muscache.com/airbnb/static/fonts/circular.woff2",
+                "weight": "400",
+            }
+        ],
+    }
+    fallback_profile = {"typography": {"display": {"family": "Airbnb Cereal VF", "weights": [700]}}}
+
+    def fetch_circular(url: str) -> bytes:
+        if url.endswith("circular.woff2"):
+            return b"wOF2" + b"\x00" * 24
+        raise OSError(url)
+
+    with tempfile.TemporaryDirectory() as tmp:
+        loaded = resolve_poster_fonts(fallback_kit, tmp, fetcher=fetch_circular)
+        batch = compile_poster_batch(
+            fallback_kit,
+            _session(),
+            fonts_resolved=loaded,
+            brand_profile=fallback_profile,
+            creative_brief={"headline": "Stay somewhere new", "layoutTemplate": "full-bleed-scrim"},
+        )
+        headline = next(step for step in batch["steps"] if step["params"].get("name") == "Headline")
+        assert headline["params"]["font"] == "Circular"
+        assert batch["meta"]["brandFontFailed"] is True
+        assert "no file URL for Airbnb Cereal VF" in (batch["meta"].get("brandFontError") or "")
+        reason = (batch["meta"].get("typeQuality") or {}).get("reason") or ""
+        assert "brand font failed" not in reason
+        assert "not the captured display font" not in reason
+
 
 def test_logo_placements_with_hero() -> None:
     svg_dims = svg_dimensions_from_text(_STRIPE_LOGO_SVG)

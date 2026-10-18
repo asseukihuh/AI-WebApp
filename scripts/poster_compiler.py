@@ -1171,14 +1171,42 @@ def compile_poster_batch(
     woff = (resolved.get("woff2") or {}) if isinstance(resolved.get("woff2"), dict) else {}
     from font_fetcher import families_match
 
-    font_file = ""
-    for family, paths in woff.items():
-        if captured_headline and paths and families_match(str(family), captured_headline):
-            font_file = str(paths[0])
-            break
-    if captured_headline:
+    def _file_for(name: str) -> str:
+        for family, paths in woff.items():
+            if name and paths and families_match(str(family), name):
+                return str(paths[0])
+        return ""
+
+    font_file = _file_for(captured_headline)
+    captured_loaded = bool(font_file) or (
+        bool(captured_headline) and design.usable_display_font(captured_headline) is not None
+    )
+    font_fallback = ""
+    if captured_headline and captured_loaded:
         headline_font = captured_headline
-        font_loaded = bool(font_file) or design.usable_display_font(captured_headline) is not None
+        font_loaded = True
+    elif captured_headline:
+        # No downloadable src for the display face. Use the next captured family that has a file.
+        candidates: list[str] = []
+        for raw in [captured_headline, *(kit.get("fonts") or []), display.get("body") or ""]:
+            name = str(raw or "").strip()
+            if name and name.casefold() not in {item.casefold() for item in candidates}:
+                if name.casefold() not in design._GENERIC_TYPEFACES:
+                    candidates.append(name)
+        for name in candidates:
+            if name.casefold() == captured_headline.casefold():
+                continue
+            found = _file_for(name)
+            if found:
+                font_fallback = name
+                font_file = found
+                break
+        if font_fallback:
+            headline_font = font_fallback
+            font_loaded = True
+        else:
+            headline_font = captured_headline
+            font_loaded = False
     else:
         headline_font = design.usable_display_font(str(resolved.get("headline") or "")) or display["headline"]
         font_loaded = True
@@ -1187,7 +1215,7 @@ def compile_poster_batch(
         or display["body"]
         or headline_font
     )
-    brand_font_failed = bool(captured_headline) and not font_loaded
+    brand_font_failed = bool(captured_headline) and not captured_loaded
     brand_font_error = str(resolved.get("fontFailure") or "") if brand_font_failed else ""
     if brand_font_failed and not brand_font_error:
         brand_font_error = f"the brand font failed to load: no file URL for {captured_headline}"
@@ -1785,7 +1813,7 @@ def compile_poster_batch(
         headline=str(headline_box.get("text") or headline),
         headline_contrast=contrast.get("headline"),
         logo_contrast=contrast.get("logo"),
-        captured_font=captured_headline or None,
+        captured_font=(font_fallback or captured_headline or None),
         font_loaded=font_loaded,
         logo_scraped=(logo_variant == "original") if logo_variant else None,
     )

@@ -149,9 +149,10 @@ class TestPacketPrompt(unittest.TestCase):
         raw = request.data
         self.assertIn(b'name="prompt"', raw)
         self.assertIn(b"A field", raw)
-        self.assertIn(b'name="size"', raw)
-        self.assertIn(b"1440x720", raw)
+        self.assertNotIn(b'name="size"', raw)
+        self.assertNotIn(b"1440x720", raw)
         self.assertNotIn(b"1280x720", raw)
+        self.assertNotIn(b"1200x627", raw)
         self.assertEqual(raw.count(b'name="images"'), 2)
         self.assertIn(b"photo.png", raw)
         self.assertIn(b"peel.png", raw)
@@ -180,8 +181,10 @@ class TestPacketPrompt(unittest.TestCase):
                     reference_paths=[svg],
                 )
         raw = opened.call_args[0][0].data
-        self.assertIn(b"1440x720", raw)
+        self.assertNotIn(b'name="size"', raw)
+        self.assertNotIn(b"1440x720", raw)
         self.assertNotIn(b"1280x720", raw)
+        self.assertNotIn(b"1200x627", raw)
         self.assertNotIn(b"<svg", raw)
         self.assertNotIn(b"image/svg", raw)
         self.assertIn(b"1024x1024", closest_ideogram_resolution("1024x1024").encode())
@@ -194,9 +197,17 @@ class TestPacketPrompt(unittest.TestCase):
         )
         with patch("urllib.request.urlopen", side_effect=err):
             with self.assertRaises(ValueError) as caught:
-                _call_generate_api("A field", "1440x720", api_key="test-key", rendering_speed="default")
+                _call_generate_api("A field", "1200x627", api_key="test-key", rendering_speed="default")
         self.assertIn("Invalid input", str(caught.exception))
         self.assertNotIn("HTTP Error 400", str(caught.exception))
+        with patch("urllib.request.urlopen", return_value=mock_resp) as opened_plain:
+            _call_generate_api("A field", "1200x627", api_key="test-key", rendering_speed="default")
+        plain = opened_plain.call_args[0][0].data
+        self.assertIn(b'name="size"', plain)
+        self.assertIn(b"2880x1440", plain)
+        self.assertNotIn(b"1440x720", plain)
+        self.assertNotIn(b"1200x627", plain)
+        self.assertNotIn(b"1280x720", plain)
 
     def test_wide_and_tall_references_are_center_cropped(self) -> None:
         """A full-page screenshot outside 1:6–6:1 is center-cropped. One that cannot be cropped is skipped."""
@@ -270,6 +281,8 @@ class TestPacketPrompt(unittest.TestCase):
                 )
         raw = opened.call_args[0][0].data
         self.assertIn(b"Palette: primary #635bff", raw)
+        self.assertNotIn(b'name="size"', raw)
+        self.assertNotIn(b"1200x627", raw)
         self.assertEqual(raw.count(b'name="images"'), 3)
         self.assertIn(b"wide.png", raw)
         self.assertIn(b"tall.png", raw)

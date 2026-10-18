@@ -6,6 +6,11 @@ Project update tracking and changelog for CommMaker.
 
 ## 📝 Recent Updates
 
+### 2026-10-18 - Ideogram size and a missing variable font
+
+- `1440x720` is not an Ideogram 4.5 size. A poster with no reference image asks for `2880x1440`. A poster with reference images omits `size`, so the API uses `auto`. The raw `1200x627` is not sent.
+- When Airbnb Cereal VF has no downloadable file, the headline uses the next captured family that has one, such as Circular or Roboto. The status line still says there is no file URL for Cereal. That does not fail the poster, and Ideogram is still called.
+
 ### 2026-10-18 - Airbnb photo band
 
 - A hospitality or photography brand uses the photo-band treatment. Ideogram is asked for one text-free photograph of a home interior, with no UI card, headline, button, or abstract blur.

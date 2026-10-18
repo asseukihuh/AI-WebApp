@@ -41,10 +41,12 @@ IDEOGRAM_REMOVE_BG_URL = "https://api.ideogram.ai/v2/image/remove-background/ide
 IDEOGRAM_TIMEOUT_SEC = 120
 MAX_LAYER_BYTES = 8_000_000
 
-# LinkedIn poster is 1200×627. Ideogram 4.5 rejects the 4.0 size 1280x720.
-# Without source images, size must be a supported 1K/2K preset.
+# LinkedIn poster is 1200×627. Ideogram 4.5 rejects 1280x720 and 1440x720.
+# Without source images, size must be a supported preset. 2880x1440 is the wide 2:1 preset.
+# With source images, omit size so the API uses auto.
 LINKEDIN_TARGET_RESOLUTION = "1200x627"
-DEFAULT_BACKGROUND_RESOLUTION = "1440x720"
+DEFAULT_BACKGROUND_RESOLUTION = "2880x1440"
+_REJECTED_RESOLUTIONS = frozenset({"1200x627", "1280x720", "1440x720", "1200x440", "1536x512"})
 # Accent subjects are placed at ~45% canvas width — square preset keeps detail without huge files.
 DEFAULT_ACCENT_RESOLUTION = "1024x1024"
 
@@ -83,9 +85,7 @@ IDEOGRAM_PRESET_RESOLUTIONS: tuple[str, ...] = (
     "1280x800",
     "720x1280",
     "720x1440",
-    "1440x720",
     "512x1536",
-    "1536x512",
 )
 
 LayerRole = Literal["background", "accent"]
@@ -391,13 +391,13 @@ def treatment_spec(treatment: str | None) -> dict[str, str]:
 
 
 def closest_ideogram_resolution(requested: str) -> str:
-    """Map a target size to a documented Ideogram 4.5 1K/2K preset.
+    """Map a target size to an Ideogram 4.5 preset used when no reference image is sent.
 
-    ``1280x720`` is an Ideogram 4.0 size. 4.5 returns 400 for that ``size``.
-    A 1200×627 poster uses ``1440x720`` instead.
+    ``1280x720`` and ``1440x720`` are rejected. A 1200×627 poster uses ``2880x1440``.
+    The poster's raw ``1200x627`` is never sent.
     """
-    if requested in ("1280x720", "1200x627"):
-        return "1440x720"
+    if requested in _REJECTED_RESOLUTIONS:
+        return DEFAULT_BACKGROUND_RESOLUTION
     if requested in IDEOGRAM_PRESET_RESOLUTIONS:
         return requested
     target = _parse_resolution(requested)
@@ -751,16 +751,18 @@ def _call_generate_api(
             continue
         files.append(("images", name, image_bytes, media))
     has_image = bool(files)
-    # 1280x720 is an Ideogram 4.0 preset. 4.5 rejects that size.
-    size = closest_ideogram_resolution(resolution)
+    # With source images, omit size so Ideogram uses auto. 1440x720 is not a 4.5 size.
+    # Without them, send a supported wide preset. Never send 1200x627.
+    size = None if has_image else closest_ideogram_resolution(resolution)
     fields = [
         ("prompt", prompt),
-        ("size", size),
         ("num_images", "1"),
         ("quality", _quality_for_speed(rendering_speed, has_image=has_image)),
         ("magic_prompt", magic_prompt),
         ("async", "false"),
     ]
+    if size:
+        fields.insert(1, ("size", size))
     body, content_type = _encode_form(fields, files)
     req = urllib.request.Request(
         IDEOGRAM_GENERATE_URL,
@@ -995,7 +997,7 @@ def generate_layer_image(
         "structuredPrompt": structured,
         "magicPrompt": magic_prompt,
         "template": template,
-        "ideogramResolution": api_resolution,
+        "ideogramResolution": "auto" if reference_paths else api_resolution,
         "requestedResolution": resolution,
         "renderingSpeed": resolve_rendering_speed(),
     }
