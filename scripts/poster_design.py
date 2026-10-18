@@ -78,6 +78,11 @@ LayoutTemplateName = Literal[
     "circle-stage",
     "mark-stage",
     "product-card",
+    "communique",
+    "type-only",
+    "photo-card",
+    "character-scene",
+    "product-ui",
 ]
 LAYOUT_TEMPLATES: tuple[str, ...] = (
     "full-bleed-scrim",
@@ -89,6 +94,25 @@ LAYOUT_TEMPLATES: tuple[str, ...] = (
     "circle-stage",
     "mark-stage",
     "product-card",
+    "communique",
+    "type-only",
+    "photo-card",
+    "character-scene",
+    "product-ui",
+)
+# Photographs, illustrations, products and gradient textures. Not type-only or a vector mark.
+RASTER_TEMPLATES = frozenset(
+    {
+        "full-bleed-scrim",
+        "split-text-left",
+        "text-panel",
+        "photo-block",
+        "photo-card",
+        "circle-stage",
+        "character-scene",
+        "product-card",
+        "product-ui",
+    }
 )
 HEADLINE_SCALES: tuple[str, ...] = ("xl", "lg", "md")
 HEADLINE_WEIGHTS: tuple[str, ...] = ("bold", "extrabold")
@@ -613,7 +637,111 @@ TEMPLATES: dict[str, LayoutTemplate] = {
         ideogram_layout_note="product centred on a flat colour, short caption along the bottom",
         max_headline_lines=2,
     ),
+    "communique": LayoutTemplate(
+        name="communique",
+        text_x=col_x(2),
+        text_w=span_w(8),
+        anchor="center",
+        align="center",
+        image_region=(430, 400, 340, 180),
+        image_align="center",
+        scrim="none",
+        surface="none",
+        logo_align="center",
+        accent_center=None,
+        ideogram_subject_bboxes=(),
+        ideogram_background="unused: type and the real mascot, no painted scene",
+        ideogram_layout_note="centred note: wordmark, centred type, mascot along the bottom",
+        max_headline_lines=3,
+    ),
+    "type-only": LayoutTemplate(
+        name="type-only",
+        text_x=col_x(1),
+        text_w=span_w(10),
+        anchor="center",
+        align="center",
+        image_region=(0, 0, CANVAS_W, CANVAS_H),
+        image_align="center",
+        scrim="none",
+        surface="none",
+        logo_align="center",
+        accent_center=None,
+        ideogram_subject_bboxes=(),
+        ideogram_background="unused: one statement on a flat brand colour",
+        ideogram_layout_note="full-bleed colour, one centred statement, small mark",
+        max_headline_lines=4,
+    ),
+    "photo-card": LayoutTemplate(
+        name="photo-card",
+        text_x=col_x(3),
+        text_w=span_w(6),
+        anchor="bottom",
+        align="center",
+        image_region=(320, 56, 560, 200),
+        image_align="center",
+        scrim="none",
+        surface="none",
+        logo_align="left",
+        accent_center=(600, 200),
+        ideogram_subject_bboxes=((80, 300, 360, 900),),
+        ideogram_background=(
+            "a text-free photograph cropped inside a card, no letters, no logos, "
+            "caption space below the picture"
+        ),
+        ideogram_layout_note="one card: photograph on top, a short caption underneath",
+        max_headline_lines=3,
+    ),
+    "character-scene": LayoutTemplate(
+        name="character-scene",
+        text_x=col_x(1),
+        text_w=span_w(10),
+        anchor="bottom",
+        align="center",
+        image_region=(390, 24, 420, 300),
+        image_align="center",
+        scrim="none",
+        surface="none",
+        logo_align="center",
+        accent_center=(600, 240),
+        ideogram_subject_bboxes=((40, 280, 500, 920),),
+        ideogram_background=(
+            "a text-free scene with one brand character or object in the centre, "
+            "no letters, no logos, a quiet band along the bottom for a caption"
+        ),
+        ideogram_layout_note="character or object in a scene, short caption along the bottom",
+        max_headline_lines=2,
+    ),
+    "product-ui": LayoutTemplate(
+        name="product-ui",
+        text_x=col_x(5),
+        text_w=span_w(6),
+        anchor="center",
+        align="left",
+        image_region=(120, 160, 240, 240),
+        image_align="center",
+        scrim="none",
+        surface="none",
+        logo_align="left",
+        accent_center=(360, 290),
+        ideogram_subject_bboxes=((140, 200, 460, 520),),
+        ideogram_background=(
+            "a text-free illustration of a lesson screen: a progress bar, a character, "
+            "empty answer chips, no readable words"
+        ),
+        ideogram_layout_note="product UI illustration, the real mark as the character",
+        max_headline_lines=2,
+    ),
 }
+
+
+def template_needs_raster(name: str | None) -> bool:
+    """Photographs, illustrations, products and gradient textures."""
+    return (name or "") in RASTER_TEMPLATES
+
+
+def template_skips_ideogram(name: str | None) -> bool:
+    """Type-only statements and vector marks. No generated picture."""
+    return (name or "") in {"type-only", "communique", "mark-stage", "device-stage"}
 
 
 def kit_hero_unsuitable(kit: dict[str, Any] | None) -> bool:
@@ -1209,7 +1337,16 @@ def audit_plan(
     if plan.align == "left":
         asymmetric = True
         asymmetry_detail = "text mass on the left, open field opposite"
-    elif plan.template in ("centered-statement", "mark-stage", "product-card"):
+    elif plan.template in (
+        "centered-statement",
+        "mark-stage",
+        "product-card",
+        "communique",
+        "type-only",
+        "photo-card",
+        "character-scene",
+        "product-ui",
+    ):
         zone_w = plan.text_zone[2] if plan.text_zone else 0
         asymmetric = plan.text_zone is None or zone_w <= span_w(10) + 1
         asymmetry_detail = "picture centred, type held to one edge"
@@ -1222,7 +1359,17 @@ def audit_plan(
         tpl.surface != "none"
         or tpl.scrim != "none"
         or bool(devices)
-        or plan.template in ("circle-stage", "mark-stage", "product-card", "photo-block")
+        or plan.template in (
+            "circle-stage",
+            "mark-stage",
+            "product-card",
+            "photo-block",
+            "communique",
+            "type-only",
+            "photo-card",
+            "character-scene",
+            "product-ui",
+        )
     )
     add(
         "layered-depth",
@@ -1237,6 +1384,11 @@ def audit_plan(
         "circle-stage",
         "mark-stage",
         "product-card",
+        "communique",
+        "type-only",
+        "photo-card",
+        "character-scene",
+        "product-ui",
     )
     add("colour-blocking", blocked, "colour block, card, or full-bleed field")
     thumb_ok = head.get("size", 0) >= HEADLINE_MIN_SIZE and (not sub or sub.get("size", 0) >= SUBLINE_MIN_SIZE)

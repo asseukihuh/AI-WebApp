@@ -302,6 +302,19 @@ def estimated_unit_costs() -> dict[str, Any]:
         "posterBriefModel": "claude-sonnet-5-5",
         "posterWithIdeogramUsd": round(brief + IDEOGRAM_IMAGE_USD, 4),
         "ideogramImageUsd": IDEOGRAM_IMAGE_USD,
+        # One Opus call now returns the profile, the kit and socialStrategy.
+        # Before: a Sonnet profile call plus this Opus kit call (2). After: 1 cached call.
+        "brandBundleUsd": round(
+            cost_usd({"inputTokens": 10000, "outputTokens": 2800}),
+            4,
+        ),
+        "brandBundleModel": resolve_brand_model("anthropic"),
+        "callsBefore": {"newBrand": 2, "perPoster": 2, "ideogram": "often"},
+        "callsAfter": {"newBrand": 1, "perPoster": 1, "ideogram": "raster frames only"},
+        "perPosterArtDirectorUsd": round(
+            cost_usd({"inputTokens": 1200, "outputTokens": 400}, kind="brief"),
+            4,
+        ),
     }
 
 
@@ -953,7 +966,7 @@ def ensure_communication_kit(
     """Attach ``communicationKit``. Thin sites also receive the designed type and palette."""
     kit = dict(kit or {})
     existing = kit.get("communicationKit")
-    if isinstance(existing, dict) and existing.get("devices") and not refresh:
+    if isinstance(existing, dict) and not refresh and (existing.get("bundled") or existing.get("devices")):
         return kit
     result = analyze_communication_kit(
         kit,

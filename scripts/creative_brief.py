@@ -26,6 +26,7 @@ from poster_design import (
     identity_gradient_stops,
     kit_hero_unsuitable,
     template_hint_from_profile,
+    template_skips_ideogram,
 )
 from ideogram_client import ideogram_conditioning
 
@@ -476,6 +477,11 @@ def template_for_energy(energy: str) -> str:
         "mark-stage": "mark-stage",
         "device-stage": "device-stage",
         "quiet-type": "centered-statement",
+        "communique": "communique",
+        "type-only": "type-only",
+        "photo-card": "photo-card",
+        "character-scene": "character-scene",
+        "product-ui": "product-ui",
     }.get(energy, "full-bleed-scrim")
 
 
@@ -501,6 +507,27 @@ def _blob_has(blob: str, needles: tuple[str, ...]) -> bool:
     return any(needle in blob for needle in needles)
 
 
+_SOCIAL_ENERGY = {
+    "type-only": "type-only",
+    "photo-card": "photo-card",
+    "character-scene": "character-scene",
+    "product-ui": "product-ui",
+    "communique": "communique",
+    "gradient-field": "gradient-field",
+}
+
+
+def _energy_from_social(strategy: dict[str, Any] | None) -> str | None:
+    """Prefer a format the brand actually posts. Empty when social posts were not visible."""
+    if not isinstance(strategy, dict):
+        return None
+    formats = [str(item) for item in (strategy.get("formats") or [])]
+    for name in ("communique", "character-scene", "product-ui", "photo-card", "type-only", "gradient-field"):
+        if name in formats:
+            return _SOCIAL_ENERGY[name]
+    return None
+
+
 def brand_layout_energy(
     kit: dict[str, Any] | None,
     brand_profile: dict[str, Any] | None = None,
@@ -512,6 +539,13 @@ def brand_layout_energy(
     only for a monochrome site with no imagery language.
     """
     kit = kit or {}
+    profile = brand_profile if isinstance(brand_profile, dict) else None
+    if profile is None and isinstance(kit.get("brandProfile"), dict):
+        profile = kit["brandProfile"]
+    social = (profile or {}).get("socialStrategy") if isinstance(profile, dict) else None
+    social_energy = _energy_from_social(social)
+    if social_energy:
+        return social_energy
     medium, blob = _imagery_blob(kit, brand_profile)
     profile = brand_profile if isinstance(brand_profile, dict) else None
     if profile is None and isinstance(kit.get("brandProfile"), dict):
@@ -683,6 +717,22 @@ def default_composition(
         field = "palette-gradient"
         text_region = "center"
         block = "none"
+    elif energy in ("communique", "type-only"):
+        field = "palette-gradient"
+        text_region = "center"
+        block = "none"
+    elif energy == "photo-card":
+        field = "ideogram"
+        text_region = "center"
+        block = "none"
+    elif energy == "character-scene":
+        field = "ideogram"
+        text_region = "center"
+        block = "none"
+    elif energy == "product-ui":
+        field = "ideogram"
+        text_region = "center"
+        block = "none"
     else:
         field = "palette-gradient"
         text_region = "left"
@@ -817,6 +867,9 @@ def build_fallback_brief(
         brief["layoutRecipe"] = "photo-hero-type"
         brief["ideogramLayers"] = "background-only"
         brief["heroImagePrompt"] = _energy_image_prompt(energy, kit, brand_profile)
+    if template_skips_ideogram(str(brief.get("layoutTemplate") or "")):
+        if brief.get("heroStrategy") == "ideogram_generate":
+            brief["heroStrategy"] = "solid"
     return brief
 
 

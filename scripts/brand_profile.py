@@ -1674,6 +1674,312 @@ def analyze_brand(
     return result
 
 
+def _bundle_schema() -> dict[str, Any]:
+    from communication_kit import COMMUNICATION_KIT_JSON_SCHEMA
+    from social_capture import SOCIAL_FORMATS
+
+    social = _strict_object(
+        {
+            "voice": _str(),
+            "formats": {"type": "array", "items": {"type": "string", "enum": list(SOCIAL_FORMATS)}},
+            "doNotInvent": _str_list(),
+            "notes": _str(),
+        }
+    )
+    properties = dict(BRAND_PROFILE_JSON_SCHEMA["properties"])
+    properties["socialStrategy"] = social
+    properties["communicationKit"] = COMMUNICATION_KIT_JSON_SCHEMA
+    return _strict_object(properties)
+
+
+def _merge_social(model_raw: dict[str, Any] | None, capture: dict[str, Any] | None) -> dict[str, Any]:
+    from social_capture import SOCIAL_FORMATS, strategy_from_capture
+
+    strategy = strategy_from_capture(capture)
+    raw = (model_raw or {}).get("socialStrategy") if isinstance(model_raw, dict) else None
+    if isinstance(raw, dict):
+        voice = str(raw.get("voice") or "").strip()
+        if voice:
+            strategy["voice"] = voice[:240]
+        formats = [f for f in (raw.get("formats") or []) if f in SOCIAL_FORMATS]
+        if formats:
+            strategy["formats"] = formats
+        extra = [str(item).strip() for item in (raw.get("doNotInvent") or []) if str(item).strip()]
+        strategy["doNotInvent"] = list(dict.fromkeys([*strategy["doNotInvent"], *extra]))[:8]
+        note = str(raw.get("notes") or "").strip()
+        if note:
+            strategy["notes"] = (strategy["notes"] + " " + note).strip()[:500]
+    return strategy
+
+
+def _capture_brand_inputs(
+    url: str,
+    folder: str,
+    *,
+    kit: dict[str, Any] | None,
+    scrape_fn: Callable[[str], dict[str, Any]] | None,
+    mobile: bool,
+) -> tuple[dict[str, Any], dict[str, Any], dict[str, Any]]:
+    """Site scrape, site screenshots and public social screenshots at the same time."""
+    from concurrent.futures import ThreadPoolExecutor
+
+    from social_capture import capture_public_social
+
+    social_dir = os.path.join(folder, "social")
+    links = list((kit or {}).get("socialLinks") or [])
+    name = str((kit or {}).get("siteName") or "")
+
+    def _scrape() -> dict[str, Any]:
+        if kit is not None or not scrape_fn:
+            return dict(kit or {})
+        return scrape_fn(url)
+
+    with ThreadPoolExecutor(max_workers=3) as pool:
+        scraped = pool.submit(_scrape)
+        site = pool.submit(capture_site, url, folder, mobile=mobile)
+        social = pool.submit(
+            capture_public_social, url, social_dir, social_links=links, site_name=name
+        )
+        kit_out = scraped.result()
+        site_out = site.result()
+        social_out = social.result()
+    return kit_out, site_out, social_out
+
+
+def analyze_brand_bundle(
+    url: str,
+    *,
+    cache_dir: str,
+    kit: dict[str, Any] | None = None,
+    scrape_fn: Callable[[str], dict[str, Any]] | None = None,
+    refresh: bool = False,
+    mobile: bool = True,
+    repo_root: str | None = None,
+    llm_fn: Callable[[dict[str, Any], list[dict[str, Any]], dict[str, Any]], dict[str, Any]] | None = None,
+) -> dict[str, Any]:
+    """One cached Opus call: brand profile, communication kit and socialStrategy.
+
+    Capture (scrape, site screenshots, public social screenshots) runs in parallel
+    before that single call. A cache hit within 7 days costs nothing and makes no call.
+    """
+    from communication_kit import (
+        CACHE_TTL_SEC as KIT_TTL,
+        cost_usd as brand_cost,
+        design_fallback,
+        reconcile_kit,
+        resolve_brand_model,
+    )
+
+    folder, path = cache_paths(url, cache_dir)
+    if not refresh and os.path.isfile(path):
+        cached = load_cached(url, cache_dir)
+        if cached and (cached["result"].get("brandProfile") or {}).get("socialStrategy") is not None:
+            if (cached["result"].get("kit") or {}).get("communicationKit"):
+                return {**cached["result"], "cached": True}
+    os.makedirs(folder, exist_ok=True)
+    kit_out, capture, social = _capture_brand_inputs(
+        url, folder, kit=kit, scrape_fn=scrape_fn, mobile=mobile
+    )
+    kit_out = dict(kit_out or {})
+    shots = capture.get("screenshots") or {}
+    for visit in social.get("visits") or []:
+        if visit.get("screenshot"):
+            shots.setdefault(f"social-{visit.get('platform')}", visit["screenshot"])
+    pixels = pixel_palette(shots.get("desktopFold"))
+    signals = build_signals(kit_out, capture, pixels)
+    raw: dict[str, Any] | None = None
+    images = vision_images(capture.get("screenshots") or {})
+    for visit in social.get("visits") or []:
+        loaded = _load_image_for_vision(visit.get("screenshot") or "")
+        if not loaded:
+            continue
+        data, media, size = loaded
+        images.append(
+            {
+                "key": f"social-{visit.get('platform')}",
+                "label": f"Public {visit.get('platform')} page ({visit.get('status')})",
+                "data": data,
+                "mediaType": media,
+                "size": size,
+            }
+        )
+    try:
+        llm = (llm_fn or call_brand_bundle_llm)(signals, images, social)
+        raw = llm["raw"]
+        profile = reconcile_profile(raw, signals, kit_out)
+        designed = reconcile_kit(raw.get("communicationKit"), kit_out, profile)
+        usage = llm.get("usage") or {}
+        source = "llm"
+        model = llm.get("model") or resolve_brand_model()
+        cost = brand_cost(usage)
+    except LookupError:
+        profile = heuristic_profile(signals, kit_out)
+        designed = design_fallback(kit_out, profile)
+        usage = {}
+        source = "fallback"
+        model = ""
+        cost = 0.0
+    except (urllib.error.URLError, urllib.error.HTTPError, json.JSONDecodeError, ValueError, TimeoutError, OSError):
+        profile = heuristic_profile(signals, kit_out)
+        designed = design_fallback(kit_out, profile)
+        usage = {}
+        source = "fallback"
+        model = ""
+        cost = 0.0
+    profile["socialStrategy"] = _merge_social(raw if source == "llm" else None, social)  # type: ignore[name-defined]
+    designed = dict(designed)
+    designed["bundled"] = True
+    designed["version"] = 2
+    profile["analysis"] = {
+        "source": source,
+        "model": model,
+        "analyzedAt": datetime.now(timezone.utc).isoformat(),
+        "rendered": bool(capture.get("available")),
+        "calls": 1 if source == "llm" else 0,
+    }
+    kit_out = _apply_logo_choice(kit_out, signals, profile)
+    kit_out["brandProfile"] = profile
+    kit_out["communicationKit"] = designed
+    if shots:
+        kit_out["screenshotPaths"] = {k: _public_path(v, repo_root) for k, v in shots.items() if v}
+    result = {
+        "capture": {
+            "available": bool(capture.get("available")),
+            "reason": capture.get("reason") or "",
+            "durationSec": capture.get("durationSec"),
+            "screenshots": {k: _public_path(v, repo_root) for k, v in (capture.get("screenshots") or {}).items()},
+        },
+        "social": {
+            "available": bool(social.get("available")),
+            "reason": social.get("reason") or "",
+            "visits": [
+                {k: v.get(k) for k in ("platform", "url", "finalUrl", "status", "note")}
+                for v in (social.get("visits") or [])
+            ],
+        },
+        "source": source,
+        "model": model,
+        "usage": usage,
+        "costUsd": cost,
+        "brandProfile": profile,
+        "communicationKit": designed,
+        "kit": kit_out,
+        "cached": False,
+        "cacheTtlSec": KIT_TTL,
+    }
+    _write_cache(
+        url,
+        cache_dir,
+        {"profileVersion": PROFILE_VERSION, "createdAtEpoch": time.time(), "url": url, "result": result},
+    )
+    return result
+
+
+def call_brand_bundle_llm(
+    signals: dict[str, Any],
+    images: list[dict[str, Any]],
+    social: dict[str, Any],
+) -> dict[str, Any]:
+    """Single Opus call. Poster briefs stay on the Sonnet creative-brief model."""
+    from communication_kit import resolve_brand_model
+
+    provider = resolve_llm_provider()
+    if not provider:
+        raise LookupError("no_provider")
+    api_key = api_key_for_provider(provider)
+    if not api_key:
+        raise LookupError("no_api_key")
+    model = resolve_brand_model(provider)
+    schema = _bundle_schema()
+    social_note = _merge_social(None, social)["notes"]
+    extra = (
+        "\n\nAlso fill socialStrategy and communicationKit in the same response. "
+        "socialStrategy.voice is how the brand speaks on its public social posts, or empty if those pages were a login wall. "
+        "formats are the recurring post shapes you can actually see (type-only, photo-card, character-scene, product-ui, communique, gradient-field). "
+        "doNotInvent lists what a poster must not make up (prices, dates, statistics, news, costumes that are not in the logo). "
+        "notes may quote only what is visible. "
+        f"Public social capture: {social_note}\n"
+        "communicationKit formalises the same identity: thinSite, sector, colours, type pairing, imagery and layout. "
+        "devices must be an empty array. Do not invent a second logo or a news event."
+    )
+    content: list[dict[str, Any]] = []
+    for i, img in enumerate(images, 1):
+        content.append({"type": "text", "text": f"Image {i}: {img['label']}"})
+        content.append(
+            {
+                "type": "image",
+                "source": {"type": "base64", "media_type": img["mediaType"], "data": img["data"]},
+            }
+        )
+    content.append({"type": "text", "text": _vision_instructions(signals, has_images=bool(images)) + extra})
+    if provider == "anthropic":
+        body = {
+            "model": model,
+            "max_tokens": 4000,
+            "system": _VISION_SYSTEM.replace("submit_brand_profile", "submit_brand_bundle"),
+            "messages": [{"role": "user", "content": content}],
+            "tools": [
+                {
+                    "name": "submit_brand_bundle",
+                    "description": "Submit the brand profile, communication kit and social strategy together.",
+                    "input_schema": schema,
+                    "strict": True,
+                }
+            ],
+            "tool_choice": {"type": "auto"},
+        }
+        payload = _post_json(
+            f"{ANTHROPIC_API_BASE}/messages", body, _anthropic_request_headers(api_key)
+        )
+        usage_raw = payload.get("usage") or {}
+        usage = {
+            "inputTokens": int(usage_raw.get("input_tokens") or 0),
+            "outputTokens": int(usage_raw.get("output_tokens") or 0),
+        }
+        for block in payload.get("content") or []:
+            if block.get("type") == "tool_use" and block.get("name") == "submit_brand_bundle":
+                if isinstance(block.get("input"), dict):
+                    return {"raw": block["input"], "usage": usage, "model": model, "provider": provider}
+        raise ValueError("Anthropic response missing submit_brand_bundle tool output")
+    text_content: list[dict[str, Any]] = []
+    for i, img in enumerate(images, 1):
+        text_content.append({"type": "text", "text": f"Image {i}: {img['label']}"})
+        text_content.append(
+            {
+                "type": "image_url",
+                "image_url": {"url": f"data:{img['mediaType']};base64,{img['data']}"},
+            }
+        )
+    text_content.append({"type": "text", "text": _vision_instructions(signals, has_images=bool(images)) + extra})
+    body = {
+        "model": model,
+        "temperature": 0.3,
+        "max_tokens": 4000,
+        "messages": [
+            {"role": "system", "content": "Return one JSON object for the brand bundle."},
+            {"role": "user", "content": text_content},
+        ],
+        "response_format": {
+            "type": "json_schema",
+            "json_schema": {"name": "brand_bundle", "strict": True, "schema": schema},
+        },
+    }
+    base = OPENROUTER_API_BASE if provider == "openrouter" else OPENAI_API_BASE
+    headers = {"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"}
+    payload = _post_json(f"{base}/chat/completions", body, headers)
+    u = payload.get("usage") or {}
+    usage = {
+        "inputTokens": int(u.get("prompt_tokens") or 0),
+        "outputTokens": int(u.get("completion_tokens") or 0),
+    }
+    text = str(((payload.get("choices") or [{}])[0].get("message") or {}).get("content") or "").strip()
+    text = re.sub(r"^```(?:json)?\s*|\s*```$", "", text)
+    data = json.loads(text)
+    if not isinstance(data, dict):
+        raise ValueError("LLM response was not a JSON object")
+    return {"raw": data, "usage": usage, "model": model, "provider": provider}
+
+
 # --------------------------------------------------------------------------- downstream hooks
 
 

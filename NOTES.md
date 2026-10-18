@@ -6,6 +6,12 @@ Project update tracking, changelog, and roadmap for `ai-webapp`.
 
 ## 📝 Recent Updates
 
+### 2026-10-18 - One brand call, social formats
+
+- Site scrape, site screenshots and public social screenshots run together. Instagram and LinkedIn are opened with a fresh browser: no login, no cookies, no bypass. A login wall is recorded and skipped.
+- One Opus call, cached 7 days per domain, returns the brand profile, the communication kit and `socialStrategy` (voice, recurring formats, what not to invent).
+- Each poster is one Sonnet brief. The art director runs only when the design audit fails. Ideogram runs only for a photo, illustration, product or gradient texture, not for type-only or a vector mark.
+
 ### 2026-10-18 - Layout follows the brand
 
 - The brief picks a frame from the brand: gradient field, photo block, illustration circle, product card, stark symbol, crest stage, or quiet type. Quiet type is only for a monochrome site. A gradient brand stays on the full-bleed field.

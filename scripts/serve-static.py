@@ -47,7 +47,7 @@ from ideogram_client import (  # noqa: E402
 )
 from image_luma import load_rgb_grid  # noqa: E402
 from brand_profile import (  # noqa: E402
-    analyze_brand,
+    analyze_brand_bundle,
     apply_brand_profile_to_kit,
     augment_ideogram_prompt,
     playwright_available,
@@ -67,6 +67,7 @@ from poster_design import (  # noqa: E402
     brand_roles,
     kit_hero_unsuitable,
     resolve_template_name,
+    template_skips_ideogram,
 )
 from photocraft_cli import run_poster_batch, _cli_missing_user_message  # noqa: E402
 
@@ -200,27 +201,19 @@ class CommMakerHandler(http.server.SimpleHTTPRequestHandler):
         try:
             body = self._read_json_body()
             url = validate_fetch_url(str(body.get("url", "")))
-            result = analyze_brand(
+            result = analyze_brand_bundle(
                 url,
                 cache_dir=BRAND_PROFILE_DIR,
                 scrape_fn=self._scrape_kit_for_url,
                 refresh=bool(body.get("refresh")),
                 mobile=body.get("mobile", True) is not False,
-                use_capture=body.get("capture", True) is not False,
                 repo_root=ROOT,
             )
-            kit = ensure_communication_kit(
-                result.get("kit"),
-                cache_dir=COMMUNICATION_KIT_DIR,
-                brand_profile=result.get("brandProfile"),
-                allow_llm=True,
-                refresh=bool(body.get("refresh")),
-            )
+            kit = result.get("kit") or {}
             shots = (result.get("capture") or {}).get("screenshots") or {}
-            if shots:
+            if shots and isinstance(kit, dict):
                 kit["screenshotPaths"] = shots
-            result["kit"] = kit
-            result["communicationKit"] = kit.get("communicationKit")
+                result["kit"] = kit
             self._send_json(200, result)
         except ValueError as exc:
             self._send_json(400, {"error": str(exc)})
@@ -461,6 +454,17 @@ class CommMakerHandler(http.server.SimpleHTTPRequestHandler):
             hero_meta: dict = {}
             generated_assets: list[dict[str, str]] = []
             ideogram_fallback_message: str | None = None
+            if isinstance(creative_brief, dict) and creative_brief.get("heroStrategy") == "ideogram_generate":
+                resolved_template = resolve_template_name(
+                    creative_brief,
+                    has_image=True,
+                    monochrome=brand_roles(kit, brand_profile).monochrome,
+                    brand_profile=brand_profile,
+                    communication_kit=kit.get("communicationKit") if isinstance(kit, dict) else None,
+                )
+                creative_brief = {**creative_brief, "layoutTemplate": resolved_template}
+                if template_skips_ideogram(resolved_template):
+                    creative_brief = {**creative_brief, "heroStrategy": "solid"}
             if (
                 isinstance(creative_brief, dict)
                 and creative_brief.get("heroStrategy") == "ideogram_generate"
@@ -659,7 +663,8 @@ class CommMakerHandler(http.server.SimpleHTTPRequestHandler):
                 kit, session, creative_brief=creative_brief, **compile_kwargs
             )
             art_director: dict | None = None
-            if isinstance(creative_brief, dict) and art_director_enabled():
+            audit_failed = ((batch.get("meta") or {}).get("designAudit") or {}).get("failed") or []
+            if isinstance(creative_brief, dict) and art_director_enabled() and audit_failed:
                 review = art_director_review(creative_brief, batch.get("meta") or {})
                 if review:
                     art_director = {
