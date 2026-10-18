@@ -5,12 +5,14 @@ from __future__ import annotations
 
 import functools
 import importlib.util
+import io
 import json
 import os
 import sys
 import tempfile
 import threading
 import unittest
+import urllib.error
 import urllib.request
 from unittest.mock import patch
 
@@ -369,6 +371,40 @@ class TestPictureFrameMustPost(unittest.TestCase):
 
         judged = judge_real_png(b"", "", "scene", llm_fn=llm, regenerate=lambda _p: ("x", PNG, {}))
         self.assertIsNone(judged)
+
+    def test_http_401_includes_the_json_message(self) -> None:
+        kit, profile = _duo()
+
+        def generate(_prompt: str):
+            body = b'{"error":"Invalid API key"}'
+            raise urllib.error.HTTPError(
+                "https://api.ideogram.ai/v2/image/generate/ideogram-4",
+                401,
+                "Unauthorized",
+                None,
+                io.BytesIO(body),
+            )
+
+        result = acquire_poster_picture(
+            {"layoutTemplate": "circle-stage", "heroStrategy": "ideogram_generate", "heroImagePrompt": "A character"},
+            kit,
+            profile,
+            template="circle-stage",
+            key_set=True,
+            generate=generate,
+        )
+        self.assertTrue(result["called"])
+        self.assertFalse(result["ideogramUsed"])
+        self.assertIn("Invalid API key", result["ideogramError"])
+        self.assertIn("401", result["ideogramError"])
+        self.assertNotIn("HTTP Error 401: Unauthorized", result["ideogramError"])
+        line = poster_status_line(
+            template="circle-stage",
+            ideogram_used=False,
+            error=result["ideogramError"],
+            ideogram_ms=result["ideogramMs"],
+        )
+        self.assertIn("Invalid API key", line)
 
 
 def _load_server():

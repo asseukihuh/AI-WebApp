@@ -3,11 +3,14 @@
 
 from __future__ import annotations
 
+import io
 import json
 import os
 import sys
 import tempfile
 import unittest
+import urllib.error
+import urllib.request
 from unittest.mock import MagicMock, patch
 
 ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
@@ -16,11 +19,14 @@ if SCRIPTS not in sys.path:
     sys.path.insert(0, SCRIPTS)
 
 from ideogram_client import (  # noqa: E402
-    ideogram_conditioning,
+    IDEOGRAM_GENERATE_URL,
+    _call_generate_api,
     closest_ideogram_resolution,
     generate_hero_image,
     generate_layer_image,
     hero_cache_basename_for_prompt,
+    ideogram_auth_headers,
+    ideogram_conditioning,
     resolve_layer_resolution,
 )
 from creative_brief import CREATIVE_BRIEF_JSON_SCHEMA, _normalize_brief  # noqa: E402
@@ -99,6 +105,45 @@ class TestIdeogramGenerateMocked(unittest.TestCase):
             )
         self.assertIn("layer-ideogram-accent-", rel)
         self.assertEqual(meta["role"], "accent")
+
+
+class TestIdeogramAuthHeader(unittest.TestCase):
+    def test_generate_sends_api_key_not_bearer(self) -> None:
+        seen: dict = {}
+
+        def fake_open(req: urllib.request.Request, timeout: float | None = None):
+            seen["req"] = req
+            seen["timeout"] = timeout
+            body = b'{"error":"The API key is invalid.","reject_reason":"invalid_api_key"}'
+            raise urllib.error.HTTPError(req.full_url, 401, "Unauthorized", None, io.BytesIO(body))
+
+        headers = ideogram_auth_headers("test-key")
+        self.assertEqual(headers["Api-Key"], "test-key")
+        self.assertNotIn("Authorization", headers)
+
+        with patch("ideogram_client.urllib.request.urlopen", fake_open):
+            with self.assertRaises(ValueError) as caught:
+                _call_generate_api(
+                    "A text-free illustration",
+                    "1280x720",
+                    api_key="test-key",
+                    rendering_speed="default",
+                    magic_prompt="off",
+                )
+
+        req = seen["req"]
+        self.assertEqual(req.full_url, IDEOGRAM_GENERATE_URL)
+        self.assertEqual(req.get_method(), "POST")
+        # urllib title-cases header names in do_open before they are written.
+        wire = {name.title(): value for name, value in {**req.unredirected_hdrs, **req.headers}.items()}
+        self.assertEqual(wire.get("Api-Key"), "test-key")
+        self.assertNotIn("Authorization", wire)
+        self.assertNotIn("Bearer", " ".join(wire))
+        message = str(caught.exception)
+        self.assertIn("HTTP 401", message)
+        self.assertIn("The API key is invalid.", message)
+        self.assertIn("invalid_api_key", message)
+        self.assertNotIn("HTTP Error 401: Unauthorized", message)
 
 
 class TestCreativeBriefSchema(unittest.TestCase):
