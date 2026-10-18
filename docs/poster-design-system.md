@@ -93,11 +93,16 @@ Ideogram bounding boxes use `[y_min, x_min, y_max, x_max]` on 0–1000.
 | `split-text-left` | Product / announcement, crisp brand feel | cols 1–5 on a brand panel (x 0–600) | right half, right-aligned crop | none (solid panel) | subject `[120, 560, 880, 960]`; left half plain |
 | `text-panel` | Busy or bright imagery, crisis updates | rounded card cols 1–7, bottom-anchored | full bleed | none (card is 96 % opaque surface) | subject `[100, 640, 900, 960]`; left two-thirds soft |
 | `centered-statement` | Big statement, gradient or texture background | cols 2–11, centred | full bleed or brand gradient | radial gradient from text centre | detail only at left/right edges; centre calm |
-| `device-stage` | Thin communication kit: colour block + one graphic device | cols 1–6 on the block | devices in the open right field | none (the block is the surface) | one abstract device on the right; left block plain |
+| `device-stage` | Thin communication kit: colour block + one graphic device | cols 1–6 on the block | crest in the open right field | none (the block is the surface) | one crest on the right; left block plain |
+| `photo-block` | Photography brands | cols 1–4 on a colour block | right-half photograph | none | photograph on the right, flat colour on the left |
+| `circle-stage` | Illustration brands | cols 1–5, left | circle on the right | none | illustration inside one circle; paper field |
+| `mark-stage` | Stark symbol (triangle) | bottom, centred | large vector mark | none | flat field; the mark is not painted |
+| `product-card` | A pack or object as the picture | bottom caption, centred | centred product | none | one product on a flat colour |
 
-Defaults: `photo-hero-type` → `full-bleed-scrim`; `gradient-brand` / `minimal-wordmark` →
-`centered-statement`; crisis + `urgent` → `text-panel`. A thin `communicationKit` with no
-photograph uses `device-stage` (diagonal crop when the kit asks for it).
+The brief picks one of these from the brand's energy (`brand_layout_energy`). A gradient site
+stays on `full-bleed-scrim`. A quiet monochrome site, and only that site, uses
+`centered-statement`. Without an Ideogram key the compiler draws a stand-in picture for
+`photo-block` and `product-card` so the frame is not a recolored gradient.
 
 ## 8b. Communication kit and Linearity checks
 

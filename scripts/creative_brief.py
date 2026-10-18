@@ -22,11 +22,11 @@ from poster_design import (
     TEMPLATES,
     brand_roles,
     clamp_words,
-    default_template_for,
     headline_scale_for,
     identity_gradient_stops,
     kit_hero_unsuitable,
     template_hint_from_profile,
+    template_skips_ideogram,
 )
 from ideogram_client import ideogram_conditioning
 
@@ -348,16 +348,71 @@ def _first_fact_line(crisis: dict[str, Any]) -> str:
     return _truncate(line or "Important update", 90)
 
 
-def _fallback_subhead(kit: dict[str, Any] | None, crisis: dict[str, Any]) -> str:
-    """Subhead: the first confirmed fact that isn't the headline; the kit tagline only as a last resort."""
+_GENERIC_TAGLINE_BITS = (
+    "plateforme",
+    "solution de paiement",
+    "paiement en ligne",
+    "site officiel",
+    "accueil",
+    "homepage",
+    "official website",
+    "online payment",
+)
+
+
+def sharper_subline(
+    kit: dict[str, Any] | None,
+    crisis: dict[str, Any] | None,
+    brand_profile: dict[str, Any] | None,
+    proposed: str = "",
+) -> str:
+    """Prefer a fact or the profile line over a generic locale homepage tagline."""
     kit = kit or {}
-    headline = _first_fact_line(crisis).casefold()
+    crisis = crisis or {}
+    profile = brand_profile if isinstance(brand_profile, dict) else {}
+    if not profile and isinstance(kit.get("brandProfile"), dict):
+        profile = kit["brandProfile"]
+    headline = (_first_fact_line(crisis) or str(crisis.get("crisisMessage") or "")).strip()
+    kit_tag = str(kit.get("tagline") or "").strip()
+    profile_tag = str(profile.get("tagline") or "").strip()
+
+    def generic(text: str) -> bool:
+        low = text.casefold().strip()
+        if not low:
+            return True
+        if any(bit in low for bit in _GENERIC_TAGLINE_BITS):
+            return True
+        if kit_tag and low == kit_tag.casefold() and profile_tag and profile_tag.casefold() != low:
+            return True
+        return False
+
+    def usable(text: str) -> bool:
+        text = str(text or "").strip()
+        if not text or generic(text):
+            return False
+        if headline and text.casefold() == headline.casefold():
+            return False
+        return True
+
+    overview = str(profile.get("businessOverview") or "").split(".")[0].strip()
     facts = str(crisis.get("crisisFacts") or crisis.get("facts") or "")
-    for line in facts.splitlines():
-        line = line.strip()
-        if line and len(line) > 12 and line.casefold() != headline:
-            return clamp_words(line, MAX_WORDS["subline"], MAX_CHARS["subline"])
-    return clamp_words(str(kit.get("tagline") or "").strip(), MAX_WORDS["subline"], MAX_CHARS["subline"])
+    fact_lines = [line.strip() for line in facts.splitlines() if usable(line)]
+    # The brief's own subhead wins when it is a real line. Facts and the profile
+    # tagline are only used to replace a generic locale tagline.
+    if usable(proposed):
+        return clamp_words(str(proposed).strip(), MAX_WORDS["subline"], MAX_CHARS["subline"])
+    for line in fact_lines:
+        return clamp_words(line, MAX_WORDS["subline"], MAX_CHARS["subline"])
+    for candidate in (profile_tag, overview):
+        if usable(candidate):
+            return clamp_words(str(candidate).strip(), MAX_WORDS["subline"], MAX_CHARS["subline"])
+    return ""
+
+
+def _fallback_subhead(kit: dict[str, Any] | None, crisis: dict[str, Any]) -> str:
+    """Subhead from facts or the brand profile, not a generic locale tagline."""
+    profile = (kit or {}).get("brandProfile") if isinstance((kit or {}).get("brandProfile"), dict) else None
+    return sharper_subline(kit, crisis, profile, "")
 
 
 def _fallback_hero_and_layout(
@@ -402,6 +457,127 @@ _FALLBACK_CTA: dict[str, str] = {
 }
 
 
+LAYOUT_ENERGIES = (
+    "gradient-field",
+    "photo-block",
+    "circle-stage",
+    "product-card",
+    "mark-stage",
+    "device-stage",
+    "quiet-type",
+)
+
+
+def template_for_energy(energy: str) -> str:
+    return {
+        "gradient-field": "full-bleed-scrim",
+        "photo-block": "photo-block",
+        "circle-stage": "circle-stage",
+        "product-card": "product-card",
+        "mark-stage": "mark-stage",
+        "device-stage": "device-stage",
+        "quiet-type": "centered-statement",
+        "communique": "communique",
+        "type-only": "type-only",
+        "photo-card": "photo-card",
+        "character-scene": "character-scene",
+        "product-ui": "product-ui",
+    }.get(energy, "full-bleed-scrim")
+
+
+def _imagery_blob(kit: dict[str, Any] | None, brand_profile: dict[str, Any] | None) -> tuple[str, str]:
+    profile = brand_profile if isinstance(brand_profile, dict) else {}
+    if not profile and isinstance(kit, dict) and isinstance(kit.get("brandProfile"), dict):
+        profile = kit["brandProfile"]
+    style = profile.get("imageryStyle") if isinstance(profile.get("imageryStyle"), dict) else {}
+    medium = str(style.get("primaryMedium") or "").casefold()
+    bits = [medium, str(style.get("colorTreatment") or ""), str(style.get("ideogramPrompt") or "")]
+    motifs = style.get("motifs")
+    if isinstance(motifs, list):
+        bits.extend(str(item) for item in motifs)
+    aesthetic = profile.get("aesthetic")
+    if isinstance(aesthetic, list):
+        bits.extend(str(item) for item in aesthetic)
+    elif isinstance(aesthetic, str):
+        bits.append(aesthetic)
+    return medium, " ".join(bits).casefold()
+
+
+def _blob_has(blob: str, needles: tuple[str, ...]) -> bool:
+    return any(needle in blob for needle in needles)
+
+
+_SOCIAL_ENERGY = {
+    "type-only": "type-only",
+    "photo-card": "photo-card",
+    "character-scene": "character-scene",
+    "product-ui": "product-ui",
+    "communique": "communique",
+    "gradient-field": "gradient-field",
+}
+
+
+def _energy_from_social(strategy: dict[str, Any] | None) -> str | None:
+    """Prefer a format the brand actually posts. Empty when social posts were not visible."""
+    if not isinstance(strategy, dict):
+        return None
+    formats = [str(item) for item in (strategy.get("formats") or [])]
+    for name in ("communique", "character-scene", "product-ui", "photo-card", "type-only", "gradient-field"):
+        if name in formats:
+            return _SOCIAL_ENERGY[name]
+    return None
+
+
+def brand_layout_energy(
+    kit: dict[str, Any] | None,
+    brand_profile: dict[str, Any] | None = None,
+) -> str:
+    """Pick a poster layout from the captured brand, not from one default stack.
+
+    Gradient brands keep a field. A symbol on a stark or thin site becomes the picture.
+    Photography, illustration and product shots each get their own frame. Quiet type is
+    only for a monochrome site with no imagery language.
+    """
+    kit = kit or {}
+    profile = brand_profile if isinstance(brand_profile, dict) else None
+    if profile is None and isinstance(kit.get("brandProfile"), dict):
+        profile = kit["brandProfile"]
+    social = (profile or {}).get("socialStrategy") if isinstance(profile, dict) else None
+    social_energy = _energy_from_social(social)
+    if social_energy:
+        return social_energy
+    medium, blob = _imagery_blob(kit, brand_profile)
+    profile = brand_profile if isinstance(brand_profile, dict) else None
+    if profile is None and isinstance(kit.get("brandProfile"), dict):
+        profile = kit["brandProfile"]
+    roles = brand_roles(kit, profile)
+    symbol = _logo_is_symbol(kit)
+    imagery = has_imagery_direction(kit, profile)
+    usable_photo = bool(kit.get("heroImageUrl")) and not kit_hero_unsuitable(kit)
+    thin = bool((kit.get("communicationKit") or {}).get("thinSite")) if isinstance(kit.get("communicationKit"), dict) else False
+    if medium in ("photography", "photo", "editorial") or _blob_has(
+        blob, ("photograph", "photography", "interior", "lifestyle", "hospitality")
+    ):
+        return "photo-block"
+    if medium in ("illustration", "illustrations") or _blob_has(
+        blob, ("illustration", "illustrated", "mascot", "character")
+    ):
+        return "circle-stage"
+    if _blob_has(blob, ("product pack", "packaging", "centered product")):
+        return "product-card"
+    if medium in ("gradients", "gradient") or _blob_has(blob, ("gradient", "ribbon", "chromatic", "fluid")):
+        return "gradient-field"
+    if symbol and (thin or not imagery):
+        return "device-stage" if thin else "mark-stage"
+    if identity_gradient_stops(profile, roles) is not None:
+        return "gradient-field"
+    if usable_photo:
+        return "photo-block"
+    if roles.monochrome:
+        return "quiet-type"
+    return "gradient-field"
+
+
 def fallback_layout_template(
     kit: dict[str, Any] | None,
     *,
@@ -410,19 +586,18 @@ def fallback_layout_template(
     emphasis: str,
     brand_profile: dict[str, Any] | None = None,
 ) -> str:
-    has_image = hero_strategy in ("use_kit_photo", "ideogram_generate")
-    ck = (kit or {}).get("communicationKit") if isinstance(kit, dict) else None
-    if isinstance(ck, dict) and ck.get("thinSite") and not has_image:
-        return "device-stage"
-    hint = template_hint_from_profile(brand_profile)
-    if hint and (has_image or hint == "centered-statement"):
-        return hint
-    return default_template_for(
-        layout_recipe=layout_recipe,
-        has_image=has_image,
-        emphasis=emphasis,
-        monochrome=brand_roles(kit, brand_profile).monochrome,
-    )
+    energy = brand_layout_energy(kit, brand_profile)
+    # A gradient brand stays on the full-bleed field. Other energies keep their own frame,
+    # including a centred mark or a quiet statement.
+    if energy == "gradient-field":
+        has_image = hero_strategy in ("use_kit_photo", "ideogram_generate")
+        hint = template_hint_from_profile(brand_profile)
+        if hint == "centered-statement" and not has_image:
+            return "full-bleed-scrim"
+        if hint in ("split-text-left", "text-panel", "full-bleed-scrim") and (has_image or hint == "full-bleed-scrim"):
+            return hint
+        return "full-bleed-scrim"
+    return template_for_energy(energy)
 
 
 def has_imagery_direction(kit: dict[str, Any] | None, brand_profile: dict[str, Any] | None) -> bool:
@@ -476,31 +651,35 @@ def default_composition(
     kit: dict[str, Any] | None,
     brand_profile: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
-    """Poster plan from what was actually captured. No decorative shape catalog."""
+    """Poster plan from the brand's layout energy. No decorative shape catalog."""
     kit = kit or {}
     profile = brand_profile if isinstance(brand_profile, dict) else None
     if profile is None and isinstance(kit.get("brandProfile"), dict):
         profile = kit["brandProfile"]
-    roles = brand_roles(kit, profile)
     evidence = _captured_evidence(kit, profile)
-    visuals: list[dict[str, Any]] = []
-    multi_hue = identity_gradient_stops(profile, roles) is not None
+    energy = brand_layout_energy(kit, profile)
     imagery = has_imagery_direction(kit, profile)
     usable_photo = bool(kit.get("heroImageUrl")) and not kit_hero_unsuitable(kit)
-    if usable_photo:
+    symbol = _logo_is_symbol(kit)
+    visuals: list[dict[str, Any]] = []
+    if energy == "photo-block" and usable_photo:
         visuals.append(
             {
                 "source": "kit-photo",
                 "role": "focal",
                 "scale": 1,
-                "anchor": "full",
+                "anchor": "right",
                 "evidence": "Usable photograph scraped from the site",
             }
         )
         field = "kit-photo"
         text_region = "left"
-        block = "none"
-    elif multi_hue or imagery:
+        block = "left-panel"
+    elif energy == "photo-block":
+        field = "ideogram"
+        text_region = "left"
+        block = "left-panel"
+    elif energy == "gradient-field":
         visuals.append(
             {
                 "source": "palette-gradient",
@@ -513,19 +692,47 @@ def default_composition(
         field = "ideogram" if imagery else "palette-gradient"
         text_region = "left"
         block = "none"
-    elif _logo_is_symbol(kit):
+    elif energy in ("mark-stage", "device-stage") and symbol:
         visuals.append(
             {
                 "source": "logo-geometry",
                 "role": "focal",
                 "scale": 1.2,
-                "anchor": "right",
+                "anchor": "center" if energy == "mark-stage" else "right",
                 "evidence": "Symbol mark in the scraped logo",
             }
         )
         field = "palette-gradient"
+        text_region = "center" if energy == "mark-stage" else "left"
+        block = "none" if energy == "mark-stage" else "diagonal-crop"
+    elif energy == "circle-stage":
+        field = "ideogram"
         text_region = "left"
-        block = "diagonal-crop"
+        block = "none"
+    elif energy == "product-card":
+        field = "ideogram"
+        text_region = "center"
+        block = "none"
+    elif energy == "quiet-type":
+        field = "palette-gradient"
+        text_region = "center"
+        block = "none"
+    elif energy in ("communique", "type-only"):
+        field = "palette-gradient"
+        text_region = "center"
+        block = "none"
+    elif energy == "photo-card":
+        field = "ideogram"
+        text_region = "center"
+        block = "none"
+    elif energy == "character-scene":
+        field = "ideogram"
+        text_region = "center"
+        block = "none"
+    elif energy == "product-ui":
+        field = "ideogram"
+        text_region = "center"
+        block = "none"
     else:
         field = "palette-gradient"
         text_region = "left"
@@ -600,7 +807,7 @@ def build_fallback_brief(
     kit = kit or {}
     crisis = crisis or {}
     headline = _first_fact_line(crisis)
-    subhead = _fallback_subhead(kit, crisis)
+    subhead = sharper_subline(kit, crisis, brand_profile, "")
     hero_strategy, layout = _fallback_hero_and_layout(kit)
     logo = _fallback_logo_treatment(kit, hero_strategy, layout)
     emphasis = _tone_to_emphasis(crisis.get("tone"))
@@ -636,13 +843,33 @@ def build_fallback_brief(
             brief["accentImagePrompt"] = _fallback_accent_prompt(kit, crisis)
     brief = _normalize_brief(brief)
     brief = coerce_ideogram_for_unsuitable_kit_hero(brief, kit, crisis)
-    if (brief.get("composition") or {}).get("field") == "ideogram" and _ideogram_api_key_set():
+    energy = brand_layout_energy(kit, brand_profile)
+    raster = energy in ("gradient-field", "photo-block", "circle-stage", "product-card")
+    if energy == "mark-stage":
+        # The triangle is the picture. Do not send the page to Ideogram.
+        brief["heroStrategy"] = "solid"
+        brief["layoutRecipe"] = "minimal-wordmark"
+        brief["logoTreatment"] = "wordmark-white"
+    elif energy == "device-stage":
+        brief["heroStrategy"] = "gradient_from_palette"
+        brief["layoutRecipe"] = "gradient-brand"
+    elif energy == "quiet-type" and brief.get("heroStrategy") != "ideogram_generate":
+        brief["heroStrategy"] = "solid"
+        brief["layoutRecipe"] = "minimal-wordmark"
+        brief["logoTreatment"] = "wordmark-dark"
+    elif energy == "circle-stage":
+        brief["logoTreatment"] = "wordmark-dark"
+    elif energy == "photo-block":
+        brief["logoTreatment"] = "wordmark-white"
+    if raster and _ideogram_api_key_set() and (brief.get("composition") or {}).get("field") in ("ideogram", "kit-photo"):
+        # Raster layer behind the type. The frame stays the one the energy picked.
         brief["heroStrategy"] = "ideogram_generate"
         brief["layoutRecipe"] = "photo-hero-type"
-        brief["layoutTemplate"] = "full-bleed-scrim"
         brief["ideogramLayers"] = "background-only"
-        if not str(brief.get("heroImagePrompt") or "").strip():
-            brief["heroImagePrompt"] = _imagery_prompt(kit, brand_profile)
+        brief["heroImagePrompt"] = _energy_image_prompt(energy, kit, brand_profile)
+    if template_skips_ideogram(str(brief.get("layoutTemplate") or "")):
+        if brief.get("heroStrategy") == "ideogram_generate":
+            brief["heroStrategy"] = "solid"
     return brief
 
 
@@ -688,8 +915,6 @@ def _normalize_brief(raw: dict[str, Any]) -> dict[str, Any]:
     out["ctaStyle"] = cta_style if cta_style in CTA_STYLES else ("pill" if out.get("cta") else "none")
     composition = clean_composition(raw.get("composition"))
     if composition:
-        if composition.get("showCta") and not out.get("cta"):
-            composition = {**composition, "showCta": False}
         out["composition"] = composition
     hero_prompt = raw.get("heroImagePrompt")
     accent_prompt = raw.get("accentImagePrompt")
@@ -875,7 +1100,8 @@ layoutTemplate options:
 - ctaStyle: pill (default), outline (when the brand is minimal/monochrome), none (only for somber crisis notices).
 - One focal point: the headline or the brand's own imagery. The real logo is placed by the compiler; never ask for a logo, wordmark or letters in imagery.
 - composition is the layout. visuals[].source is only palette-gradient (the captured multi-hue palette), logo-geometry (a symbol mark, never a wordmark) or kit-photo (a real photo that has no text). Do not request decorative shapes. evidence quotes what was seen. offer and proof are copied from the crisis facts, the site tagline or the brand profile, or they are empty. Never invent a product, price or proof line.
-- field is ideogram when the brand profile describes an imagery language (gradients, motifs, aesthetic). Otherwise palette-gradient or kit-photo. showCta is true only when the facts contain something to do."""
+- Pick layoutTemplate from the brand's energy, not one default. photo-block: colour panel plus a photograph. circle-stage: illustration in a circle on a paper field. product-card: one product centred on a flat colour. mark-stage: a stark field and one large symbol (triangle, crest) as vectors, no painted background. device-stage: a colour block plus the real crest. full-bleed-scrim: only for a real multi-hue gradient (Stripe). centered-statement: only when the site is actually quiet and monochrome (Apple). A playful illustration brand must not become a recolored gradient.
+- field is ideogram when the picture is a photograph, illustration, product or gradient and a key is set. The image is a raster layer behind the editable type. Graphic marks stay vectors. showCta is true only when the facts contain something to do."""
 
 
 def _llm_prompt(
@@ -1212,6 +1438,39 @@ def _imagery_prompt(kit: dict[str, Any] | None, brand_profile: dict[str, Any] | 
     if isinstance(style, dict) and str(style.get("ideogramPrompt") or "").strip():
         return str(style["ideogramPrompt"]).strip()
     return _fallback_ideogram_abstract_prompt(kit, {})
+
+
+def _energy_image_prompt(
+    energy: str,
+    kit: dict[str, Any] | None,
+    brand_profile: dict[str, Any] | None,
+) -> str:
+    """Text-free generate prompt. Remix is never used; a screenshot would keep its type."""
+    captured = ""
+    style = (brand_profile or {}).get("imageryStyle") if isinstance(brand_profile, dict) else None
+    if isinstance(style, dict):
+        captured = str(style.get("ideogramPrompt") or "").strip()
+    if energy == "gradient-field" and captured:
+        return captured
+    if energy == "photo-block":
+        scene = captured or (
+            "A text-free photograph of a sunlit interior, warm materials and soft daylight, "
+            "no people, no signs, no letters"
+        )
+        return scene + " The photograph fills the right half; the left half stays a plain flat colour."
+    if energy == "circle-stage":
+        scene = captured or (
+            "A text-free flat illustration of simple geometric shapes in the brand palette, "
+            "no characters, no letters, no logos"
+        )
+        return scene + " Hold the illustration inside one large circle on the right of a paper field."
+    if energy == "product-card":
+        scene = captured or (
+            "A text-free product photograph of one pack centred on a flat brand colour, "
+            "no readable labels, no logos"
+        )
+        return scene
+    return captured or _imagery_prompt(kit, brand_profile)
 
 
 def _with_conditioning(result: dict[str, Any], images: list[dict[str, Any]] | None) -> dict[str, Any]:

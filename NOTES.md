@@ -6,6 +6,22 @@ Project update tracking, changelog, and roadmap for `ai-webapp`.
 
 ## 📝 Recent Updates
 
+### 2026-10-18 - One brand call, social formats
+
+- Site scrape, site screenshots and public social screenshots run together. Instagram and LinkedIn are opened with a fresh browser: no login, no cookies, no bypass. A login wall is recorded and skipped.
+- One Opus call, cached 7 days per domain, returns the brand profile, the communication kit and `socialStrategy` (voice, recurring formats, what not to invent).
+- Each poster is one Sonnet brief. The art director runs only when the design audit fails. Ideogram runs only for a photo, illustration, product or gradient texture, not for type-only or a vector mark.
+
+### 2026-10-18 - Layout follows the brand
+
+- The brief picks a frame from the brand: gradient field, photo block, illustration circle, product card, stark symbol, crest stage, or quiet type. Quiet type is only for a monochrome site. A gradient brand stays on the full-bleed field.
+- Ideogram, when a key is set, paints the photograph, illustration, product or gradient as a raster behind the type. A crest or triangle stays a vector. Remix is not called.
+- Without a key, photo and product frames draw a stand-in picture instead of a flat recolor of the same stack.
+
+### 2026-10-17 - Crisis poster follows the composition
+
+- The crisis compiler was still emitting a centred statement: homepage tagline as the subline, dark wordmark, flat purple, no CTA. A left-hand composition now uses the full-bleed field, a white wordmark on the dark stop, the profile or fact line instead of a generic locale tagline, and a CTA. Ideogram runs when a key is set, prompted from the captured imagery language.
+
 ### 2026-10-17 - Identity-true posters
 
 - Poster imagery comes from the captured palette, the real symbol mark, or a usable photo. Catalog shapes (bars, chevrons, dot grids) are not drawn.
