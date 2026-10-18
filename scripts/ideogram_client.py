@@ -6,6 +6,7 @@ import hashlib
 import json
 import os
 import re
+import struct
 import uuid
 import urllib.error
 import urllib.request
@@ -517,8 +518,156 @@ def _rasterize_svg(path: str) -> bytes | None:
     return png
 
 
+# Ideogram 4.5 rejects a source image outside this range.
+_MAX_REFERENCE_ASPECT = 6.0
+
+
+def _png_size(data: bytes) -> tuple[int, int] | None:
+    if len(data) < 24 or not data.startswith(b"\x89PNG\r\n\x1a\n"):
+        return None
+    width, height = struct.unpack(">II", data[16:24])
+    if width < 1 or height < 1:
+        return None
+    return width, height
+
+
+def _jpeg_size(data: bytes) -> tuple[int, int] | None:
+    if not data.startswith(b"\xff\xd8"):
+        return None
+    index = 2
+    while index + 9 < len(data):
+        if data[index] != 0xFF:
+            index += 1
+            continue
+        marker = data[index + 1]
+        if marker in (0xC0, 0xC1, 0xC2):
+            height, width = struct.unpack(">HH", data[index + 5 : index + 9])
+            if width < 1 or height < 1:
+                return None
+            return width, height
+        if marker in (0xD8, 0xD9):
+            index += 2
+            continue
+        if index + 4 > len(data):
+            return None
+        length = struct.unpack(">H", data[index + 2 : index + 4])[0]
+        index += 2 + max(length, 2)
+    return None
+
+
+def _webp_size(data: bytes) -> tuple[int, int] | None:
+    if len(data) < 30 or data[:4] != b"RIFF" or data[8:12] != b"WEBP":
+        return None
+    if data[12:16] == b"VP8X":
+        width = int.from_bytes(data[24:27], "little") + 1
+        height = int.from_bytes(data[27:30], "little") + 1
+        if width > 0 and height > 0:
+            return width, height
+    return None
+
+
+def _image_size(data: bytes, media: str) -> tuple[int, int] | None:
+    if media == "image/png":
+        return _png_size(data)
+    if media == "image/jpeg":
+        return _jpeg_size(data)
+    if media == "image/webp":
+        return _webp_size(data)
+    return None
+
+
+def _aspect_crop_box(width: int, height: int) -> tuple[int, int, int, int] | None:
+    """Center crop that lands inside 1:6 to 6:1. ``None`` when the image has no pixels."""
+    if width < 1 or height < 1:
+        return None
+    ratio = width / height
+    if 1 / _MAX_REFERENCE_ASPECT <= ratio <= _MAX_REFERENCE_ASPECT:
+        return 0, 0, width, height
+    if ratio > _MAX_REFERENCE_ASPECT:
+        crop_w = max(1, min(width, int(height * _MAX_REFERENCE_ASPECT)))
+        while crop_w > 1 and crop_w / height > _MAX_REFERENCE_ASPECT:
+            crop_w -= 1
+        return max(0, (width - crop_w) // 2), 0, crop_w, height
+    crop_h = max(1, min(height, int(width * _MAX_REFERENCE_ASPECT)))
+    while crop_h > 1 and width / crop_h < 1 / _MAX_REFERENCE_ASPECT:
+        crop_h -= 1
+    return 0, max(0, (height - crop_h) // 2), width, crop_h
+
+
+def _ffmpeg_crop(data: bytes, width: int, height: int, left: int, top: int) -> bytes | None:
+    """Center-crop already-decoded bytes. The source path is not reused, so an SVG raster stays in range."""
+    import subprocess
+
+    try:
+        proc = subprocess.run(
+            [
+                "ffmpeg",
+                "-v",
+                "error",
+                "-i",
+                "pipe:0",
+                "-vf",
+                f"crop={width}:{height}:{left}:{top}",
+                "-frames:v",
+                "1",
+                "-f",
+                "image2pipe",
+                "-vcodec",
+                "png",
+                "pipe:1",
+            ],
+            input=data,
+            capture_output=True,
+            timeout=20,
+            check=False,
+        )
+    except (OSError, subprocess.TimeoutExpired):
+        return None
+    png = proc.stdout or b""
+    if proc.returncode != 0 or _sniff_raster(png) != "image/png":
+        return None
+    return png
+
+
+def _fit_reference_aspect(
+    data: bytes,
+    media: str,
+    name: str,
+) -> tuple[bytes, str, str] | None:
+    """Keep the file, or a center crop of it, inside Ideogram's aspect limit.
+
+    A file whose size cannot be read, or whose crop fails, is omitted. The poster
+    still generates from the other examples and the palette.
+    """
+    size = _image_size(data, media)
+    if not size:
+        return None
+    box = _aspect_crop_box(*size)
+    if not box:
+        return None
+    left, top, width, height = box
+    src_w, src_h = size
+    if (left, top, width, height) == (0, 0, src_w, src_h):
+        return data, name, media
+    cropped = _ffmpeg_crop(data, width, height, left, top)
+    if not cropped:
+        return None
+    fitted = _image_size(cropped, "image/png")
+    if not fitted:
+        return None
+    ratio = fitted[0] / fitted[1]
+    if not (1 / _MAX_REFERENCE_ASPECT <= ratio <= _MAX_REFERENCE_ASPECT):
+        return None
+    stem = os.path.splitext(name)[0] or "example"
+    return cropped, f"{stem}.png", "image/png"
+
+
 def _reference_file(path: str) -> tuple[bytes, str, str] | None:
-    """Bytes, filename, and media type for one example. SVG is rasterized or dropped."""
+    """Bytes, filename, and media type for one example.
+
+    SVG is rasterized or dropped. A file outside 1:6 to 6:1 is center-cropped,
+    or skipped when it cannot be cropped. One bad file does not stop the poster.
+    """
     if not path or not os.path.isfile(path):
         return None
     with open(path, "rb") as handle:
@@ -528,14 +677,14 @@ def _reference_file(path: str) -> tuple[bytes, str, str] | None:
     media = _sniff_raster(data)
     name = os.path.basename(path)
     if media:
-        return data, name, media
+        return _fit_reference_aspect(data, media, name)
     head = data.lstrip()[:200].lower()
     if path.lower().endswith(".svg") or head.startswith(b"<svg") or head.startswith(b"<?xml"):
         png = _rasterize_svg(path)
         if not png:
             return None
         stem = os.path.splitext(name)[0] or "example"
-        return png, f"{stem}.png", "image/png"
+        return _fit_reference_aspect(png, "image/png", f"{stem}.png")
     return None
 
 
