@@ -280,7 +280,7 @@ def build_structured_prompt(
     return {
         "high_level_description": _with_palette(
             f"Text-free {sheet['treatment'].replace('-', ' ')}, aspect {sheet['aspect']}. {clean}. "
-            f"{sheet['fill']} {sheet['quiet']} No lettering."
+            f"{sheet['fill']} {sheet['quiet']} No lettering. Do not draw a logo or a wordmark."
         ),
         "style_description": {
             "aesthetics": tone,
@@ -711,6 +711,7 @@ def generate_layer_image(
             "Study all of them for materials, shapes, and palette. "
             f"Make one coherent text-free asset for the {kind} poster in that language. "
             "Do not paste the examples together into a jungle. "
+            "Do not draw a logo or a wordmark. "
             "Do not copy the words in the examples. "
             + prompt
         )

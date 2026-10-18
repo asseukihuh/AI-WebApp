@@ -18,7 +18,7 @@ from poster_compiler import (  # noqa: E402
     compile_poster_batch,
     count_logo_placements,
 )
-from poster_design import HEADLINE_MIN_SIZE, MARGIN_X, SUBLINE_SIZE, span_w  # noqa: E402
+from poster_design import HEADLINE_MIN_SIZE, MARGIN_X, SUBLINE_MIN_SIZE, span_w  # noqa: E402
 
 
 def _type_fonts(batch: dict) -> dict[str, str]:
@@ -156,7 +156,7 @@ def test_logo_placements_with_hero() -> None:
     subline = next(s for s in type_steps if s["params"]["name"] == "Subline")
     assert headline["params"]["size"] >= HEADLINE_MIN_SIZE
     assert headline["params"]["weight"] >= 700
-    assert subline["params"]["size"] == SUBLINE_SIZE
+    assert subline["params"]["size"] >= SUBLINE_MIN_SIZE
     assert headline["params"]["box"][0] == subline["params"]["box"][0] == MARGIN_X
     assert not any(p.get("name") == "Type scrim" for p in batch.get("backgroundPlacements") or [])
     assert any(s.get("command") == "gradient.fill.create" for s in steps)

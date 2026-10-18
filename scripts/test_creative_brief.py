@@ -452,7 +452,8 @@ class TestCrisisStripeFlow(unittest.TestCase):
         self.assertNotIn("Plateforme", meta["tagline"])
         self.assertTrue(meta["cta"])
         self.assertTrue(meta["identityField"])
-        self.assertEqual(meta["logoVariant"], "light")
+        self.assertEqual(meta["logoVariant"], "original")
+        self.assertEqual(batch["placements"][-1]["path"], "generated/assets/logo.svg")
 
 
 class TestPosterWithBrief(unittest.TestCase):

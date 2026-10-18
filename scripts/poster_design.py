@@ -868,19 +868,48 @@ def usable_display_font(name: str | None) -> str | None:
     return None
 
 
+def captured_display_family(
+    brand_profile: dict[str, Any] | None,
+    kit: dict[str, Any] | None = None,
+) -> str | None:
+    """The site's display family when one was captured. Generics are not a capture."""
+    chosen = profile_fonts(brand_profile)
+    headline = str(chosen.get("headline") or "").strip()
+    if headline and headline.casefold() not in _GENERIC_TYPEFACES:
+        return headline
+    for raw in (kit or {}).get("fonts") or []:
+        name = str(raw or "").strip()
+        if name and name.casefold() not in _GENERIC_TYPEFACES and name.casefold() != "inter":
+            return name
+    return None
+
+
 def resolve_display_fonts(
     brand_profile: dict[str, Any] | None,
     kit: dict[str, Any] | None = None,
 ) -> dict[str, str]:
-    """Brand display face when it is installed, otherwise a real display fallback."""
+    """Use the captured display family. Noto is only for a poster with no captured face."""
     chosen = profile_fonts(brand_profile)
-    headline = usable_display_font(chosen.get("headline"))
-    body = usable_display_font(chosen.get("body"))
-    if not headline:
-        headline = DISPLAY_FALLBACK if _font_installed(DISPLAY_FALLBACK) else "Inter"
+    captured = captured_display_family(brand_profile, kit)
+    body_name = str(chosen.get("body") or "").strip()
+    if not body_name or body_name.casefold() in _GENERIC_TYPEFACES:
+        for raw in (kit or {}).get("fonts") or []:
+            name = str(raw or "").strip()
+            if name and captured and name.casefold() != captured.casefold() and name.casefold() not in _GENERIC_TYPEFACES:
+                body_name = name
+                break
+    body = body_name or captured
+    if captured:
+        return {
+            "headline": captured,
+            "body": body or captured,
+            "capturedHeadline": captured,
+            "fontLoaded": usable_display_font(captured) is not None,
+        }
+    headline = DISPLAY_FALLBACK if _font_installed(DISPLAY_FALLBACK) else "Inter"
     if not body:
         body = "Inter" if _font_installed("Inter") else headline
-    return {"headline": headline, "body": body}
+    return {"headline": headline, "body": body, "capturedHeadline": "", "fontLoaded": True}
 
 
 def type_quality(
@@ -891,11 +920,21 @@ def type_quality(
     headline: str,
     headline_contrast: float | None = None,
     logo_contrast: float | None = None,
+    captured_font: str | None = None,
+    font_loaded: bool | None = None,
+    logo_scraped: bool | None = None,
 ) -> dict[str, Any]:
     """Deterministic type bar. The picture judge uses the same failures."""
     failures: list[str] = []
-    if not usable_display_font(font):
+    captured = (captured_font or "").strip()
+    if captured and font.strip().casefold() != captured.casefold():
+        failures.append("headline is not the captured display font")
+    elif captured and font_loaded is False:
+        failures.append("the brand font failed to load")
+    elif not usable_display_font(font):
         failures.append("system font")
+    if logo_scraped is False:
+        failures.append("logo layer is not the scraped asset")
     if headline_size < 54:
         failures.append("headline under 54px")
     if subline_size and headline_size and subline_size > headline_size * 0.62:

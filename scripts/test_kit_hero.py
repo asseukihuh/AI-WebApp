@@ -162,10 +162,10 @@ def test_busy_hero_skips_image_uses_gradient() -> None:
     assert len(gradient["params"]["stops"]) == 3
 
 
-def test_svg_recolor_dark_paths() -> None:
+def test_svg_is_not_recolored() -> None:
     out = recolor_logo_svg_for_light_hero(_STRIPE_LOGO_SVG)
-    assert 'fill="#ffffff"' in out or "fill='#ffffff'" in out
-    assert "#0a2540" not in out
+    assert out == _STRIPE_LOGO_SVG
+    assert "#0a2540" in out
 
 
 def main() -> int:
@@ -176,7 +176,7 @@ def main() -> int:
     test_busy_url_classified()
     test_stripe_poster_no_knockback_logo_on_dark()
     test_busy_hero_skips_image_uses_gradient()
-    test_svg_recolor_dark_paths()
+    test_svg_is_not_recolored()
     print("kit hero tests OK")
     return 0
 
