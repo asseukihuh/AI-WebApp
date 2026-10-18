@@ -6,12 +6,17 @@ Project update tracking, changelog, and roadmap for `ai-webapp`.
 
 ## 📝 Recent Updates
 
-### 2026-10-18 - The picture is the whole poster
+### 2026-10-18 - Display type on every treatment
 
-- Ideogram paints one full-bleed sheet at the closest 16:9 size (`1280×720`) and the compiler cover-fills the 1200×627 canvas. There is no picture well under that image.
-- The prompt asks for a Linearity-style full-sheet composition in the brand’s colours and imagery, one focal subject, and a quiet area (centre or a bottom band) for type. It does not ask for a circle or a sticker.
-- Headline, subline, button, and logo stay editable layers on top of that image, in the quiet area, not in a left column beside a box.
-- The judge scores the full canvas and fails a side-by-side sticker, a subject cramped into a corner, a tiny subject on an empty field, letters, or off-brand colour. Up to two extra full-canvas calls (three total). A failing first image is not reported as a pass.
+- Headlines use the brand display face when that font is installed, otherwise Noto Sans Display. System fonts are not used.
+- A headline is heavy, tightly leaded, and at most two lines with no orphan word. The subline is about half that size and lighter. A busy photo puts the type on a brand-colour band, not a grey slab.
+- Full-sheet type stays left. Pattern, illustration, and quiet posters centre it. The judge fails a system font, a headline under 54px, a subline too close in size, low contrast, or a headline longer than eight words.
+
+### 2026-10-18 - The brief chooses the treatment
+
+- Treatments are full-sheet, photo-band, pattern-field, illustration-cluster, and quiet-type. The brand picks one. A stark mark stays type-led. A character brand can be an illustration cluster. Full-bleed is not forced on every poster.
+- Ideogram runs only for a treatment that needs an image, with a prompt for that treatment. A quiet-type poster is not sent.
+- The judge can reject the treatment (“full-bleed was wrong for this brand”). One retry may switch treatment. At most two extra Ideogram calls. The status line names the treatment, the judge result, and the attempt count.
 
 ### 2026-10-18 - A picture frame must call Ideogram
 

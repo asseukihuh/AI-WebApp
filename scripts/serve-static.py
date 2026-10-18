@@ -757,6 +757,13 @@ class CommMakerHandler(http.server.SimpleHTTPRequestHandler):
             payload["ideogramError"] = ideogram_fallback_message
             if ideogram_judge and ideogram_judge.get("passed") is True and not is_png(picture_bytes):
                 ideogram_judge = None
+            type_report = (batch.get("meta") or {}).get("typeQuality") or {}
+            if ideogram_used and type_report and not type_report.get("passed"):
+                ideogram_judge = dict(ideogram_judge or {})
+                ideogram_judge["passed"] = False
+                ideogram_judge["reason"] = type_report.get("reason") or "Weak type."
+                ideogram_judge.setdefault("attempts", 1)
+                ideogram_judge.setdefault("treatment", poster_treatment)
             if ideogram_judge:
                 payload["ideogramJudge"] = ideogram_judge
             if ideogram_fallback_message:

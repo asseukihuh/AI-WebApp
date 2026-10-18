@@ -317,7 +317,8 @@ class TestCompilerRules(unittest.TestCase):
         names = [s["params"].get("name") for s in batch["steps"]]
         self.assertNotIn("Brand panel", names)
         headline = next(s for s in batch["steps"] if s["params"].get("name") == "Headline")
-        self.assertGreater(headline["params"]["box"][0], 200)
+        box = headline["params"]["box"]
+        self.assertAlmostEqual(box[0] + box[2] / 2, design.CANVAS_W / 2, delta=30)
         self.assertEqual(headline["params"]["align"], "center")
 
     def test_design_audit_in_meta(self) -> None:

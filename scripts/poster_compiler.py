@@ -894,7 +894,7 @@ def _type_step(
     }
     if leading:
         params["leading"] = leading
-    if tracking:
+    if tracking is not None:
         params["tracking"] = tracking
     return {"command": "type.create", "params": params}
 
@@ -1054,12 +1054,9 @@ def compile_poster_batch(
     comm_kit = kit.get("communicationKit") if isinstance(kit.get("communicationKit"), dict) else {}
     pairing = kit_design.kit_type_pairing(comm_kit)
     resolved = fonts_resolved or {}
-    headline_font = str(
-        resolved.get("headline") or profile_font.get("headline") or pairing.get("displayFamily") or _pick_headline_font(kit)
-    )
-    body_font = str(
-        resolved.get("body") or profile_font.get("body") or pairing.get("bodyFamily") or _pick_body_font(kit, headline_font)
-    )
+    display = design.resolve_display_fonts(brand_profile, kit)
+    headline_font = design.usable_display_font(str(resolved.get("headline") or "")) or display["headline"]
+    body_font = design.usable_display_font(str(resolved.get("body") or "")) or display["body"]
 
     composition = clean_composition(brief.get("composition")) or default_composition(kit, brand_profile)
     template_name = design.resolve_template_name(
@@ -1173,17 +1170,47 @@ def compile_poster_batch(
     )
     photo_band = bool(hero_relative_path) and treatment == "photo-band"
     if full_sheet:
-        plan = design.place_type_in_quiet_zone(plan, design.treatment_type_zone(treatment))
-    elif photo_band:
-        # The picture occupies the top band. Type is planned into the band below it.
-        measure = design.span_w(8)
+        measure = design.span_w(10)
+        zone = design.treatment_type_zone(treatment)
         plan = _plan(
             tpl.name,
             box_x=(design.CANVAS_W - measure) / 2,
             box_w=measure,
-            anchor="bottom",
             align="center",
-            headline_scale="md",
+            anchor="center" if zone == "center" else "bottom",
+            headline_scale="xl",
+            max_lines=2,
+        )
+    elif photo_band:
+        # Picture on top. Type is a left-aligned stack in the band beneath it.
+        plan = _plan(
+            tpl.name,
+            box_x=design.MARGIN_X,
+            box_w=design.span_w(7),
+            anchor="bottom",
+            align="left",
+            headline_scale="lg",
+            max_lines=2,
+        )
+    elif treatment == "full-sheet":
+        plan = _plan(
+            tpl.name,
+            box_x=design.MARGIN_X,
+            box_w=design.span_w(10),
+            anchor="bottom",
+            align="left",
+            headline_scale="xl",
+            max_lines=2,
+        )
+    elif treatment == "quiet-type":
+        plan = _plan(tpl.name, headline_scale="xl", max_lines=2, align="center")
+    if plan.align == "center" and "logo" in plan.elements:
+        _x, logo_y, logo_w, logo_h = plan.elements["logo"]["box"]
+        plan.elements["logo"]["box"] = (
+            round((design.CANVAS_W - logo_w) / 2, 1),
+            logo_y,
+            logo_w,
+            logo_h,
         )
     ground = _ground_color(tpl.name, energy, kit, roles)
     if ground and not full_sheet:
@@ -1370,6 +1397,20 @@ def compile_poster_batch(
             }
         )
 
+    if photo_band:
+        band_rgb = design.hex_to_rgb(roles.brand)
+        if design.contrast_ratio(design.hex_to_rgb(design.WHITE), band_rgb) >= 2.8:
+            text_color = design.WHITE
+            text_samples = [band_rgb]
+            scrim_alpha = 0.0
+    if photo_band and "cta" in plan.elements:
+        _x, y, width, height = plan.elements["cta"]["box"]
+        plan.elements["cta"]["box"] = (
+            round(design.CANVAS_W - design.MARGIN_X - width, 1),
+            y,
+            width,
+            height,
+        )
     contrast: dict[str, float] = {}
     text_rgb = design.hex_to_rgb(text_color)
     els = plan.elements
@@ -1390,7 +1431,8 @@ def compile_poster_batch(
     steps.append(
         _type_step(
             "Headline", h["text"], h["box"], font=headline_font, size=h["size"], color=text_color,
-            weight=h["weight"], align=plan.align, leading=h["leading"], tracking=design.HEADLINE_TRACKING,
+            weight=h["weight"], align=plan.align, leading=h["leading"],
+            tracking=-32 if plan.align == "left" else -18,
         )
     )
     if "subline" in els:
@@ -1400,6 +1442,7 @@ def compile_poster_batch(
             _type_step(
                 "Subline", sub["text"], sub["box"], font=body_font, size=sub["size"], color=text_color,
                 weight=design.SUBLINE_WEIGHT, align=plan.align, leading=sub["leading"],
+                tracking=24 if plan.align == "center" else 0,
             )
         )
     cta_meta: dict[str, Any] | None = None
@@ -1543,6 +1586,14 @@ def compile_poster_batch(
     else:
         visual_share = mark_share
 
+    headline_box = (plan.elements.get("headline") or {})
+    subline_box = plan.elements.get("subline") or {}
+    type_report = design.type_quality(
+        font=headline_font,
+        headline_size=float(headline_box.get("size") or 0),
+        subline_size=float(subline_box.get("size") or 0),
+        headline=str(headline_box.get("text") or headline),
+    )
     audit = design.audit_plan(
         plan,
         contrast=contrast,
@@ -1577,6 +1628,8 @@ def compile_poster_batch(
         "output": {"relativePath": f"generated/{filename}"},
         "meta": {
             "headline": headline,
+            "typeQuality": type_report,
+            "fonts": {"headline": headline_font, "body": body_font},
             "tagline": subline,
             "eyebrow": eyebrow or None,
             "cta": cta_meta,

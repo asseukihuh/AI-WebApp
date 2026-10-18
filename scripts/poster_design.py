@@ -820,6 +820,83 @@ def template_hint_from_profile(brand_profile: dict[str, Any] | None) -> str | No
     return None
 
 
+_GENERIC_TYPEFACES = frozenset(
+    {
+        "",
+        "inherit",
+        "initial",
+        "sans-serif",
+        "serif",
+        "monospace",
+        "system-ui",
+        "ui-sans-serif",
+        "ui-serif",
+        "-apple-system",
+        "dejavu sans",
+        "dejavu sans mono",
+        "liberation sans",
+    }
+)
+DISPLAY_FALLBACK = "Noto Sans Display"
+
+
+def _font_installed(name: str) -> bool:
+    import subprocess
+
+    try:
+        proc = subprocess.run(
+            ["fc-match", "-f", "%{family}", name],
+            capture_output=True,
+            text=True,
+            timeout=2,
+        )
+    except (OSError, subprocess.TimeoutExpired):
+        return False
+    family = (proc.stdout or "").split(",")[0].strip().casefold()
+    wanted = name.strip().casefold()
+    return bool(family) and (wanted in family or family in wanted)
+
+
+def usable_display_font(name: str | None) -> str | None:
+    """A real face. Generic and missing families are not usable."""
+    cleaned = (name or "").strip()
+    if cleaned.casefold() in _GENERIC_TYPEFACES:
+        return None
+    if _font_installed(cleaned):
+        return cleaned
+    return None
+
+
+def resolve_display_fonts(
+    brand_profile: dict[str, Any] | None,
+    kit: dict[str, Any] | None = None,
+) -> dict[str, str]:
+    """Brand display face when it is installed, otherwise a real display fallback."""
+    chosen = profile_fonts(brand_profile)
+    headline = usable_display_font(chosen.get("headline"))
+    body = usable_display_font(chosen.get("body"))
+    if not headline:
+        headline = DISPLAY_FALLBACK if _font_installed(DISPLAY_FALLBACK) else "Inter"
+    if not body:
+        body = "Inter" if _font_installed("Inter") else headline
+    return {"headline": headline, "body": body}
+
+
+def type_quality(*, font: str, headline_size: float, subline_size: float, headline: str) -> dict[str, Any]:
+    """Deterministic type bar. The picture judge uses the same failures."""
+    failures: list[str] = []
+    if not usable_display_font(font):
+        failures.append("system font")
+    if headline_size < 54:
+        failures.append("headline under 54px")
+    if subline_size and headline_size and subline_size > headline_size * 0.62:
+        failures.append("subline too close in size")
+    words = [w for w in (headline or "").replace("\n", " ").split() if w]
+    if len(words) > 8:
+        failures.append("more than 8 words in the headline")
+    return {"passed": not failures, "reason": "; ".join(failures)}
+
+
 def profile_fonts(brand_profile: dict[str, Any] | None) -> dict[str, Any]:
     """Optional ``brandProfile.typography`` → ``{"headline", "body", "headlineWeight"}`` overrides.
 
@@ -955,6 +1032,16 @@ def balance_lines(text: str, size: float, box_w: float, em: float) -> list[str]:
     return lines
 
 
+def avoid_orphan(lines: list[str]) -> list[str]:
+    """Keep the last line from being a single word."""
+    if len(lines) < 2 or len(lines[-1].split()) != 1:
+        return lines
+    words = " ".join(lines).split()
+    if len(words) <= 2:
+        return [" ".join(words)]
+    return [" ".join(words[:-2]), " ".join(words[-2:])]
+
+
 def fit_headline(
     text: str,
     box_w: float,
@@ -967,7 +1054,7 @@ def fit_headline(
         longest = max((len(w) for w in text.split()), default=0)
         fits_words = longest * size * HEADLINE_EM <= box_w
         if (len(lines) <= max_lines and fits_words) or size <= HEADLINE_MIN_SIZE:
-            return size, balance_lines(text, size, box_w, HEADLINE_EM)
+            return size, avoid_orphan(balance_lines(text, size, box_w, HEADLINE_EM))
         size -= 2
 
 
@@ -1152,6 +1239,7 @@ def plan_layout(
     box_w: float | None = None,
     anchor: str | None = None,
     align: str | None = None,
+    max_lines: int | None = None,
 ) -> LayoutPlan:
     tpl = get_template(template_name)
     plan = LayoutPlan(template=tpl.name, align=align or tpl.align)  # type: ignore[arg-type]
@@ -1163,12 +1251,12 @@ def plan_layout(
     box_w = tpl.text_w if box_w is None else box_w
     anchor = anchor or tpl.anchor
 
-    h_size, h_lines = fit_headline(headline, box_w, scale, tpl.max_headline_lines)
-    s_lines = balance_lines(subline, SUBLINE_SIZE, box_w, BODY_EM) if subline else []
-    s_size = SUBLINE_SIZE
+    h_size, h_lines = fit_headline(headline, box_w, scale, max_lines or min(2, tpl.max_headline_lines) or 2)
+    # Subline is about half the headline and lighter. Never close to the headline size.
+    s_size = max(SUBLINE_MIN_SIZE, round(h_size * 0.46))
+    s_lines = balance_lines(subline, s_size, box_w, BODY_EM) if subline else []
     if len(s_lines) > 2:
-        s_size = SUBLINE_MIN_SIZE
-        s_lines = balance_lines(subline, s_size, box_w, BODY_EM)
+        s_lines = s_lines[:2]
 
     show_cta = bool(cta) and cta_style != "none"
     eyebrow_h = EYEBROW_SIZE * 1.2 if eyebrow else 0.0
@@ -1220,7 +1308,7 @@ def plan_layout(
                 "weight": HEADLINE_WEIGHT[weight_key],
                 "weightKey": weight_key,
                 "lines": len(h_lines),
-                "leading": round(h_size * HEADLINE_LEADING, 1),
+                "leading": round(h_size * 0.96, 1),
                 "text": "\n".join(h_lines),
             }
         elif name == "subline":

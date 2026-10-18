@@ -323,8 +323,10 @@ class TestPictureFill(unittest.TestCase):
         self.assertEqual(picture["scale"], round(cover_scale_percent(180, 180), 2))
         self.assertGreaterEqual(180 * picture["scale"] / 100, LINKEDIN_WIDTH)
         headline = next(step for step in batch["steps"] if step.get("params", {}).get("name") == "Headline")
-        self.assertGreater(headline["params"]["box"][0], 200)
+        box = headline["params"]["box"]
+        self.assertAlmostEqual(box[0] + box[2] / 2, LINKEDIN_WIDTH / 2, delta=30)
         self.assertEqual(headline["params"]["align"], "center")
+        self.assertGreaterEqual(headline["params"]["size"], 54)
         self.assertNotIn("Illustration plate", [step.get("params", {}).get("name") for step in batch["steps"]])
         line = poster_status_line(
             template="circle-stage",
@@ -602,11 +604,11 @@ def _poster_body() -> dict:
             "communicationKit": {"devices": [{"kind": "mascot"}], "bundled": True},
         },
         "session": {
-            "suggestedHeadline": "Learn a language in five minutes a day",
+            "suggestedHeadline": "Learn a language",
             "brief": {"facts": "Free lessons, no textbook.", "tone": "factual"},
         },
         "creativeBrief": {
-            "headline": "Learn a language in five minutes a day",
+            "headline": "Learn a language",
             "subhead": "The most fun way to learn languages, chess, and more.",
             "cta": "Learn more",
             "layoutTemplate": "circle-stage",

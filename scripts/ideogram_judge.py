@@ -74,6 +74,7 @@ Fail when any of these are true:
 - It is a huge empty field with a tiny subject.
 - It contains letters, words, numbers, or a painted logo.
 - The colours are not the brand palette.
+- The type is weak: a system font, a headline under 54px, a subline too close to the headline size, low contrast, or a headline of more than 8 words.
 
 Quality bar: Linearity business posters (https://www.linearity.io/templates/business-templates/posters/): one composition across the whole sheet, in the brand's own colours and imagery. A full-bleed photograph with room for type, a pattern that fills the sheet, a graphic field with a type band, or an illustration with room for type in the middle. Not a text column beside a picture box.
 
