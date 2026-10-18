@@ -311,6 +311,8 @@ async function generatePosterInPhotoCraft() {
                 ideogramUsed: Boolean(data.ideogramUsed),
                 promptSnippet: data.promptSnippet || "",
                 ideogramJudge: data.ideogramJudge || null,
+                ideogramError: data.ideogramError || data.ideogramFallback || "",
+                statusLine: data.statusLine || "",
                 cliAvailable: data.cliAvailable,
                 generatedAt: new Date().toISOString(),
                 cliError: data.cliError || null,
@@ -345,12 +347,14 @@ async function generatePosterInPhotoCraft() {
         const judgeNote = judge
             ? ` Judge: ${judge.passed === true ? "pass" : judge.passed === false ? "fail" : "skipped"}. ${judge.reason || ""}${judge.retried ? " Retry ran." : " No retry."}`
             : ""
-        const heroNote =
-            data.ideogramUsed || data.heroSource === "ideogram-4"
+        const errorNote = data.ideogramError || data.ideogramFallback
+            ? ` ${data.ideogramError || data.ideogramFallback}`
+            : ""
+        const heroNote = data.statusLine
+            ? ` ${data.statusLine}`
+            : data.ideogramUsed || data.heroSource === "ideogram-4"
                 ? ` Ideogram: yes.${frameNote}${snippetNote}${judgeNote}`
-                : data.ideogramFallback
-                  ? ` Ideogram: no.${frameNote} ${data.ideogramFallback}`
-                  : ` Ideogram: no.${frameNote}${strategyNote}`;
+                : ` Ideogram: no.${frameNote}${errorNote}${strategyNote}`
         setPosterStatus(
             (data.userMessage || "Poster saved. Downloading and opening PhotoCraft…") +
                 heroNote +

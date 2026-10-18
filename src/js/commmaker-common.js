@@ -159,8 +159,11 @@ export function renderKitSummary(target, kit, session) {
         const judgeLabel = judge
             ? `judge ${judge.passed === true ? "pass" : judge.passed === false ? "fail" : "skipped"}`
             : ""
-        const meta = [
+        const meta = poster.statusLine
+            ? [poster.statusLine, judgeLabel, judge && judge.retried ? "retry ran" : ""].filter(Boolean)
+            : [
             poster.layoutTemplate,
+            poster.ideogramError || "",
             poster.ideogramUsed ? "Ideogram" : "no Ideogram",
             poster.promptSnippet || "",
             judgeLabel,

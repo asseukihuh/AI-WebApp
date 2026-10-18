@@ -1234,6 +1234,9 @@ def compile_poster_batch(
     ideogram_layers = None
     if brief.get("heroStrategy") == "ideogram_generate":
         ideogram_layers = brief.get("ideogramLayers") or "background-only"
+    # A fitted picture must be placed after the Field step. Background placements are
+    # painted first, and the solid field would cover the bitmap.
+    picture_on_top: dict[str, Any] | None = None
     if hero_relative_path:
         placement = _hero_background_placement(
             hero_relative_path,
@@ -1242,16 +1245,17 @@ def compile_poster_batch(
             layer_name="Background" if ideogram_layers else "Hero image",
         )
         rx, ry, rw, rh = tpl.image_region
-        if (rx, ry, rw, rh) != (0, 0, LINKEDIN_WIDTH, LINKEDIN_HEIGHT) and hero_width and hero_height:
-            # Fit the bitmap inside the picture area. Covering it would spill across the type
-            # and a shape drawn on top would hide the illustration.
+        fitted = (rx, ry, rw, rh) != (0, 0, LINKEDIN_WIDTH, LINKEDIN_HEIGHT) and hero_width and hero_height
+        if fitted:
             scale = min(rw / hero_width, rh / hero_height)
             placement["cover"] = False
             placement["fit"] = True
             placement["name"] = "Picture"
             placement["center"] = [round(rx + rw / 2, 1), round(ry + rh / 2, 1)]
             placement["scale"] = round(scale * 100, 2)
-        background_placements.append(placement)
+            picture_on_top = placement
+        else:
+            background_placements.append(placement)
     if accent_relative_path:
         accent = _accent_background_placement(
             accent_relative_path, img_width=accent_width, img_height=accent_height
@@ -1365,6 +1369,8 @@ def compile_poster_batch(
         cta_meta = {"label": chip["label"], "style": cta_style, **{k: v for k, v in colors.items() if k in ("fill", "label", "stroke")}}
 
     foreground_placements: list[dict[str, Any]] = []
+    if picture_on_top:
+        foreground_placements.append(picture_on_top)
     logo_variant = None
     logo_on_dark = False
     mark_share = 0.0
