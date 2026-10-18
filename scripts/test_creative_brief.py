@@ -662,11 +662,15 @@ class TestCircleStagePicture(unittest.TestCase):
         )
         names = [step.get("params", {}).get("name") for step in batch["steps"]]
         self.assertNotIn("Illustration plate", names)
-        pictures = [item for item in batch["placements"] if item.get("name") == "Picture"]
+        pictures = [
+            item
+            for item in batch.get("backgroundPlacements") or []
+            if "layer-ideogram-background.png" in item.get("path", "")
+        ]
         self.assertEqual(len(pictures), 1)
-        self.assertIn("layer-ideogram-background.png", pictures[0]["path"])
+        self.assertEqual(pictures[0]["center"][0], 600)
         logo = next(item for item in batch["placements"] if item.get("name") == "Logo")
-        self.assertLess(logo["center"][0], 400)
+        self.assertGreater(logo["center"][0], 400)
 
 
 if __name__ == "__main__":

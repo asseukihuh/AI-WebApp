@@ -70,7 +70,6 @@ from poster_compiler import (  # noqa: E402
 )
 from poster_design import (  # noqa: E402
     brand_roles,
-    get_template,
     kit_hero_unsuitable,
     resolve_template_name,
 )
@@ -488,8 +487,7 @@ class CommMakerHandler(http.server.SimpleHTTPRequestHandler):
                     "brand_profile": brand_profile,
                 }
 
-                well = get_template(resolved_template).image_region
-                picture_resolution = f"{max(1, int(round(well[2])))}x{max(1, int(round(well[3])))}"
+                picture_resolution = "1200x627"
 
                 def _generate_picture(scene: str) -> tuple:
                     return generate_layer_image(
@@ -531,7 +529,7 @@ class CommMakerHandler(http.server.SimpleHTTPRequestHandler):
                     if bg_meta.get("resolutionNote"):
                         hero_meta["resolutionNote"] = (
                             f"{bg_meta['resolutionNote']} "
-                            "Poster compiler cover-fills the picture region."
+                            "Poster compiler cover-fills the 1200×627 canvas."
                         )
                     kit["heroImageUrl"] = f"/{hero_rel}"
                     picture_path = os.path.join(ROOT, hero_rel)
@@ -558,7 +556,7 @@ class CommMakerHandler(http.server.SimpleHTTPRequestHandler):
                         palette=ideogram_style["palette"],
                         brand_profile=brand_profile,
                         regenerate=_regenerate,
-                        region=well,
+                        region=(0, 0, 1200, 627),
                         repo_root=ROOT,
                     )
                     if judge:

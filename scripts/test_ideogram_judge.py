@@ -18,7 +18,7 @@ SCRIPTS = os.path.dirname(os.path.abspath(__file__))
 if SCRIPTS not in sys.path:
     sys.path.insert(0, SCRIPTS)
 
-from ideogram_client import picture_well_spec  # noqa: E402
+from ideogram_client import poster_sheet_spec  # noqa: E402
 from ideogram_judge import (  # noqa: E402
     MAX_IDEOGRAM_ATTEMPTS,
     JUDGE_JSON_SCHEMA,
@@ -30,8 +30,7 @@ from ideogram_judge import (  # noqa: E402
     retry_prompt,
     review_generated_picture,
 )
-from poster_compiler import region_cover_scale_percent  # noqa: E402
-from poster_compiler import compile_poster_batch  # noqa: E402
+from poster_compiler import LINKEDIN_HEIGHT, LINKEDIN_WIDTH, compile_poster_batch, cover_scale_percent  # noqa: E402
 from render_poster_samples import write_png  # noqa: E402
 
 
@@ -95,9 +94,10 @@ class TestCircleBitmap(unittest.TestCase):
         )
         names = [step.get("params", {}).get("name") for step in batch["steps"]]
         self.assertNotIn("Illustration plate", names)
-        pictures = [item for item in batch["placements"] if item.get("name") == "Picture"]
+        pictures = [item for item in batch.get("backgroundPlacements") or [] if "duo-illustration" in item.get("path", "")]
         self.assertEqual(len(pictures), 1)
-        self.assertTrue(pictures[0]["path"].endswith("duo-illustration.png"))
+        self.assertEqual(pictures[0]["center"], [LINKEDIN_WIDTH / 2, LINKEDIN_HEIGHT / 2])
+        self.assertNotIn("Picture", [item.get("name") for item in batch["placements"]])
 
     def test_key_set_and_api_error_is_on_the_status_line(self) -> None:
         def generate(_prompt):
@@ -254,7 +254,7 @@ class TestPictureFill(unittest.TestCase):
         self.assertIsNotNone(inset)
         self.assertIsNotNone(filled)
         self.assertFalse(inset["passed"])
-        self.assertIn("small inset", inset["reason"])
+        self.assertTrue("inset" in inset["reason"] or "cramped" in inset["reason"])
         self.assertTrue(filled["passed"])
 
     def test_tiny_image_is_not_returned_as_a_pass(self) -> None:
@@ -286,7 +286,7 @@ class TestPictureFill(unittest.TestCase):
                 "A text-free character.",
                 llm_fn=llm,
                 regenerate=regen,
-                region=(700, 104, 400, 400),
+                region=(0, 0, 1200, 627),
                 repo_root=folder,
             )
         self.assertTrue(result["passed"])
@@ -295,11 +295,14 @@ class TestPictureFill(unittest.TestCase):
         self.assertEqual(seen["regen"], 1)
         self.assertNotEqual(result["imagePath"], small)
 
-    def test_circle_stage_scales_a_small_bitmap_up_to_the_well(self) -> None:
-        well = picture_well_spec("circle-stage")
-        self.assertEqual(well["resolution"], "1024x1024")
-        self.assertEqual(well["aspect"], "1:1")
-        self.assertIn("Fill the frame, subject large, no empty margin", str(well["fill"]))
+    def test_circle_stage_bitmap_covers_the_canvas_not_a_well(self) -> None:
+        sheet = poster_sheet_spec("circle-stage")
+        self.assertEqual(sheet["resolution"], "1280x720")
+        self.assertEqual(sheet["aspect"], "16:9")
+        self.assertEqual(sheet["zone"], "center")
+        self.assertIn("centre", sheet["quiet"].casefold())
+        self.assertNotIn("circle", sheet["fill"].casefold())
+        self.assertNotIn("sticker", sheet["fill"].casefold())
         batch = compile_poster_batch(
             {"siteName": "Duolingo", "colors": ["#58cc02", "#1cb0f6", "#ffffff"]},
             {"suggestedHeadline": "Learn a language in five minutes daily", "brief": {"facts": "Free lessons."}},
@@ -313,13 +316,17 @@ class TestPictureFill(unittest.TestCase):
             logo_width=180,
             logo_height=180,
         )
-        picture = next(item for item in batch["placements"] if item.get("name") == "Picture")
+        picture = next(
+            item for item in batch["backgroundPlacements"] if item.get("path", "").endswith("duo-illustration.png")
+        )
         self.assertFalse(picture["fit"])
-        scale = picture["scale"]
-        self.assertNotEqual(scale, 100)
-        self.assertEqual(scale, round(region_cover_scale_percent(180, 180, 400, 400), 2))
-        displayed = 180 * scale / 100
-        self.assertGreaterEqual(displayed, 399)
+        self.assertEqual(picture["center"], [LINKEDIN_WIDTH / 2, LINKEDIN_HEIGHT / 2])
+        self.assertEqual(picture["scale"], round(cover_scale_percent(180, 180), 2))
+        self.assertGreaterEqual(180 * picture["scale"] / 100, LINKEDIN_WIDTH)
+        headline = next(step for step in batch["steps"] if step.get("params", {}).get("name") == "Headline")
+        self.assertGreater(headline["params"]["box"][0], 200)
+        self.assertEqual(headline["params"]["align"], "center")
+        self.assertNotIn("Illustration plate", [step.get("params", {}).get("name") for step in batch["steps"]])
         line = poster_status_line(
             template="circle-stage",
             ideogram_used=True,
@@ -393,9 +400,13 @@ class TestPictureFrameMustPost(unittest.TestCase):
         )
         names = [step.get("params", {}).get("name") for step in batch["steps"]]
         self.assertNotIn("Illustration plate", names)
-        pictures = [item for item in batch["placements"] if item.get("name") == "Picture"]
+        pictures = [
+            item for item in batch.get("backgroundPlacements") or [] if item.get("path", "").endswith("duo-illustration.png")
+        ]
         self.assertEqual(len(pictures), 1)
-        self.assertTrue(pictures[0]["path"].endswith("duo-illustration.png"))
+        self.assertEqual(pictures[0]["center"], [LINKEDIN_WIDTH / 2, LINKEDIN_HEIGHT / 2])
+        self.assertNotIn("circle", invoked[0].casefold())
+        self.assertIn("full-sheet", invoked[0].casefold())
 
     def test_every_picture_frame_invokes_a_stubbed_client(self) -> None:
         kit, profile = _duo()

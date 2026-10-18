@@ -1019,6 +1019,73 @@ def logo_target_size(img_w: int | None, img_h: int | None) -> tuple[float, float
     return w, h
 
 
+def quiet_zone_for(template: str | None) -> str:
+    """Where editable type sits on a full-sheet poster. Not a side column beside a picture box."""
+    if template in ("photo-block", "photo-card", "product-card", "split-text-left", "full-bleed-scrim"):
+        return "lower"
+    return "center"
+
+
+def quiet_zone_phrase(zone: str) -> str:
+    if zone == "lower":
+        return (
+            "Leave a quiet band along the bottom of the sheet, still part of the same composition, "
+            "so type can sit there later."
+        )
+    return (
+        "Leave the centre of the sheet quieter and clearer, still part of the same composition, "
+        "so type can sit in the middle later."
+    )
+
+
+def place_type_in_quiet_zone(plan: LayoutPlan, zone: str) -> LayoutPlan:
+    """Move the type stack onto the sheet, over the image, instead of a left column."""
+    text_keys = [key for key in ("eyebrow", "headline", "subline", "cta") if key in plan.elements]
+    if not text_keys:
+        return plan
+    boxes = [plan.elements[key]["box"] for key in text_keys]
+    min_y = min(box[1] for box in boxes)
+    max_y = max(box[1] + box[3] for box in boxes)
+    stack_h = max_y - min_y
+    if zone == "lower":
+        new_top = CANVAS_H - MARGIN_Y - stack_h
+    else:
+        new_top = (CANVAS_H - stack_h) / 2
+    new_top = max(MARGIN_Y, new_top)
+    shift = new_top - min_y
+    for key in text_keys:
+        _x, y, width, height = plan.elements[key]["box"]
+        plan.elements[key]["box"] = (
+            round((CANVAS_W - width) / 2, 1),
+            round(y + shift, 1),
+            width,
+            height,
+        )
+    plan.align = "center"
+    if "logo" in plan.elements:
+        _x, _y, logo_w, logo_h = plan.elements["logo"]["box"]
+        if zone == "lower":
+            logo_y = MARGIN_Y
+        else:
+            logo_y = max(MARGIN_Y, new_top - 28 - logo_h)
+        plan.elements["logo"]["box"] = (
+            round((CANVAS_W - logo_w) / 2, 1),
+            round(logo_y, 1),
+            logo_w,
+            logo_h,
+        )
+    content_w = max(plan.elements[key]["box"][2] for key in text_keys)
+    plan.text_zone = (
+        round((CANVAS_W - content_w) / 2, 1),
+        round(new_top, 1),
+        content_w,
+        stack_h,
+    )
+    plan.panel = None
+    plan.card = None
+    return plan
+
+
 def plan_layout(
     template_name: str,
     *,

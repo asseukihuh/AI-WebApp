@@ -307,14 +307,18 @@ class TestCompilerRules(unittest.TestCase):
         batch = self._compile(_uniform_grid((246, 246, 250)), brief=_brief(logoTreatment="wordmark-dark"))
         self.assertIn(batch["meta"]["logoVariant"], ("original", "dark"))
 
-    def test_split_template_places_hero_in_right_half(self) -> None:
+    def test_split_template_covers_the_canvas_and_types_on_the_image(self) -> None:
         batch = self._compile(_uniform_grid((20, 24, 40)), brief=_brief(layoutTemplate="split-text-left"))
         self.assertEqual(batch["meta"]["layoutTemplate"], "split-text-left")
         hero = batch["backgroundPlacements"][0]
+        self.assertEqual(hero["center"], [design.CANVAS_W / 2, design.CANVAS_H / 2])
         right_edge = hero["center"][0] + 1200 * hero["scale"] / 100 / 2
         self.assertAlmostEqual(right_edge, design.CANVAS_W, delta=1)
         names = [s["params"].get("name") for s in batch["steps"]]
-        self.assertIn("Brand panel", names)
+        self.assertNotIn("Brand panel", names)
+        headline = next(s for s in batch["steps"] if s["params"].get("name") == "Headline")
+        self.assertGreater(headline["params"]["box"][0], 200)
+        self.assertEqual(headline["params"]["align"], "center")
 
     def test_design_audit_in_meta(self) -> None:
         batch = self._compile(_uniform_grid((20, 24, 40)))
@@ -361,14 +365,16 @@ class TestIdeogramPrompt(unittest.TestCase):
         self.assertTrue(elements)
         self.assertTrue(all(e["type"] == "obj" for e in elements))
         blob = json.dumps(prompt)
-        self.assertIn("Fill the frame, subject large, no empty margin inside the image.", blob)
+        self.assertIn("full-sheet poster", blob)
+        self.assertIn("quiet band along the bottom", blob)
         self.assertNotIn("generous negative space", blob)
+        self.assertNotIn("circle", blob.lower())
         for element in elements:
             x, y, x2, y2 = element["bbox"]
-            self.assertLessEqual(x, 80)
-            self.assertLessEqual(y, 80)
-            self.assertGreaterEqual(x2, 900)
-            self.assertGreaterEqual(y2, 900)
+            self.assertLessEqual(x, 160)
+            self.assertLessEqual(y, 120)
+            self.assertGreaterEqual(x2, 850)
+            self.assertGreaterEqual(y2, 650)
         self.assertEqual(prompt["style_description"]["color_palette"][0], "#533afd")
         self.assertIn("Chromatic Fluidity", prompt["style_description"]["aesthetics"])
         art_style = prompt["style_description"]["art_style"]

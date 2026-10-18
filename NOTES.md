@@ -6,11 +6,12 @@ Project update tracking, changelog, and roadmap for `ai-webapp`.
 
 ## 📝 Recent Updates
 
-### 2026-10-18 - The picture fills its region
+### 2026-10-18 - The picture is the whole poster
 
-- A picture-well bitmap is cover-scaled into that region. It is not left at native pixel size, and it is not letterboxed into a tiny inset.
-- Ideogram is told the well’s aspect, to fill the frame with a large subject and no empty margin, plus the brand palette and imagery style. The request uses the closest Ideogram 4 resolution. The prompt has no text.
-- The judge scores the composed poster, with brand screenshots or the logo when they exist. A small inset, an empty field, lettering, a missing subject, or off-brand colour fails. Up to two extra Ideogram calls follow (three total). A passing image is placed. If none pass, the last image is placed and the status says the judge failed.
+- Ideogram paints one full-bleed sheet at the closest 16:9 size (`1280×720`) and the compiler cover-fills the 1200×627 canvas. There is no picture well under that image.
+- The prompt asks for a Linearity-style full-sheet composition in the brand’s colours and imagery, one focal subject, and a quiet area (centre or a bottom band) for type. It does not ask for a circle or a sticker.
+- Headline, subline, button, and logo stay editable layers on top of that image, in the quiet area, not in a left column beside a box.
+- The judge scores the full canvas and fails a side-by-side sticker, a subject cramped into a corner, a tiny subject on an empty field, letters, or off-brand colour. Up to two extra full-canvas calls (three total). A failing first image is not reported as a pass.
 
 ### 2026-10-18 - A picture frame must call Ideogram
 

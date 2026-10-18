@@ -251,11 +251,13 @@ def build_structured_prompt(
                 ],
             },
         }
-    well = picture_well_spec(template)
+    sheet = poster_sheet_spec(template)
+    # Subject stays on the sheet, clear of a corner, and leaves the quiet type area open.
+    subject_box = [80, 40, 920, 680] if sheet["zone"] == "lower" else [120, 80, 880, 920]
     return {
         "high_level_description": (
-            f"Text-free picture, aspect {well['aspect']}. {clean}. "
-            f"{well['fill']} No lettering."
+            f"Text-free full-sheet poster, aspect {sheet['aspect']}. {clean}. "
+            f"{sheet['fill']} {sheet['quiet']} No lettering."
         ),
         "style_description": {
             "aesthetics": tone,
@@ -265,12 +267,12 @@ def build_structured_prompt(
             **({"color_palette": colors} if colors else {}),
         },
         "compositional_deconstruction": {
-            "background": f"{well['fill']} Edge-to-edge colour, no border, no letterbox, no lettering.",
+            "background": f"{sheet['fill']} {sheet['quiet']} No lettering and no border.",
             "elements": [
                 {
                     "type": "obj",
-                    "bbox": [40, 40, 960, 960],
-                    "desc": f"{clean}; subject large and filling the frame, no empty margin.",
+                    "bbox": subject_box,
+                    "desc": f"{clean}; one focal subject across the sheet, not cramped into a corner.",
                     **({"color_palette": colors[:5]} if colors else {}),
                 }
             ],
@@ -289,27 +291,21 @@ def _parse_resolution(resolution: str) -> tuple[int, int] | None:
     return int(match.group(1)), int(match.group(2))
 
 
-def picture_well_spec(template: str | None) -> dict[str, str | float]:
-    """Aspect and Ideogram 4 size for the picture well, not the whole poster."""
-    from poster_design import get_template
+def poster_sheet_spec(template: str | None) -> dict[str, str]:
+    """Full 1200×627 poster. Closest Ideogram 4 aspect is about 16:9."""
+    from poster_design import quiet_zone_for, quiet_zone_phrase
 
-    _x, _y, width, height = get_template(template).image_region
-    width = float(width or 1)
-    height = float(height or 1)
-    resolution = closest_ideogram_resolution(f"{max(1, int(round(width)))}x{max(1, int(round(height)))}")
-    ratio = width / height if height else 1.0
-    if abs(ratio - 1) <= 0.08:
-        aspect = "1:1"
-    elif ratio > 1:
-        aspect = f"{ratio:.2f}:1"
-    else:
-        aspect = f"1:{1 / ratio:.2f}"
+    zone = quiet_zone_for(template)
     return {
-        "width": width,
-        "height": height,
-        "aspect": aspect,
-        "resolution": resolution,
-        "fill": "Fill the frame, subject large, no empty margin inside the image.",
+        "aspect": "16:9",
+        "resolution": closest_ideogram_resolution("1200x627"),
+        "zone": zone,
+        "quiet": quiet_zone_phrase(zone),
+        "fill": (
+            "A full-sheet poster composition in this brand's colours and imagery. "
+            "One focal subject that belongs to the whole sheet, not cramped into a corner "
+            "and not a separate picture box beside a text column."
+        ),
     }
 
 

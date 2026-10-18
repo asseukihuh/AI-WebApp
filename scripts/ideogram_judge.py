@@ -54,21 +54,21 @@ MAX_IDEOGRAM_ATTEMPTS = 3
 _FILL_SPAN = 0.72
 
 _SYSTEM = (
-    "You judge a composed poster. Image 1 is the poster with the picture placed in its region. "
-    "Later images are the brand, for comparison only. "
+    "You judge one full-bleed poster image. Image 1 is the whole 1200×627 sheet. "
+    "Later images are the brand, for comparison only. Type will be added later as editable text. "
     "You MUST call submit_picture_judge exactly once."
 )
 
-_RUBRIC = """Score image 1, the composed 1200×627 poster. The picture must fill its region. Later images, if any, are the brand (a screenshot or the scraped logo).
+_RUBRIC = """Score image 1, the full poster canvas. Later images, if any, are the brand (a screenshot or the scraped logo).
 
 Fail when any of these are true:
-- The picture is a small inset or sticker, or the poster is a field of unused canvas around a tiny crop.
-- The picture has empty margin inside its frame, or the subject is small in that frame.
-- The picture contains letters, words, numbers, or a painted logo.
-- There is no single focal subject.
+- It is a split layout: words or empty space on one side and a picture box or sticker on the other.
+- The subject is cramped into a corner.
+- It is a huge empty field with a tiny subject.
+- It contains letters, words, numbers, or a painted logo.
 - The colours are not the brand palette.
 
-Quality bar: Linearity business posters (https://www.linearity.io/templates/business-templates/posters/): strong hierarchy, and the picture is a real region, not a sticker.
+Quality bar: Linearity business posters (https://www.linearity.io/templates/business-templates/posters/): one composition across the whole sheet, in the brand's own colours and imagery. A full-bleed photograph with room for type, a pattern that fills the sheet, a graphic field with a type band, or an illustration with room for type in the middle. Not a text column beside a picture box.
 
 reason: one sentence. critique: if it failed, what was wrong and what to show instead; if it passed, an empty string.
 """
@@ -306,15 +306,18 @@ def _picture_prompt(
     if direction and not any(word in direction.casefold() for word in ("circle", "circular", "disc", "disk")):
         prompt = f"{prompt}. {direction}"
     try:
-        from ideogram_client import picture_well_spec
+        from ideogram_client import poster_sheet_spec
 
-        well = picture_well_spec(template)
+        sheet = poster_sheet_spec(template)
         prompt = (
-            f"{prompt}. Aspect {well['aspect']}. {well['fill']} "
+            f"{prompt}. Full-sheet poster, aspect {sheet['aspect']}. {sheet['fill']} {sheet['quiet']} "
             "Use the brand palette and imagery style. No lettering."
         )
     except Exception:  # noqa: BLE001 — the scene prompt still POSTs
-        prompt = f"{prompt}. Fill the frame, subject large, no empty margin inside the image. No lettering."
+        prompt = (
+            f"{prompt}. A full-sheet poster composition, one focal subject, "
+            "a quiet area for type. No lettering."
+        )
     return " ".join(prompt.split())
 
 
@@ -572,6 +575,13 @@ def frame_fill_report(path: str) -> dict[str, Any] | None:
         }
     span_x = (max_x - min_x + step) / width
     span_y = (max_y - min_y + step) / height
+    if min_x > width * 0.42 or max_x < width * 0.58:
+        return {
+            "passed": False,
+            "reason": "The subject is cramped to one side of an empty field.",
+            "critique": "Make one composition across the whole sheet, not a picture box on one side.",
+            "span": (round(span_x, 3), round(span_y, 3)),
+        }
     if span_x < _FILL_SPAN or span_y < _FILL_SPAN:
         return {
             "passed": False,
@@ -643,7 +653,11 @@ def _judge_one(
     """Local fill check, then one vision check of the composed poster."""
     local = frame_fill_report(image_path) if region else None
     composed = image_path
+    full_canvas = False
     if region:
+        _x, _y, region_w, region_h = region
+        full_canvas = _x <= 1 and _y <= 1 and region_w >= 1100 and region_h >= 600
+    if region and not full_canvas:
         preview = compose_poster_preview(image_path, region, image_path + ".poster.png")
         if preview:
             composed = preview
