@@ -43,7 +43,7 @@ function showMissing() {
             <p>PhotoCraft web assets are not installed yet.</p>
             <pre>./scripts/fetch-photocraft-web.sh
 python3 scripts/serve-static.py --port 8000</pre>
-            <p>See <code>vendor/photocraft-web/README.md</code> and the README CommMaker section.</p>
+            <p>See the README and <code>vendor/photocraft-web/README.md</code>.</p>
         </div>`;
 }
 

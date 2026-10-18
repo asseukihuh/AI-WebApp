@@ -28,7 +28,7 @@ const briefAccentPrompt = document.getElementById("brief-accent-prompt");
 const briefRationale = document.getElementById("brief-rationale");
 
 /**
- * Optional LLM hook — replace or wrap to call Ollama / remote API.
+ * Optional LLM hook — replace or wrap to call a remote model.
  * @param {object} brief
  * @returns {Promise<string>}
  */
