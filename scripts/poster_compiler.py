@@ -364,6 +364,117 @@ def logo_svg_variants(svg: str) -> dict[str, str]:
     return {"original": svg}
 
 
+_LOCKUP_ELEMENT = re.compile(
+    r"<(path|polygon|polyline|rect|circle|ellipse|text)\b[^>]*?(?:/>|>.*?</\1>)",
+    re.I | re.S,
+)
+
+
+def _svg_viewbox(svg: str) -> tuple[float, float, float, float] | None:
+    from image_probe import svg_dimensions_from_text
+
+    dims = svg_dimensions_from_text(svg)
+    if not dims:
+        return None
+    return 0.0, 0.0, float(dims[0]), float(dims[1])
+
+
+def _element_origin_x(tag: str) -> float | None:
+    path = re.search(r'\bd\s*=\s*(["\'])(.*?)\1', tag, re.I | re.S)
+    if path:
+        numbers = re.findall(r"-?\d*\.?\d+", path.group(2))
+        if numbers:
+            return float(numbers[0])
+    for attr in ("x", "cx"):
+        found = re.search(rf'\b{attr}\s*=\s*(["\'])(-?\d*\.?\d+)\1', tag, re.I)
+        if found:
+            return float(found.group(2))
+    points = re.search(r'\bpoints\s*=\s*(["\'])([^"\']+)\1', tag, re.I)
+    if points:
+        numbers = re.findall(r"-?\d*\.?\d+", points.group(2))
+        if numbers:
+            return float(numbers[0])
+    return None
+
+
+def crop_lockup_svg(svg: str) -> str:
+    """Keep the scraped symbol paths. Drop the wordmark beside them on a wide lockup.
+
+    A pure wordmark, one shape across the file, is returned unchanged.
+    """
+    box = _svg_viewbox(svg)
+    if not box:
+        return svg
+    _x, _y, width, height = box
+    if height <= 0 or width / height < 2.0:
+        return svg
+    elements = list(_LOCKUP_ELEMENT.finditer(svg))
+    scored = [(match, _element_origin_x(match.group(0))) for match in elements]
+    known = [(match, origin) for match, origin in scored if origin is not None]
+    if len(known) < 2:
+        return svg
+    right = [origin for _match, origin in known if origin >= height * 0.85]
+    left = [origin for _match, origin in known if origin < height * 1.05]
+    if not right or not left:
+        return svg
+    crop_w = min(right) - 1
+    if crop_w < height * 0.65 or crop_w > height * 1.7:
+        return svg
+    cropped = svg
+    for match, origin in sorted(known, key=lambda item: item[0].start(), reverse=True):
+        if origin >= height * 0.85:
+            cropped = cropped[: match.start()] + cropped[match.end() :]
+    cropped = re.sub(
+        r'viewBox\s*=\s*(["\'])[^"\']+\1',
+        f'viewBox="0 0 {crop_w:g} {height:g}"',
+        cropped,
+        count=1,
+        flags=re.I,
+    )
+    if "viewBox" not in cropped and "viewbox" not in cropped:
+        cropped = re.sub(r"<svg\b", f'<svg viewBox="0 0 {crop_w:g} {height:g}"', cropped, count=1, flags=re.I)
+    cropped = re.sub(r'\bwidth\s*=\s*(["\'])[^"\']+\1', f'width="{crop_w:g}"', cropped, count=1, flags=re.I)
+    cropped = re.sub(r'\bheight\s*=\s*(["\'])[^"\']+\1', f'height="{height:g}"', cropped, count=1, flags=re.I)
+    if not re.search(r"\boverflow\s*=", cropped, re.I):
+        cropped = re.sub(r"<svg\b", '<svg overflow="hidden"', cropped, count=1, flags=re.I)
+    return cropped
+
+
+def crop_logo_asset(
+    relative_path: str,
+    assets_dir: str | None,
+) -> tuple[str, int, int] | None:
+    """Write a symbol crop of a wide lockup. The scraped file is not rewritten."""
+    if not relative_path or not assets_dir:
+        return None
+    root = os.path.dirname(os.path.dirname(assets_dir))
+    abs_path = relative_path if os.path.isabs(relative_path) else os.path.join(root, relative_path)
+    if not os.path.isfile(abs_path):
+        return None
+    try:
+        with open(abs_path, "rb") as handle:
+            raw = handle.read()
+    except OSError:
+        return None
+    text = raw.decode("utf-8", errors="ignore")
+    if "<svg" not in text[:500].lower() and not abs_path.lower().endswith(".svg"):
+        return None
+    cropped = crop_lockup_svg(text)
+    if cropped == text:
+        return None
+    from image_probe import svg_dimensions_from_text
+
+    dims = svg_dimensions_from_text(cropped)
+    if not dims:
+        return None
+    digest = hashlib.sha256(cropped.encode("utf-8")).hexdigest()[:16]
+    filename = f"logo-symbol-{digest}.svg"
+    os.makedirs(assets_dir, exist_ok=True)
+    with open(os.path.join(assets_dir, filename), "w", encoding="utf-8") as handle:
+        handle.write(cropped)
+    return f"generated/assets/{filename}", dims[0], dims[1]
+
+
 def ensure_brand_gradient_svg_stops(
     assets_dir: str,
     stops: list[tuple[float, str]],
@@ -1058,9 +1169,11 @@ def compile_poster_batch(
     display = design.resolve_display_fonts(brand_profile, kit)
     captured_headline = str(display.get("capturedHeadline") or "")
     woff = (resolved.get("woff2") or {}) if isinstance(resolved.get("woff2"), dict) else {}
+    from font_fetcher import families_match
+
     font_file = ""
     for family, paths in woff.items():
-        if captured_headline and str(family).casefold() == captured_headline.casefold() and paths:
+        if captured_headline and paths and families_match(str(family), captured_headline):
             font_file = str(paths[0])
             break
     if captured_headline:
@@ -1075,6 +1188,9 @@ def compile_poster_batch(
         or headline_font
     )
     brand_font_failed = bool(captured_headline) and not font_loaded
+    brand_font_error = str(resolved.get("fontFailure") or "") if brand_font_failed else ""
+    if brand_font_failed and not brand_font_error:
+        brand_font_error = f"the brand font failed to load: no file URL for {captured_headline}"
 
     composition = clean_composition(brief.get("composition")) or default_composition(kit, brand_profile)
     template_name = design.resolve_template_name(
@@ -1112,6 +1228,11 @@ def compile_poster_batch(
     headline_scale = brief.get("headlineScale")
     headline_weight = brief.get("headlineWeight") or profile_font.get("headlineWeight")
 
+    cropped_logo = crop_logo_asset(logo_relative_path or "", assets_dir)
+    if cropped_logo:
+        logo_relative_path, logo_width, logo_height = cropped_logo
+        logo_variants = dict(logo_variants or {})
+        logo_variants["original"] = logo_relative_path
     logo_paths: dict[str, str] = dict(logo_variants or {})
     if logo_relative_path and "original" not in logo_paths:
         logo_paths["original"] = logo_relative_path
@@ -1200,16 +1321,47 @@ def compile_poster_batch(
             max_lines=2,
         )
     elif photo_band:
-        # Picture on top. Type is a left-aligned stack in the band beneath it.
+        # Picture on top. A symbol sits in the colour band, with the headline beside it.
+        symbol_logo = bool(logo_size and logo_width and logo_height and logo_width / max(1, logo_height) < 1.8)
+        if symbol_logo:
+            logo_h = 72.0
+            logo_size = (logo_h * (logo_width / logo_height), logo_h)
+        text_w = design.span_w(7)
+        text_x = design.MARGIN_X
+        if symbol_logo and logo_size:
+            text_x = design.MARGIN_X + logo_size[0] + 28
+            text_w = max(220.0, design.CANVAS_W - text_x - design.MARGIN_X - 180)
         plan = _plan(
             tpl.name,
-            box_x=design.MARGIN_X,
-            box_w=design.span_w(7),
+            box_x=text_x,
+            box_w=text_w,
             anchor="bottom",
             align="left",
             headline_scale="lg",
             max_lines=2,
+            logo_size=logo_size,
         )
+        if symbol_logo and "logo" in plan.elements and "headline" in plan.elements:
+            band_top = design.PHOTO_BAND[3]
+            _lx, _ly, lw, lh = plan.elements["logo"]["box"]
+            _hx, _hy, hw, hh = plan.elements["headline"]["box"]
+            row_h = max(lh, hh)
+            row_y = band_top + max(12.0, (design.CANVAS_H - band_top - row_h) / 2)
+            plan.elements["logo"]["box"] = (
+                design.MARGIN_X,
+                round(row_y + (row_h - lh) / 2, 1),
+                lw,
+                lh,
+            )
+            plan.elements["headline"]["box"] = (round(text_x, 1), round(row_y, 1), hw, hh)
+            if "subline" in plan.elements:
+                _sx, _sy, sw, sh = plan.elements["subline"]["box"]
+                plan.elements["subline"]["box"] = (
+                    round(text_x, 1),
+                    round(row_y + hh + 8, 1),
+                    sw,
+                    sh,
+                )
     elif treatment == "full-sheet":
         plan = _plan(
             tpl.name,
@@ -1428,6 +1580,23 @@ def compile_poster_batch(
             }
         )
 
+    if photo_band:
+        steps.append(
+            {
+                "command": "shape.create",
+                "params": {
+                    "kind": "rect",
+                    "rect": [
+                        0,
+                        design.PHOTO_BAND[3],
+                        design.CANVAS_W,
+                        design.CANVAS_H - design.PHOTO_BAND[3],
+                    ],
+                    "fill": roles.brand,
+                    "name": "Type band",
+                },
+            }
+        )
     if photo_band and "cta" in plan.elements:
         _x, y, width, height = plan.elements["cta"]["box"]
         plan.elements["cta"]["box"] = (
@@ -1662,6 +1831,7 @@ def compile_poster_batch(
                 "captured": captured_headline or None,
             },
             "brandFontFailed": brand_font_failed,
+            "brandFontError": brand_font_error or None,
             "tagline": subline,
             "eyebrow": eyebrow or None,
             "cta": cta_meta,

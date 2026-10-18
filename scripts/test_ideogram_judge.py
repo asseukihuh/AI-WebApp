@@ -738,5 +738,142 @@ class TestGeneratePosterPosts(unittest.TestCase):
         self.assertNotIn("ideogramJudge", payload)
 
 
+class TestAirbnbPicture(unittest.TestCase):
+    def _profile(self) -> dict:
+        return {
+            "name": "Airbnb",
+            "imageryStyle": {"primaryMedium": "photography", "motifs": ["interiors", "homes"]},
+            "socialStrategy": {"formats": ["gradient-field"]},
+        }
+
+    def _kit(self) -> dict:
+        return {"siteName": "Airbnb", "tagline": "Vacation rentals", "colors": ["#ff5a5f", "#ffffff"]}
+
+    def test_photo_brand_uses_a_home_interior_prompt(self) -> None:
+        from creative_brief import brand_layout_energy
+        from poster_design import choose_treatment
+
+        profile = self._profile()
+        kit = self._kit()
+        self.assertEqual(brand_layout_energy(kit, profile), "photo-block")
+        brief = {"layoutTemplate": "text-panel", "treatment": "pattern-field", "heroStrategy": "solid"}
+        self.assertEqual(choose_treatment(brief, brand_layout_energy(kit, profile)), "photo-band")
+        seen: dict[str, str] = {}
+
+        def generate(prompt: str):
+            seen["prompt"] = prompt
+            return "generated/assets/home.png", b"\x89PNG\r\n\x1a\nxx", {}
+
+        result = acquire_poster_picture(
+            {**brief, "heroImagePrompt": "a soft out of focus red field"},
+            kit,
+            profile,
+            template="text-panel",
+            key_set=True,
+            generate=generate,
+        )
+        self.assertEqual(result["treatment"], "photo-band")
+        prompt = seen["prompt"].casefold()
+        self.assertIn("home interior", prompt)
+        self.assertIn("no ui card", prompt)
+        self.assertIn("no headline", prompt)
+        self.assertIn("no button", prompt)
+        self.assertIn("abstract blur", prompt)
+
+    def test_blur_and_painted_card_change_the_retry_prompt(self) -> None:
+        profile = self._profile()
+        with tempfile.TemporaryDirectory() as tmp:
+            blur = os.path.join(tmp, "blur.png")
+            rows = []
+            for _y in range(36):
+                row = bytearray()
+                for x in range(64):
+                    row.extend((180, 40 + x // 16, 36))
+                rows.append(bytes(row))
+            write_png(blur, 64, 36, rows)
+            card = os.path.join(tmp, "card.png")
+            card_rows = []
+            for y in range(36):
+                row = bytearray()
+                for x in range(64):
+                    if 18 <= x < 46 and 8 <= y < 28:
+                        row.extend((248, 248, 246))
+                    else:
+                        row.extend((170, 48, 40))
+                card_rows.append(bytes(row))
+            write_png(card, 64, 36, card_rows)
+            prompts: list[str] = []
+
+            def regenerate(prompt: str):
+                prompts.append(prompt)
+                return card, b"\x89PNG\r\n\x1a\nxx", {}
+
+            def llm(_path, _refs, _palette, _note):
+                return {"passed": True, "reason": "fine", "critique": "", "suggestedTreatment": "same"}
+
+            result = review_generated_picture(
+                blur,
+                "A soft abstract blur",
+                brand_profile=profile,
+                llm_fn=llm,
+                regenerate=regenerate,
+            )
+        self.assertGreaterEqual(len(prompts), 1)
+        revised = prompts[0].casefold()
+        self.assertIn("home interior", revised)
+        self.assertNotIn("soft abstract blur", revised)
+        self.assertIn("abstract blur", result["reason"] if result["attempts"] == 1 else prompts[0].casefold())
+        self.assertFalse(result["passed"])
+
+    def test_font_failure_does_not_spend_image_retries(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            path = os.path.join(tmp, "room.png")
+            rows = []
+            for y in range(64):
+                row = bytearray()
+                for x in range(96):
+                    if (x // 8 + y // 8) % 2 == 0:
+                        row.extend((24, 92, 48))
+                    else:
+                        row.extend((196, 112, 42))
+                rows.append(bytes(row))
+            write_png(path, 96, 64, rows)
+            calls = {"n": 0}
+
+            def regenerate(prompt: str):
+                calls["n"] += 1
+                return path, b"\x89PNG\r\n\x1a\nxx", {}
+
+            def llm(_path, _refs, _palette, _note):
+                return {
+                    "passed": False,
+                    "reason": "the brand font failed to load",
+                    "critique": "",
+                    "suggestedTreatment": "same",
+                }
+
+            result = review_generated_picture(
+                path,
+                "A room",
+                brand_profile=self._profile(),
+                llm_fn=llm,
+                regenerate=regenerate,
+            )
+        self.assertEqual(calls["n"], 0)
+        self.assertEqual(result["attempts"], 1)
+        self.assertIn("brand font failed", result["reason"])
+        line = poster_status_line(
+            template="photo-block",
+            ideogram_used=True,
+            error=None,
+            treatment="photo-band",
+            judge=result,
+            brand_font_failed=True,
+            brand_font_error="the brand font failed to load: https://a0.muscache.com/cereal.woff2",
+        )
+        self.assertEqual(line.count("brand font failed"), 1)
+        self.assertIn("https://a0.muscache.com/cereal.woff2", line)
+
+
 if __name__ == "__main__":
     unittest.main()

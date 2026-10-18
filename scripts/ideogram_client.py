@@ -350,10 +350,10 @@ def treatment_spec(treatment: str | None) -> dict[str, str]:
             "resolution": closest_ideogram_resolution("1200x440"),
             "aspect": "wide",
             "zone": "lower",
-            "quiet": "The type sits in a band below this picture, not inside a corner of it.",
+            "quiet": "The picture sits above a type band. Type sits in that band, not inside a corner of the picture.",
             "fill": (
-                "A text-free photograph in this brand's colours and imagery, filling its frame. "
-                "It is the picture above a type band, not a full-bleed poster and not a separate box."
+                "One text-free photograph of a home interior, in sharp focus, filling this frame. "
+                "A real room. No UI card, no headline, no button, no abstract blur."
             ),
             "prompt": "",
         }

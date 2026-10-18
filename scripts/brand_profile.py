@@ -359,10 +359,34 @@ _EXTRACT_JS = r"""
   }
 
   const fontFaces = [];
+  const seenFaces = new Set();
+  try {
+    for (const sheet of [...document.styleSheets]) {
+      let rules;
+      try { rules = sheet.cssRules; } catch (e) { continue; }
+      for (const rule of [...(rules || [])]) {
+        if (rule.type !== 5 || !rule.style || fontFaces.length >= 40) continue;
+        const family = (rule.style.getPropertyValue('font-family') || '').replace(/["']/g, '').split(',')[0].trim();
+        const src = rule.style.getPropertyValue('src') || '';
+        const weight = rule.style.getPropertyValue('font-weight') || '';
+        const key = family + '|' + src;
+        if (!family || !src || seenFaces.has(key)) continue;
+        seenFaces.add(key);
+        fontFaces.push({
+          family,
+          weight,
+          style: rule.style.getPropertyValue('font-style') || '',
+          src: src.slice(0, 600),
+        });
+      }
+    }
+  } catch (e) {}
   try {
     for (const f of document.fonts) {
-      if (f.status !== 'loaded') continue;
-      fontFaces.push({ family: f.family.replace(/^['"]|['"]$/g, ''), weight: f.weight, style: f.style });
+      if (f.status !== 'loaded' || fontFaces.length >= 40) continue;
+      const family = f.family.replace(/^['"]|['"]$/g, '');
+      if (fontFaces.some((row) => row.family === family)) continue;
+      fontFaces.push({ family, weight: f.weight, style: f.style });
     }
   } catch (e) {}
 
@@ -1606,6 +1630,26 @@ def _resolve_current_color(svg: str, color_hex: str | None) -> str:
     return svg
 
 
+def _merge_captured_font_files(kit: dict[str, Any], capture: dict[str, Any] | None) -> dict[str, Any]:
+    """Keep @font-face file URLs from the rendered page on the kit."""
+    rendered = (capture or {}).get("rendered") or {}
+    files = [item for item in (kit.get("fontFiles") or []) if isinstance(item, dict)]
+    seen = {(str(item.get("family") or ""), str(item.get("url") or "")) for item in files}
+    for face in rendered.get("fontFaces") or []:
+        family = str(face.get("family") or "").strip().strip("'\"")
+        src = str(face.get("src") or "")
+        for raw in re.findall(r"url\(\s*['\"]?([^)'\"]+)", src, flags=re.I):
+            url = "https:" + raw if raw.startswith("//") else raw
+            if not family or not url.startswith("http") or (family, url) in seen:
+                continue
+            seen.add((family, url))
+            files.append({"family": family, "url": url, "weight": str(face.get("weight") or "400")})
+    if files:
+        kit = dict(kit)
+        kit["fontFiles"] = files[:12]
+    return kit
+
+
 def _apply_logo_choice(kit: dict[str, Any], signals: dict[str, Any], profile: dict[str, Any]) -> dict[str, Any]:
     from kit_scraper import _sanitize_logo_svg
 
@@ -2003,6 +2047,7 @@ def analyze_brand_bundle(
         "calls": 1 if source == "llm" else 0,
     }
     kit_out = _apply_logo_choice(kit_out, signals, profile)
+    kit_out = _merge_captured_font_files(kit_out, capture)
     kit_out["brandProfile"] = profile
     kit_out["communicationKit"] = designed
     if shots:

@@ -6,6 +6,12 @@ Project update tracking and changelog for CommMaker.
 
 ## 📝 Recent Updates
 
+### 2026-10-18 - Airbnb photo band
+
+- A hospitality or photography brand uses the photo-band treatment. Ideogram is asked for one text-free photograph of a home interior, with no UI card, headline, button, or abstract blur.
+- The judge fails painted text and an abstract blur on a photography brand. That retry changes the picture prompt. A missing font file is reported once, with the URL that failed, and does not spend the image retries.
+- A wide lockup is cropped to the symbol. The scraped paths are not redrawn. Airbnb Cereal VF is loaded from the captured variable-font file when that URL is in the kit.
+
 ### 2026-10-18 - Ideogram 4.5 request body
 
 - The invalid field was `size`. The call sent `1280x720`, an Ideogram 4.0 preset. 4.5 returns 400 for that value. A 1200×627 poster now asks for `1440x720`.

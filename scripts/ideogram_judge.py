@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import struct
 import time
 import urllib.error
@@ -72,6 +73,8 @@ Fail when any of these are true:
 - The subject is cramped into a corner.
 - It is a huge empty field with a tiny subject.
 - It contains letters, words, numbers, or a painted logo or wordmark. The scraped logo is placed later; do not draw one.
+- Text is painted into the image: a UI card, a headline, or a button. Those words belong in editable type, not in the picture.
+- The brand's imagery is photography and the picture is an abstract blur instead of a real photograph.
 - The logo layer is not the scraped logo file.
 - A display font was captured and the headline is not that family.
 - The colours are not the brand palette.
@@ -283,6 +286,7 @@ def poster_status_line(
     treatment: str | None = None,
     screenshots_skipped: bool = False,
     brand_font_failed: bool = False,
+    brand_font_error: str | None = None,
 ) -> str:
     """Crisis status. A skip names the reason and shows 0 ms, so it cannot look like a hit."""
     parts: list[str] = []
@@ -295,7 +299,11 @@ def poster_status_line(
 
         parts.append(SCREENSHOTS_SKIPPED_STATUS)
     if brand_font_failed:
-        parts.append("the brand font failed to load")
+        message = str(brand_font_error or "the brand font failed to load")
+        if any("brand font failed" in part.casefold() for part in parts):
+            parts = [message if "brand font failed" in part.casefold() else part for part in parts]
+        else:
+            parts.append(message)
     if error:
         parts.append(error)
     elif ideogram_used:
@@ -311,7 +319,7 @@ def poster_status_line(
         else:
             parts.append("judge skipped")
         reason = " ".join(str(judge.get("reason") or "").split())
-        if reason:
+        if reason and not (brand_font_failed and _font_failure_only(reason)):
             parts.append(reason)
         attempts = judge.get("attempts")
         if attempts:
@@ -353,12 +361,22 @@ def _picture_prompt(
         kind = choose_treatment(brief)
         spec = treatment_spec(kind)
         if spec.get("fill"):
+            from creative_brief import brand_wants_home_interior
+
+            scene = spec["fill"]
+            if kind == "photo-band" and brand_wants_home_interior(kit, brand_profile):
+                scene = (
+                    "One text-free photograph of a home interior. "
+                    "A real room in sharp focus. "
+                    "No UI card, no headline, no button, no abstract blur."
+                )
             prompt = (
-                f"{prompt}. Treatment {kind}. {spec['fill']} {spec.get('quiet') or ''} "
+                f"{scene} Treatment {kind}. {spec.get('quiet') or ''} "
                 "The example images show how this brand's components are built. "
                 "Study them for materials, shapes, and palette. "
                 f"Make one coherent text-free asset for the {kind} poster in that language. "
-                "Do not paste the examples together. Do not copy the words in the examples."
+                "Do not paste the examples together. Do not copy the words in the examples. "
+                f"{prompt}"
             )
     except Exception:  # noqa: BLE001 — the scene prompt still POSTs
         prompt = f"{prompt}. Match the brand's colours and imagery. No lettering."
@@ -511,8 +529,16 @@ def fetch_picture_layer(prompt: str, *, key_set: bool, generate: Callable[..., t
 
 
 def retry_prompt(prompt: str, reason: str, critique: str, layout: str = "") -> str:
-    """One extra instruction. Still forbids letters and a frame, and repeats the well."""
+    """A new picture instruction. A blur or a painted card is replaced with a photograph."""
     note = " ".join(f"{reason} {critique} {layout}".split())
+    lowered = note.casefold()
+    if re.search(r"\b(blur|painted|letters?|card|button|headline|ui)\b", lowered):
+        return (
+            "One text-free photograph of a home interior. "
+            "A real room, with furniture, windows, and daylight, in sharp focus. "
+            "No UI card, no headline, no button, no abstract blur, no letters, no logo. "
+            f"The previous image failed because: {note}"
+        )
     return (
         f"{prompt.strip()}\n\n"
         f"The previous image failed a picture check: {note} "
@@ -521,6 +547,17 @@ def retry_prompt(prompt: str, reason: str, critique: str, layout: str = "") -> s
         "Do not paste the examples together. Do not copy the words in the examples. "
         "Show that instead. Fill the frame, subject large, no empty margin inside the image. "
         "No letters, no words, no logo, no frame, no border."
+    )
+
+
+def _font_failure_only(reason: str) -> bool:
+    """A missing font file is reported once. It does not spend an Ideogram retry."""
+    text = (reason or "").casefold()
+    if "brand font failed" not in text:
+        return False
+    return not any(
+        word in text
+        for word in ("blur", "painted", "letter", "card", "button", "headline", "jungle", "triangle", "contrast")
     )
 
 
@@ -725,6 +762,62 @@ def compose_poster_preview(
     return dest
 
 
+def photographic_picture_failure(
+    image_path: str,
+    brand_profile: dict[str, Any] | None,
+) -> dict[str, str] | None:
+    """Fail a blur or a painted card when this brand's imagery is photography."""
+    from creative_brief import brand_is_photographic
+    from ideogram_packet import _metrics
+    from image_luma import load_rgb_grid
+
+    if not brand_is_photographic(None, brand_profile):
+        name = str((brand_profile or {}).get("name") or "")
+        kit = {"siteName": name} if name else None
+        if not brand_is_photographic(kit, brand_profile):
+            return None
+    grid = load_rgb_grid(image_path, grid_w=48)
+    if not grid or not grid.get("pixels"):
+        return None
+    width = int(grid["w"])
+    height = int(grid["h"])
+    pixels = list(grid["pixels"])
+    stats = _metrics(pixels, width, height)
+    if _painted_card(pixels, width, height):
+        return {
+            "reason": "text painted into the image",
+            "critique": "Remove the UI card, the headline, and the button. Show one photograph of a home interior.",
+        }
+    if stats["edges"] < 0.03 and stats["busy"] < 0.22:
+        return {
+            "reason": "abstract blur",
+            "critique": "Replace the blur with one sharp photograph of a home interior.",
+        }
+    return None
+
+
+def _painted_card(pixels: list[tuple[int, int, int]], width: int, height: int) -> bool:
+    """A light rectangle sitting on the picture, the shape of a UI card."""
+    if width < 4 or height < 4:
+        return False
+    paper = [
+        index
+        for index, pixel in enumerate(pixels)
+        if 0.2126 * pixel[0] + 0.7152 * pixel[1] + 0.0722 * pixel[2] >= 226
+    ]
+    if len(paper) < 0.12 * width * height:
+        return False
+    xs = [index % width for index in paper]
+    ys = [index // width for index in paper]
+    box_w = max(xs) - min(xs) + 1
+    box_h = max(ys) - min(ys) + 1
+    if box_w < width * 0.18 or box_h < height * 0.18:
+        return False
+    if box_w > width * 0.92 and box_h > height * 0.92:
+        return False
+    return len(paper) / (box_w * box_h) > 0.72
+
+
 def _judge_one(
     image_path: str,
     refs: list[str],
@@ -766,6 +859,15 @@ def _judge_one(
             "passed": None,
             "reason": _truncate(f"Vision check failed ({exc})", 160),
             "critique": "",
+        }
+    photo = photographic_picture_failure(image_path, brand_profile)
+    if photo:
+        return {
+            "passed": False,
+            "reason": photo["reason"],
+            "critique": photo["critique"],
+            "suggestedTreatment": "photo-band",
+            "skipped": False,
         }
     if local and local.get("passed") is False:
         return {
@@ -819,6 +921,7 @@ def review_generated_picture(
     current_treatment = treatment or ""
     switched = False
     last: dict[str, Any] = {"passed": False, "reason": "The picture did not pass.", "critique": ""}
+    attempt = 1
     for attempt in range(1, MAX_IDEOGRAM_ATTEMPTS + 1):
         verdict = _judge_one(current_abs, refs, palette, brand_profile, llm_fn, region)
         last = verdict
@@ -853,6 +956,8 @@ def review_generated_picture(
         ):
             current_treatment = suggested
             switched = True
+        if _font_failure_only(str(verdict.get("reason") or "")):
+            break
         if attempt == MAX_IDEOGRAM_ATTEMPTS or regenerate is None:
             break
         try:
@@ -886,7 +991,7 @@ def review_generated_picture(
     return {
         "passed": False,
         "reason": last.get("reason") or "The picture did not pass.",
-        "attempts": MAX_IDEOGRAM_ATTEMPTS if regenerate is not None else 1,
+        "attempts": attempt,
         "retried": current_rel is not None,
         "skipped": False,
         "imagePath": current_rel,
