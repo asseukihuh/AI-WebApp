@@ -474,6 +474,22 @@ def cover_scale_percent(
     return max(canvas_width / img_width, canvas_height / img_height) * 100.0
 
 
+def region_cover_scale_percent(
+    img_width: int,
+    img_height: int,
+    region_width: float,
+    region_height: float,
+) -> float:
+    """Scale % of native pixels so the bitmap covers the picture well.
+
+    Contain (the shorter side) leaves a tiny inset. Native 100% leaves a small
+    file small. Cover enlarges or crops until both sides of the well are filled.
+    """
+    if img_width <= 0 or img_height <= 0 or region_width <= 0 or region_height <= 0:
+        return 100.0
+    return max(region_width / img_width, region_height / img_height) * 100.0
+
+
 def _logo_target_width(img_width: int) -> int:
     if img_width <= 0:
         return LOGO_TARGET_WIDTH
@@ -1245,14 +1261,17 @@ def compile_poster_batch(
             layer_name="Background" if ideogram_layers else "Hero image",
         )
         rx, ry, rw, rh = tpl.image_region
-        fitted = (rx, ry, rw, rh) != (0, 0, LINKEDIN_WIDTH, LINKEDIN_HEIGHT) and hero_width and hero_height
+        fitted = (rx, ry, rw, rh) != (0, 0, LINKEDIN_WIDTH, LINKEDIN_HEIGHT)
         if fitted:
-            scale = min(rw / hero_width, rh / hero_height)
+            # fit:true letterboxes into the canvas. Scale is % of native pixels,
+            # so a contain scale (or 100) leaves the Duolingo picture as a sticker.
+            known_w = hero_width or 1024
+            known_h = hero_height or 1024
             placement["cover"] = False
-            placement["fit"] = True
+            placement["fit"] = False
             placement["name"] = "Picture"
             placement["center"] = [round(rx + rw / 2, 1), round(ry + rh / 2, 1)]
-            placement["scale"] = round(scale * 100, 2)
+            placement["scale"] = round(region_cover_scale_percent(known_w, known_h, rw, rh), 2)
             picture_on_top = placement
         else:
             background_placements.append(placement)

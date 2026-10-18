@@ -360,8 +360,15 @@ class TestIdeogramPrompt(unittest.TestCase):
         elements = prompt["compositional_deconstruction"]["elements"]
         self.assertTrue(elements)
         self.assertTrue(all(e["type"] == "obj" for e in elements))
+        blob = json.dumps(prompt)
+        self.assertIn("Fill the frame, subject large, no empty margin inside the image.", blob)
+        self.assertNotIn("generous negative space", blob)
         for element in elements:
-            self.assertGreaterEqual(element["bbox"][1], 500)
+            x, y, x2, y2 = element["bbox"]
+            self.assertLessEqual(x, 80)
+            self.assertLessEqual(y, 80)
+            self.assertGreaterEqual(x2, 900)
+            self.assertGreaterEqual(y2, 900)
         self.assertEqual(prompt["style_description"]["color_palette"][0], "#533afd")
         self.assertIn("Chromatic Fluidity", prompt["style_description"]["aesthetics"])
         art_style = prompt["style_description"]["art_style"]

@@ -6,6 +6,12 @@ Project update tracking, changelog, and roadmap for `ai-webapp`.
 
 ## 📝 Recent Updates
 
+### 2026-10-18 - The picture fills its region
+
+- A picture-well bitmap is cover-scaled into that region. It is not left at native pixel size, and it is not letterboxed into a tiny inset.
+- Ideogram is told the well’s aspect, to fill the frame with a large subject and no empty margin, plus the brand palette and imagery style. The request uses the closest Ideogram 4 resolution. The prompt has no text.
+- The judge scores the composed poster, with brand screenshots or the logo when they exist. A small inset, an empty field, lettering, a missing subject, or off-brand colour fails. Up to two extra Ideogram calls follow (three total). A passing image is placed. If none pass, the last image is placed and the status says the judge failed.
+
 ### 2026-10-18 - A picture frame must call Ideogram
 
 - The HTTP call was nested under `heroStrategy == "ideogram_generate"` and a non-empty `heroImagePrompt`. A picture frame whose brief said solid, or whose prompt was empty, compiled the stand-in ellipse and returned immediately. No request reached Ideogram.

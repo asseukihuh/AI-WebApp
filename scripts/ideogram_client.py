@@ -251,31 +251,29 @@ def build_structured_prompt(
                 ],
             },
         }
-    tpl = get_template(template)
-    elements = [
-        {
-            "type": "obj",
-            "bbox": list(bbox),
-            "desc": f"{clean}; smooth, unmarked surfaces.",
-            **({"color_palette": colors[:5]} if colors else {}),
-        }
-        for bbox in tpl.ideogram_subject_bboxes
-    ]
+    well = picture_well_spec(template)
     return {
         "high_level_description": (
-            f"A clean, text-free marketing background image: {clean}. "
-            f"Composition: {tpl.ideogram_layout_note}."
+            f"Text-free picture, aspect {well['aspect']}. {clean}. "
+            f"{well['fill']} No lettering."
         ),
         "style_description": {
-            "aesthetics": f"{tone}, uncluttered, generous negative space",
-            "lighting": "soft diffused light, smooth tonal gradients",
+            "aesthetics": tone,
+            "lighting": "soft diffused light",
             "medium": "graphic design",
             "art_style": art_style,
             **({"color_palette": colors} if colors else {}),
         },
         "compositional_deconstruction": {
-            "background": f"{tpl.ideogram_background[0].upper()}{tpl.ideogram_background[1:]}.",
-            "elements": elements,
+            "background": f"{well['fill']} Edge-to-edge colour, no border, no letterbox, no lettering.",
+            "elements": [
+                {
+                    "type": "obj",
+                    "bbox": [40, 40, 960, 960],
+                    "desc": f"{clean}; subject large and filling the frame, no empty margin.",
+                    **({"color_palette": colors[:5]} if colors else {}),
+                }
+            ],
         },
     }
 
@@ -289,6 +287,30 @@ def _parse_resolution(resolution: str) -> tuple[int, int] | None:
     if not match:
         return None
     return int(match.group(1)), int(match.group(2))
+
+
+def picture_well_spec(template: str | None) -> dict[str, str | float]:
+    """Aspect and Ideogram 4 size for the picture well, not the whole poster."""
+    from poster_design import get_template
+
+    _x, _y, width, height = get_template(template).image_region
+    width = float(width or 1)
+    height = float(height or 1)
+    resolution = closest_ideogram_resolution(f"{max(1, int(round(width)))}x{max(1, int(round(height)))}")
+    ratio = width / height if height else 1.0
+    if abs(ratio - 1) <= 0.08:
+        aspect = "1:1"
+    elif ratio > 1:
+        aspect = f"{ratio:.2f}:1"
+    else:
+        aspect = f"1:{1 / ratio:.2f}"
+    return {
+        "width": width,
+        "height": height,
+        "aspect": aspect,
+        "resolution": resolution,
+        "fill": "Fill the frame, subject large, no empty margin inside the image.",
+    }
 
 
 def closest_ideogram_resolution(requested: str) -> str:

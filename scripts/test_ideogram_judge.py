@@ -18,15 +18,19 @@ SCRIPTS = os.path.dirname(os.path.abspath(__file__))
 if SCRIPTS not in sys.path:
     sys.path.insert(0, SCRIPTS)
 
+from ideogram_client import picture_well_spec  # noqa: E402
 from ideogram_judge import (  # noqa: E402
+    MAX_IDEOGRAM_ATTEMPTS,
     JUDGE_JSON_SCHEMA,
     acquire_poster_picture,
     fetch_picture_layer,
+    frame_fill_report,
     judge_real_png,
     poster_status_line,
     retry_prompt,
     review_generated_picture,
 )
+from poster_compiler import region_cover_scale_percent  # noqa: E402
 from poster_compiler import compile_poster_batch  # noqa: E402
 from render_poster_samples import write_png  # noqa: E402
 
@@ -160,13 +164,13 @@ class TestPictureJudge(unittest.TestCase):
         self.assertIsNone(result["imagePath"])
         self.assertEqual(calls, {"llm": 1, "regen": 0})
 
-    def test_fail_regenerates_once_with_the_critique(self) -> None:
-        seen = {}
+    def test_fail_regenerates_twice_then_places_the_last(self) -> None:
+        seen = {"calls": 0, "regen": 0}
 
         def llm(_path, refs, palette, note):
             seen["refs"] = refs
             seen["palette"] = palette
-            seen["calls"] = seen.get("calls", 0) + 1
+            seen["calls"] += 1
             return {
                 "passed": False,
                 "reason": "Flat empty disc, no subject.",
@@ -174,8 +178,9 @@ class TestPictureJudge(unittest.TestCase):
             }
 
         def regen(prompt):
+            seen["regen"] += 1
             seen["prompt"] = prompt
-            return "generated/assets/layer-ideogram-background-retry.png", b"png", {"source": "ideogram-4"}
+            return f"generated/assets/retry-{seen['regen']}.png", b"png", {"source": "ideogram-4"}
 
         with tempfile.TemporaryDirectory() as folder:
             picture = _fixture_png(folder)
@@ -190,12 +195,15 @@ class TestPictureJudge(unittest.TestCase):
             )
         self.assertFalse(result["passed"])
         self.assertTrue(result["retried"])
-        self.assertEqual(result["imagePath"], "generated/assets/layer-ideogram-background-retry.png")
+        self.assertEqual(result["attempts"], 3)
+        self.assertEqual(result["imagePath"], "generated/assets/retry-2.png")
         self.assertEqual(result["reason"], "Flat empty disc, no subject.")
-        self.assertEqual(seen["calls"], 1)
+        self.assertEqual(seen["calls"], 3)
+        self.assertEqual(seen["regen"], 2)
         self.assertEqual(len(seen["refs"]), 2)
         self.assertIn("green character", seen["prompt"])
         self.assertIn("Flat empty disc", seen["prompt"])
+        self.assertIn("Fill the frame", seen["prompt"])
         self.assertNotIn("circle", retry_prompt("scene", "disc", "show a character").casefold())
 
     @patch("ideogram_judge.resolve_llm_provider", return_value=None)
@@ -210,6 +218,118 @@ class TestPictureJudge(unittest.TestCase):
         self.assertIsNone(result["passed"])
         self.assertFalse(result["retried"])
         self.assertIn("no model key", result["reason"])
+
+
+def _save_rgb(path: str, width: int, height: int, color_at) -> str:
+    rows = []
+    for y in range(height):
+        row = bytearray()
+        for x in range(width):
+            row.extend(color_at(x, y))
+        rows.append(bytes(row))
+    write_png(path, width, height, rows)
+    return path
+
+
+class TestPictureFill(unittest.TestCase):
+    def test_worst_case_is_three_ideogram_calls(self) -> None:
+        self.assertEqual(MAX_IDEOGRAM_ATTEMPTS, 3)
+
+    def test_too_small_fixture_fails_and_a_full_frame_passes(self) -> None:
+        with tempfile.TemporaryDirectory() as folder:
+            small = _save_rgb(
+                os.path.join(folder, "small.png"),
+                80,
+                80,
+                lambda x, y: (88, 204, 2) if 36 <= x < 44 and 36 <= y < 44 else (255, 255, 255),
+            )
+            full = _save_rgb(
+                os.path.join(folder, "full.png"),
+                80,
+                80,
+                lambda x, y: (28, 176, 246) if y < 40 else (88, 204, 2),
+            )
+            inset = frame_fill_report(small)
+            filled = frame_fill_report(full)
+        self.assertIsNotNone(inset)
+        self.assertIsNotNone(filled)
+        self.assertFalse(inset["passed"])
+        self.assertIn("small inset", inset["reason"])
+        self.assertTrue(filled["passed"])
+
+    def test_tiny_image_is_not_returned_as_a_pass(self) -> None:
+        seen = {"regen": 0}
+
+        def llm(_path, _refs, _palette, _note):
+            return {"passed": True, "reason": "Looks fine.", "critique": ""}
+
+        with tempfile.TemporaryDirectory() as folder:
+            small = _save_rgb(
+                os.path.join(folder, "small.png"),
+                80,
+                80,
+                lambda x, y: (88, 204, 2) if 36 <= x < 44 and 36 <= y < 44 else (255, 255, 255),
+            )
+            full = _save_rgb(
+                os.path.join(folder, "full.png"),
+                80,
+                80,
+                lambda x, y: (28, 176, 246) if y < 40 else (88, 204, 2),
+            )
+
+            def regen(_prompt):
+                seen["regen"] += 1
+                return full, b"png", {}
+
+            result = review_generated_picture(
+                small,
+                "A text-free character.",
+                llm_fn=llm,
+                regenerate=regen,
+                region=(700, 104, 400, 400),
+                repo_root=folder,
+            )
+        self.assertTrue(result["passed"])
+        self.assertEqual(result["attempts"], 2)
+        self.assertEqual(result["imagePath"], full)
+        self.assertEqual(seen["regen"], 1)
+        self.assertNotEqual(result["imagePath"], small)
+
+    def test_circle_stage_scales_a_small_bitmap_up_to_the_well(self) -> None:
+        well = picture_well_spec("circle-stage")
+        self.assertEqual(well["resolution"], "1024x1024")
+        self.assertEqual(well["aspect"], "1:1")
+        self.assertIn("Fill the frame, subject large, no empty margin", str(well["fill"]))
+        batch = compile_poster_batch(
+            {"siteName": "Duolingo", "colors": ["#58cc02", "#1cb0f6", "#ffffff"]},
+            {"suggestedHeadline": "Learn a language in five minutes daily", "brief": {"facts": "Free lessons."}},
+            creative_brief=_circle_brief(),
+            hero_relative_path="generated/assets/duo-illustration.png",
+            hero_width=180,
+            hero_height=180,
+            hero_grid={"w": 2, "h": 2, "src_w": 180, "src_h": 180, "pixels": [(88, 204, 2)] * 4},
+            logo_relative_path="generated/assets/duo.png",
+            logo_variants={"original": "generated/assets/duo.png"},
+            logo_width=180,
+            logo_height=180,
+        )
+        picture = next(item for item in batch["placements"] if item.get("name") == "Picture")
+        self.assertFalse(picture["fit"])
+        scale = picture["scale"]
+        self.assertNotEqual(scale, 100)
+        self.assertEqual(scale, round(region_cover_scale_percent(180, 180, 400, 400), 2))
+        displayed = 180 * scale / 100
+        self.assertGreaterEqual(displayed, 399)
+        line = poster_status_line(
+            template="circle-stage",
+            ideogram_used=True,
+            error=None,
+            ideogram_ms=212,
+            judge={"passed": False, "reason": "The picture is a small inset on an empty field.", "attempts": 3},
+        )
+        self.assertIn("judge fail", line)
+        self.assertIn("small inset", line)
+        self.assertIn("3 attempts", line)
 
 
 PNG = b"\x89PNG\r\n\x1a\n" + b"\x00" * 24

@@ -345,10 +345,13 @@ async function generatePosterInPhotoCraft() {
                 : "";
         const frameNote = data.layoutTemplate ? ` Frame: ${data.layoutTemplate}.` : "";
         const snippetNote = data.promptSnippet ? ` Prompt: ${data.promptSnippet}` : "";
-        const judge = data.ideogramJudge
+        const judge = data.ideogramJudge;
+        const attemptNote = judge && judge.attempts
+            ? ` ${judge.attempts} attempt${judge.attempts === 1 ? "" : "s"}.`
+            : "";
         const judgeNote = judge
-            ? ` Judge: ${judge.passed === true ? "pass" : judge.passed === false ? "fail" : "skipped"}. ${judge.reason || ""}${judge.retried ? " Retry ran." : " No retry."}`
-            : ""
+            ? ` Judge: ${judge.passed === true ? "pass" : judge.passed === false ? "fail" : "skipped"}. ${judge.reason || ""}${attemptNote}`
+            : "";
         const errorNote = data.ideogramError || data.ideogramFallback
             ? ` ${data.ideogramError || data.ideogramFallback}`
             : ""
@@ -359,11 +362,12 @@ async function generatePosterInPhotoCraft() {
                 ? ` Ideogram: yes.${msNote}${frameNote}${snippetNote}${judgeNote}`
                 : ` Ideogram: no.${msNote}${frameNote}${errorNote}${strategyNote}`
         const pictureSkipped = !data.ideogramUsed && Boolean(data.ideogramError || data.ideogramFallback);
+        const judgeFailed = Boolean(judge && judge.passed === false);
         setPosterStatus(
             (data.userMessage || "Poster saved. Downloading and opening PhotoCraft…") +
                 heroNote +
                 fontNote,
-            { success: !pictureSkipped, error: pictureSkipped }
+            { success: !pictureSkipped && !judgeFailed, error: pictureSkipped || judgeFailed }
         );
 
         const docParam = data.openUrl || data.documentPath;

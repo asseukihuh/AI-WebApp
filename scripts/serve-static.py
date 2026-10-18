@@ -70,6 +70,7 @@ from poster_compiler import (  # noqa: E402
 )
 from poster_design import (  # noqa: E402
     brand_roles,
+    get_template,
     kit_hero_unsuitable,
     resolve_template_name,
 )
@@ -487,11 +488,14 @@ class CommMakerHandler(http.server.SimpleHTTPRequestHandler):
                     "brand_profile": brand_profile,
                 }
 
+                well = get_template(resolved_template).image_region
+                picture_resolution = f"{max(1, int(round(well[2])))}x{max(1, int(round(well[3])))}"
+
                 def _generate_picture(scene: str) -> tuple:
                     return generate_layer_image(
                         scene,
                         "background",
-                        "1200x627",
+                        picture_resolution,
                         assets_dir=ASSETS_DIR,
                         **ideogram_style,
                     )
@@ -527,10 +531,13 @@ class CommMakerHandler(http.server.SimpleHTTPRequestHandler):
                     if bg_meta.get("resolutionNote"):
                         hero_meta["resolutionNote"] = (
                             f"{bg_meta['resolutionNote']} "
-                            "Poster compiler cover-fills 1200×627."
+                            "Poster compiler cover-fills the picture region."
                         )
                     kit["heroImageUrl"] = f"/{hero_rel}"
                     picture_path = os.path.join(ROOT, hero_rel)
+                    logo_for_judge = self._maybe_cache_logo_variants(kit, asset_errors)
+                    logo_rel_for_judge = logo_for_judge.get("original")
+                    logo_abs = os.path.join(ROOT, logo_rel_for_judge) if logo_rel_for_judge else None
 
                     def _regenerate(revised: str) -> tuple:
                         nonlocal ideogram_ms
@@ -547,23 +554,30 @@ class CommMakerHandler(http.server.SimpleHTTPRequestHandler):
                         picture_bytes,
                         picture_path,
                         picture_prompt,
-                        reference_paths=picture_references(kit, ROOT),
+                        reference_paths=picture_references(kit, ROOT, logo_path=logo_abs),
                         palette=ideogram_style["palette"],
                         brand_profile=brand_profile,
                         regenerate=_regenerate,
+                        region=well,
+                        repo_root=ROOT,
                     )
                     if judge:
                         ideogram_judge = {
                             "passed": judge.get("passed"),
                             "reason": judge.get("reason") or "",
+                            "attempts": int(judge.get("attempts") or 1),
                             "retried": bool(judge.get("retried")),
                         }
-                        if judge.get("retried") and judge.get("imagePath"):
+                        if judge.get("imagePath"):
                             hero_rel = str(judge["imagePath"])
                             generated_assets[-1]["path"] = hero_rel
                             generated_assets[-1]["source"] = "ideogram-4-retry"
                             kit["heroImageUrl"] = f"/{hero_rel}"
                             hero_meta["retried"] = True
+                            picture_path = os.path.join(ROOT, hero_rel)
+                            if os.path.isfile(picture_path):
+                                with open(picture_path, "rb") as handle:
+                                    picture_bytes = handle.read()
                 elif acquired.get("called"):
                     asset_errors.append(
                         {
@@ -729,6 +743,7 @@ class CommMakerHandler(http.server.SimpleHTTPRequestHandler):
                 error=ideogram_fallback_message,
                 score=((batch.get("meta") or {}).get("designAudit") or {}).get("score"),
                 ideogram_ms=int(ideogram_ms),
+                judge=ideogram_judge,
             )
             sys.stderr.write(
                 "CommMaker poster: template=%s ideogramUsed=%s ideogramMs=%s ideogramError=%s\n"
