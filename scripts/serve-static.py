@@ -570,7 +570,7 @@ class CommMakerHandler(http.server.SimpleHTTPRequestHandler):
                         palette=ideogram_style["palette"],
                         brand_profile=brand_profile,
                         regenerate=_regenerate,
-                        region=(0, 0, 1200, 627) if poster_treatment != "photo-band" else (0, 0, 1200, 420),
+                        region=(0, 0, 1200, 627) if poster_treatment != "photo-band" else (0, 0, 1200, 340),
                         repo_root=ROOT,
                         treatment=poster_treatment,
                     )

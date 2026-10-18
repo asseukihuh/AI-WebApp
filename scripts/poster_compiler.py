@@ -1113,18 +1113,19 @@ def compile_poster_batch(
             logo_h = logo_w / aspect
         logo_size = (logo_w, logo_h)
 
-    def _plan(name: str) -> design.LayoutPlan:
-        return design.plan_layout(
-            name,
-            headline=headline,
-            subline=subline,
-            eyebrow=eyebrow,
-            cta=cta,
-            cta_style=cta_style,
-            headline_scale=headline_scale,
-            headline_weight=headline_weight,
-            logo_size=logo_size,
-        )
+    def _plan(name: str, **overrides) -> design.LayoutPlan:
+        kwargs = {
+            "headline": headline,
+            "subline": subline,
+            "eyebrow": eyebrow,
+            "cta": cta,
+            "cta_style": cta_style,
+            "headline_scale": headline_scale,
+            "headline_weight": headline_weight,
+            "logo_size": logo_size,
+        }
+        kwargs.update(overrides)
+        return design.plan_layout(name, **kwargs)
 
     identity_stops = design.identity_gradient_stops(brand_profile, roles)
     wants_gradient = any(
@@ -1174,7 +1175,16 @@ def compile_poster_batch(
     if full_sheet:
         plan = design.place_type_in_quiet_zone(plan, design.treatment_type_zone(treatment))
     elif photo_band:
-        plan = design.place_type_in_quiet_zone(plan, "lower")
+        # The picture occupies the top band. Type is planned into the band below it.
+        measure = design.span_w(8)
+        plan = _plan(
+            tpl.name,
+            box_x=(design.CANVAS_W - measure) / 2,
+            box_w=measure,
+            anchor="bottom",
+            align="center",
+            headline_scale="md",
+        )
     ground = _ground_color(tpl.name, energy, kit, roles)
     if ground and not full_sheet:
         identity_field = False

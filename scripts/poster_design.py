@@ -1022,7 +1022,7 @@ def logo_target_size(img_w: int | None, img_h: int | None) -> tuple[float, float
 TREATMENTS = ("full-sheet", "photo-band", "pattern-field", "illustration-cluster", "quiet-type")
 IMAGE_TREATMENTS = frozenset({"full-sheet", "photo-band", "pattern-field", "illustration-cluster"})
 # Photograph above a type band. Not a full-bleed sheet.
-PHOTO_BAND: Box = (0.0, 0.0, CANVAS_W, 420.0)
+PHOTO_BAND: Box = (0.0, 0.0, CANVAS_W, 340.0)
 
 
 def treatment_needs_image(treatment: str | None) -> bool:
@@ -1148,14 +1148,20 @@ def plan_layout(
     headline_scale: str | None = None,
     headline_weight: str | None = None,
     logo_size: tuple[float, float] | None = None,
+    box_x: float | None = None,
+    box_w: float | None = None,
+    anchor: str | None = None,
+    align: str | None = None,
 ) -> LayoutPlan:
     tpl = get_template(template_name)
-    plan = LayoutPlan(template=tpl.name, align=tpl.align)
+    plan = LayoutPlan(template=tpl.name, align=align or tpl.align)  # type: ignore[arg-type]
     scale = headline_scale if headline_scale in HEADLINE_SCALE else headline_scale_for(headline)
     weight_key = headline_weight if headline_weight in HEADLINE_WEIGHT else (
         "bold" if scale == "md" else "extrabold"
     )
-    box_x, box_w = tpl.text_x, tpl.text_w
+    box_x = tpl.text_x if box_x is None else box_x
+    box_w = tpl.text_w if box_w is None else box_w
+    anchor = anchor or tpl.anchor
 
     h_size, h_lines = fit_headline(headline, box_w, scale, tpl.max_headline_lines)
     s_lines = balance_lines(subline, SUBLINE_SIZE, box_w, BODY_EM) if subline else []
@@ -1191,7 +1197,7 @@ def plan_layout(
     bottom_limit = CANVAS_H - MARGIN_Y
     if tpl.surface == "card":
         bottom_limit -= CARD_PAD
-    if tpl.anchor == "bottom":
+    if anchor == "bottom":
         top = bottom_limit - total_h
     else:
         region_top = logo_bottom + 32 if logo_size else MARGIN_Y
@@ -1228,7 +1234,7 @@ def plan_layout(
         elif name == "cta":
             label_w = len(cta) * CTA_LABEL_SIZE * 0.56
             chip_w = round(label_w + 2 * CTA_PAD_X)
-            chip_x = box_x if tpl.align == "left" else CANVAS_W / 2 - chip_w / 2
+            chip_x = box_x if plan.align == "left" else CANVAS_W / 2 - chip_w / 2
             plan.elements["cta"] = {
                 "box": (round(chip_x, 1), round(y, 1), chip_w, CTA_HEIGHT),
                 "label": cta,
@@ -1246,7 +1252,7 @@ def plan_layout(
             plan.elements["cta"]["box"][2] if "cta" in plan.elements else 0.0,
         )
         content_w = min(box_w, content_w)
-        x0 = box_x if tpl.align == "left" else CANVAS_W / 2 - content_w / 2
+        x0 = box_x if plan.align == "left" else CANVAS_W / 2 - content_w / 2
         y0 = min(b[1] for b in text_boxes)
         y1 = max(b[1] + b[3] for b in text_boxes)
         plan.text_zone = (x0, y0, content_w, y1 - y0)
