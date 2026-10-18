@@ -20,6 +20,11 @@
         <form id="crisis-form" class="commmaker-card">
             <h2>Situation brief</h2>
             <div class="field">
+                <label for="poster-prompt">Poster prompt <span class="muted">(required)</span></label>
+                <textarea id="poster-prompt" name="posterPrompt" required placeholder="a sunlit kitchen, coral band, headline Stay somewhere new"></textarea>
+                <p class="muted">A short paragraph for the picture and the brief, the way other image generators take a prompt. The headline can be written inside it.</p>
+            </div>
+            <div class="field">
                 <label for="facts">Confirmed facts <span class="muted">(required)</span></label>
                 <textarea id="facts" name="facts" required placeholder="What happened, who is affected, what actions were taken…"></textarea>
             </div>

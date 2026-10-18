@@ -98,6 +98,8 @@ def prompt_with_packet(scene: str, packet: dict[str, Any] | None) -> str:
     """The generate prompt. A generic scene is not sent on its own."""
     packet = packet or {}
     imagery = " ".join(str(packet.get("imagery") or "").split())
+    if any(word in imagery.casefold() for word in ("ui card", "screenshot", "search button", "hero chrome", "webpage")):
+        imagery = ""
     swatches = palette_line(packet)
     scene = " ".join((scene or "").split())
     parts: list[str] = []

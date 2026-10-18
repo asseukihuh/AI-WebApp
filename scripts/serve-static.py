@@ -387,6 +387,7 @@ class CommMakerHandler(http.server.SimpleHTTPRequestHandler):
                 "crisisMessage": crisis_message,
                 "crisisFacts": crisis_facts if crisis_facts is not None else "",
                 "tone": body.get("tone"),
+                "posterPrompt": str(body.get("posterPrompt") or "").strip(),
             }
             if body.get("brief") and isinstance(body["brief"], dict):
                 brief_form = body["brief"]
@@ -443,7 +444,13 @@ class CommMakerHandler(http.server.SimpleHTTPRequestHandler):
                     "crisisMessage": str(session.get("suggestedHeadline") or "").strip(),
                     "crisisFacts": str((session.get("brief") or {}).get("facts") or ""),
                     "tone": (session.get("brief") or {}).get("tone"),
+                    "posterPrompt": str((session.get("brief") or {}).get("posterPrompt") or "").strip(),
                 }
+                if crisis_for_brief["posterPrompt"]:
+                    creative_brief = {
+                        **creative_brief,
+                        "posterPrompt": crisis_for_brief["posterPrompt"],
+                    }
                 creative_brief = coerce_ideogram_for_unsuitable_kit_hero(
                     creative_brief,
                     kit,

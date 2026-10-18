@@ -435,12 +435,10 @@ class TestPictureFill(unittest.TestCase):
                 regenerate=regen,
                 treatment="full-sheet",
             )
-        self.assertTrue(result["passed"])
+        self.assertFalse(result["passed"])
+        self.assertEqual(result["attempts"], 1)
+        self.assertEqual(seen, [])
         self.assertFalse(result["dropImage"])
-        self.assertEqual(result["treatment"], "quiet-type")
-        self.assertTrue(seen)
-        self.assertIn("Do not copy the words in the examples", seen[0])
-        self.assertIn("quiet-type", seen[0])
 
 
 PNG = b"\x89PNG\r\n\x1a\n" + b"\x00" * 24
@@ -510,7 +508,8 @@ class TestPictureFrameMustPost(unittest.TestCase):
         self.assertEqual(len(pictures), 1)
         self.assertEqual(pictures[0]["center"], [LINKEDIN_WIDTH / 2, LINKEDIN_HEIGHT / 2])
         self.assertNotIn("circle", invoked[0].casefold())
-        self.assertIn("illustration cluster", invoked[0].casefold())
+        self.assertIn("one flat character in these hex colours", invoked[0].casefold())
+        self.assertIn("illustration-cluster", invoked[0].casefold())
 
     def test_every_picture_frame_invokes_a_stubbed_client(self) -> None:
         kit, profile = _duo()
@@ -781,11 +780,9 @@ class TestAirbnbPicture(unittest.TestCase):
         )
         self.assertEqual(result["treatment"], "photo-band")
         prompt = seen["prompt"].casefold()
-        self.assertIn("home interior", prompt)
-        self.assertIn("no ui card", prompt)
-        self.assertIn("no headline", prompt)
-        self.assertIn("no button", prompt)
-        self.assertIn("abstract blur", prompt)
+        self.assertIn("one photograph of a sunlit home interior", prompt)
+        self.assertIn("no text, no logo, no buttons", prompt)
+        self.assertNotIn("visual language", prompt)
 
     def test_blur_and_painted_card_change_the_retry_prompt(self) -> None:
         profile = self._profile()

@@ -1670,6 +1670,17 @@ def _apply_logo_choice(kit: dict[str, Any], signals: dict[str, Any], profile: di
     return kit
 
 
+def _web_crop_path(path: str) -> str:
+    """A crop the brand page can show, rooted at ``/generated`` when that is where it lives."""
+    text = str(path or "").replace("\\", "/")
+    marker = "/generated/"
+    if marker in text:
+        return text[text.index(marker) :]
+    if text.startswith("generated/"):
+        return "/" + text
+    return text
+
+
 def _public_path(abs_path: str, repo_root: str | None) -> str:
     if not repo_root:
         return abs_path
@@ -1769,6 +1780,10 @@ def _attach_ideogram_packet(
             paths = pages
     else:
         paths = pages
+    from ideogram_packet import edit_source_kind
+
+    photos = [path for path in paths if edit_source_kind(path) == "photograph"]
+    paths = photos + [path for path in paths if path not in photos]
     packet = build_ideogram_packet(
         profile,
         kit,
@@ -1776,6 +1791,7 @@ def _attach_ideogram_packet(
         screenshots_skipped=skipped,
         out_dir=os.path.join(folder, "ideogram-refs"),
     )
+    packet["references"] = [_web_crop_path(path) for path in packet.get("references") or []]
     profile["ideogramPacket"] = packet
     kit["ideogramPacket"] = packet
     result["ideogramPacket"] = packet

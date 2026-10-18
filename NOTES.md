@@ -6,6 +6,13 @@ Project update tracking and changelog for CommMaker.
 
 ## 📝 Recent Updates
 
+### 2026-10-18 - A real poster prompt
+
+- The crisis form has a poster prompt: a short paragraph, not only a title. That text is the main instruction to the brief and to Ideogram. A headline written in it, such as “headline Stay somewhere new”, becomes the title and does not replace the paragraph.
+- The Ideogram prompt names the subject: a sunlit home interior for a photo brand, or one flat character in the brand hexes. It does not say only “in the brand’s visual language.” UI-card crops are not described as the picture.
+- The brand page shows the crops Claude kept before a poster is generated.
+- A missing font is still reported once. Ideogram retries only when the image has text, a blur, a UI collage, or the wrong subject.
+
 ### 2026-10-18 - Do not edit a webpage screenshot
 
 - Ideogram 4.5 treats the first `images` file as the picture to edit. A page or UI screenshot is not uploaded. Claude still reads those crops and the prompt asks for a text-free home photograph. A real photograph or a pattern with no UI text can still be sent.

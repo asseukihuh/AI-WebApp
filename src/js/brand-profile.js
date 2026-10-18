@@ -342,6 +342,22 @@ export function renderBrandProfile(container, result, { onChange } = {}) {
         chipEditor(profile.doNots, { label: "Don'ts", placeholder: "Add guardrail…", onChange: set("doNots"), max: 6 })
     );
 
+    const packet = result.ideogramPacket || profile.ideogramPacket || {};
+    const kept = Array.isArray(packet.references) ? packet.references.filter(Boolean) : [];
+    const cropsBlock = kept.length
+        ? el(
+              "div",
+              { class: "bp-crops" },
+              el("h3", { class: "bp-sub-label", text: "Examples Claude kept" }),
+              el("p", { class: "bp-muted", text: "These crops are what the poster prompt is written from. A webpage screenshot is not sent for Ideogram to edit." }),
+              el(
+                  "div",
+                  { class: "bp-shot-row" },
+                  kept.map((src, index) => el("img", { src, alt: `Crop ${index + 1}`, class: "bp-shot", loading: "lazy" }))
+              )
+          )
+        : null;
+
     const shots = result.capture?.screenshots || {};
     const shotsBlock = Object.keys(shots).length
         ? el(
@@ -374,6 +390,7 @@ export function renderBrandProfile(container, result, { onChange } = {}) {
         ),
         card("Business overview", "bp-overview", textField(profile.businessOverview, { label: "Business overview", multiline: true, onChange: set("businessOverview") })),
         el("div", { class: "bp-grid" }, imageryCard, layoutCard),
+        cropsBlock,
         shotsBlock
     );
 
