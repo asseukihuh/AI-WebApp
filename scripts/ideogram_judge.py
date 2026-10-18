@@ -25,6 +25,7 @@ from creative_brief import (
     resolve_llm_model,
     resolve_llm_provider,
 )
+from ideogram_client import describe_ideogram_failure
 from poster_design import template_needs_raster, template_skips_ideogram
 
 # Small on purpose: the generated PNG plus at most two brand references.
@@ -338,7 +339,7 @@ def acquire_poster_picture(
                 "brief": prepared,
                 "prompt": prompt,
                 "ideogramMs": int((time.perf_counter() - t0) * 1000),
-                "ideogramError": f"Ideogram failed: {type(exc).__name__}: {exc}",
+                "ideogramError": describe_ideogram_failure(exc),
                 "called": True,
             }
         )
@@ -387,7 +388,7 @@ def fetch_picture_layer(prompt: str, *, key_set: bool, generate: Callable[..., t
     except Exception as exc:  # noqa: BLE001 — the poster must report the failure, not hide it
         return {
             "path": None,
-            "error": f"Ideogram failed: {type(exc).__name__}: {exc}",
+            "error": describe_ideogram_failure(exc),
             "keyMissing": False,
         }
     if not data:

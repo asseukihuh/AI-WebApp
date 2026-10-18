@@ -112,6 +112,83 @@ def ideogram_api_key() -> str:
     return (os.environ.get("IDEOGRAM_API_KEY") or "").strip()
 
 
+def ideogram_auth_headers(api_key: str, *, content_type: str = "application/json") -> dict[str, str]:
+    """Headers for Ideogram v2. The key goes in ``Api-Key``, not ``Authorization``.
+
+    urllib stores the name as ``Api-key`` and then title-cases it on the wire,
+    so the request Ideogram receives is ``Api-Key``.
+    """
+    return {"Api-Key": api_key, "Content-Type": content_type}
+
+
+def _message_from_payload(payload: object) -> str:
+    if isinstance(payload, str):
+        return payload.strip()
+    if not isinstance(payload, dict):
+        return ""
+    chunks: list[str] = []
+    for key in ("error", "message", "detail", "reject_reason"):
+        value = payload.get(key)
+        if isinstance(value, dict):
+            nested = _message_from_payload(value)
+            if nested:
+                chunks.append(nested)
+        elif value not in (None, "", [], {}):
+            chunks.append(str(value).strip())
+    seen: list[str] = []
+    for chunk in chunks:
+        if chunk and chunk not in seen:
+            seen.append(chunk)
+    if seen:
+        return " — ".join(seen)
+    return json.dumps(payload, ensure_ascii=False)
+
+
+def http_error_message(exc: urllib.error.HTTPError) -> str:
+    """Status plus Ideogram's JSON message. urllib's own text is only the reason phrase."""
+    raw: bytes | str = b""
+    try:
+        raw = exc.read() or b""
+    except Exception:  # noqa: BLE001 — a missing body still reports the status
+        raw = b""
+    text = raw.decode("utf-8", errors="replace") if isinstance(raw, bytes) else str(raw)
+    text = text.strip()
+    message = text
+    if text:
+        try:
+            payload = json.loads(text)
+        except json.JSONDecodeError:
+            payload = None
+        if payload is not None:
+            message = _message_from_payload(payload) or text
+    message = " ".join(message.split())
+    if len(message) > 360:
+        message = message[:359].rstrip() + "…"
+    status = f"HTTP {getattr(exc, 'code', '')}".strip()
+    if message:
+        return f"{status}: {message}"
+    reason = " ".join(str(getattr(exc, "reason", "") or "").split())
+    return f"{status}: {reason}" if reason else status
+
+
+def describe_ideogram_failure(exc: BaseException) -> str:
+    """Text for ``ideogramError``. HTTP failures include Ideogram's response body."""
+    if isinstance(exc, urllib.error.HTTPError):
+        return f"Ideogram failed: {http_error_message(exc)}"
+    text = " ".join(str(exc).split())
+    if text.startswith("HTTP "):
+        return f"Ideogram failed: {text}"
+    return f"Ideogram failed: {type(exc).__name__}: {text}"
+
+
+def _open_ideogram(req: urllib.request.Request) -> dict:
+    try:
+        with urllib.request.urlopen(req, timeout=IDEOGRAM_TIMEOUT_SEC) as resp:
+            return json.loads(resp.read().decode("utf-8"))
+    except urllib.error.HTTPError as exc:
+        raise ValueError(http_error_message(exc)) from exc
+
+
 def accent_cutout_enabled() -> bool:
     raw = (os.environ.get("COMMMAKER_IDEOGRAM_ACCENT_CUTOUT") or "true").strip().lower()
     return raw not in ("0", "false", "no", "off")
@@ -380,14 +457,10 @@ def _call_generate_api(
     req = urllib.request.Request(
         IDEOGRAM_GENERATE_URL,
         data=json.dumps(body).encode("utf-8"),
-        headers={
-            "Api-Key": api_key,
-            "Content-Type": "application/json",
-        },
+        headers=ideogram_auth_headers(api_key),
         method="POST",
     )
-    with urllib.request.urlopen(req, timeout=IDEOGRAM_TIMEOUT_SEC) as resp:
-        return json.loads(resp.read().decode("utf-8"))
+    return _open_ideogram(req)
 
 
 def _encode_multipart_image(
@@ -444,14 +517,10 @@ def remove_background(
     req = urllib.request.Request(
         IDEOGRAM_REMOVE_BG_URL,
         data=body,
-        headers={
-            "Api-Key": key,
-            "Content-Type": content_type,
-        },
+        headers=ideogram_auth_headers(key, content_type=content_type),
         method="POST",
     )
-    with urllib.request.urlopen(req, timeout=IDEOGRAM_TIMEOUT_SEC) as resp:
-        payload = json.loads(resp.read().decode("utf-8"))
+    payload = _open_ideogram(req)
     if payload.get("error"):
         raise ValueError(str(payload.get("error")))
     data = payload.get("data") or []

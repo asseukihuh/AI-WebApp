@@ -6,6 +6,11 @@ Project update tracking, changelog, and roadmap for `ai-webapp`.
 
 ## 📝 Recent Updates
 
+### 2026-10-18 - Ideogram 401 includes the response body
+
+- Generate still sends `Api-Key` (Ideogram v2). urllib title-cases it to `Api-Key` on the wire. It does not send `Authorization: Bearer`.
+- A rejected POST puts Ideogram’s JSON message in `ideogramError`, not only `HTTP Error 401: Unauthorized`.
+
 ### 2026-10-18 - A picture frame must call Ideogram
 
 - The HTTP call was nested under `heroStrategy == "ideogram_generate"` and a non-empty `heroImagePrompt`. A picture frame whose brief said solid, or whose prompt was empty, compiled the stand-in ellipse and returned immediately. No request reached Ideogram.
