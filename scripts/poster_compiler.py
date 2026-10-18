@@ -921,28 +921,57 @@ def _pick_text_and_scrim(
     return dark if dark[1] + 0.25 < white[1] else white
 
 
+def _field_contrast_color(samples: list[design.RGB], roles: design.BrandRoles) -> str:
+    """White or brand ink from the pixels behind the type.
+
+    White when ink misses 4.5:1, including a light or mid field. Brand ink only when
+    ink clears 4.5:1 against that field and beats white.
+    """
+    ink = roles.dark if design.contrast_ratio(design.hex_to_rgb(roles.dark), (255, 255, 255)) >= 12 else design.INK
+    white_ratio = design.min_contrast(design.hex_to_rgb(design.WHITE), samples)
+    ink_ratio = design.min_contrast(design.hex_to_rgb(ink), samples)
+    if ink_ratio >= design.TEXT_CONTRAST_MIN and ink_ratio >= white_ratio:
+        return ink
+    if white_ratio >= ink_ratio:
+        return design.WHITE
+    return ink
+
+
 def _pick_logo_variant(
     available: dict[str, str],
     colors: dict[str, str],
     samples: list[design.RGB],
     preference: str | None,
 ) -> tuple[str, float]:
-    order = ["original", "light", "dark"]
-    if preference == "wordmark-white" or preference == "symbol-only":
-        order = ["light", "original", "dark"]
-    elif preference == "wordmark-dark":
-        order = ["dark", "original", "light"]
-    scored = []
-    for name in order:
-        if name not in available:
+    """Logo colour from the field behind the mark, not the SVG's original black.
+
+    ``preference`` (wordmark-dark / wordmark-white) does not keep a variant that misses 4.5:1.
+    """
+    del preference
+    scored: list[tuple[str, float]] = []
+    for name in ("light", "dark", "original"):
+        if name not in available or name not in colors:
             continue
         ratio = design.min_contrast(design.hex_to_rgb(colors[name]), samples)
         scored.append((name, ratio))
-        if ratio >= design.GRAPHIC_CONTRAST_MIN:
-            return name, ratio
     if not scored:
         return "original", 0.0
-    return max(scored, key=lambda item: item[1])
+    passing = [item for item in scored if item[1] >= design.TEXT_CONTRAST_MIN]
+    light = next((item for item in scored if item[0] == "light"), None)
+    dark = next((item for item in scored if item[0] == "dark"), None)
+    if passing:
+        light_ok = light if light and light[1] >= design.TEXT_CONTRAST_MIN else None
+        dark_ok = dark if dark and dark[1] >= design.TEXT_CONTRAST_MIN else None
+        if light_ok and dark_ok:
+            return light_ok if light_ok[1] >= dark_ok[1] else dark_ok
+        if light_ok:
+            return light_ok
+        if dark_ok:
+            return dark_ok
+        return max(passing, key=lambda item: item[1])
+    # Neither white nor ink clears. Keep the stronger of those two, not the source black.
+    usable = [item for item in (light, dark) if item] or scored
+    return max(usable, key=lambda item: item[1])
 
 
 def _cta_colors(
@@ -1263,6 +1292,19 @@ def compile_poster_batch(
             scrim_rgb = design.hex_to_rgb(scrim_color)
             text_samples = [design.blend(s, scrim_rgb, scrim_alpha) for s in raw_samples]
 
+    if photo_band:
+        # The type sits on the colour band, so the band — not the photo — picks the ink.
+        band_rgb = design.hex_to_rgb(roles.brand)
+        text_samples = [band_rgb]
+        text_color = _field_contrast_color(text_samples, roles)
+        scrim_alpha = 0.0
+    elif design.min_contrast(design.hex_to_rgb(text_color), text_samples) < design.TEXT_CONTRAST_MIN:
+        alt = _field_contrast_color(text_samples, roles)
+        if design.min_contrast(design.hex_to_rgb(alt), text_samples) >= design.min_contrast(
+            design.hex_to_rgb(text_color), text_samples
+        ):
+            text_color = alt
+
     steps: list[dict[str, Any]] = []
     background_placements: list[dict[str, Any]] = []
 
@@ -1397,12 +1439,6 @@ def compile_poster_batch(
             }
         )
 
-    if photo_band:
-        band_rgb = design.hex_to_rgb(roles.brand)
-        if design.contrast_ratio(design.hex_to_rgb(design.WHITE), band_rgb) >= 2.8:
-            text_color = design.WHITE
-            text_samples = [band_rgb]
-            scrim_alpha = 0.0
     if photo_band and "cta" in plan.elements:
         _x, y, width, height = plan.elements["cta"]["box"]
         plan.elements["cta"]["box"] = (
@@ -1494,15 +1530,15 @@ def compile_poster_batch(
             preference = "wordmark-white"
         logo_variant, logo_ratio = _pick_logo_variant(logo_paths, variant_colors, logo_samples, preference)
         logo_on_dark = logo_variant == "light" or (
-            logo_ratio < design.GRAPHIC_CONTRAST_MIN
+            logo_ratio < design.TEXT_CONTRAST_MIN
             and design.min_contrast((255, 255, 255), logo_samples)
             >= design.min_contrast(design.hex_to_rgb(original), logo_samples)
         )
-        if logo_ratio < design.GRAPHIC_CONTRAST_MIN:
+        if logo_ratio < design.TEXT_CONTRAST_MIN:
             light_rgb = design.hex_to_rgb(design.WHITE if "light" in logo_paths else variant_colors[logo_variant])
             alpha = design.required_scrim_alpha(
                 design.worst_samples(logo_samples, for_light_text=True),
-                design.hex_to_rgb(roles.dark), light_rgb, target=design.GRAPHIC_CONTRAST_MIN,
+                design.hex_to_rgb(roles.dark), light_rgb, target=design.TEXT_CONTRAST_MIN,
             ) or design.SCRIM_MAX_ALPHA
             geometry = _scrim_geometry("radial", (lx, ly, lw, lh), alpha)
             if geometry:
@@ -1593,6 +1629,8 @@ def compile_poster_batch(
         headline_size=float(headline_box.get("size") or 0),
         subline_size=float(subline_box.get("size") or 0),
         headline=str(headline_box.get("text") or headline),
+        headline_contrast=contrast.get("headline"),
+        logo_contrast=contrast.get("logo"),
     )
     audit = design.audit_plan(
         plan,

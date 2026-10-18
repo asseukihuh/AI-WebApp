@@ -31,9 +31,9 @@ def ideogram_conditioning() -> dict[str, str | bool]:
         "remixKeepsSourceText": True,
         "mode": "vision-prompt",
         "note": (
-            "Ideogram 4 generate has no image reference. Remix would keep page text, so it is not "
-            "used. Website screenshots are vision input when the brief model writes the prompt; "
-            "the generate call sends that text-free prompt and the brand palette."
+            "Ideogram 4 generate has no image reference field and no style-reference field. "
+            "No reference image is sent. Remix is not used, because remix keeps text from the source. "
+            "Palette hexes and the one-line imagery description go in the text prompt."
         ),
     }
 IDEOGRAM_REMOVE_BG_URL = "https://api.ideogram.ai/v2/image/remove-background/ideogram-1"
@@ -205,6 +205,7 @@ def build_structured_prompt(
     mood: str | None = None,
     brand_profile: dict | None = None,
     treatment: str | None = None,
+    brand_packet: dict | None = None,
 ) -> dict:
     """Ideogram 4 JSON caption: zero ``text`` elements, subject boxes away from the text zone.
 
@@ -214,10 +215,31 @@ def build_structured_prompt(
     from poster_design import get_template, normalize_hex, profile_palette_list
 
     profile = brand_profile or {}
+    packet = brand_packet if isinstance(brand_packet, dict) else profile.get("ideogramPacket")
+    packet = packet if isinstance(packet, dict) else {}
     clean = sanitize_scene_description(scene, brand_terms) or "abstract flowing brand-colored shapes"
+    from ideogram_packet import palette_line as _packet_palette
+    from ideogram_packet import scene_is_generic
+
+    described = sanitize_scene_description(str(packet.get("imagery") or ""), brand_terms)
+    if described and described.casefold() not in clean.casefold():
+        clean = described if scene_is_generic(clean) else f"{described}. {clean}"
+    role_line = _packet_palette(packet)
+
+    def _with_palette(text: str) -> str:
+        if role_line and "palette:" not in text.casefold():
+            return f"{text.rstrip()} Palette: {role_line}."
+        return text
     profile_colors = profile_palette_list(profile)
-    merged = profile_colors + [c for c in (palette or []) if normalize_hex(c) not in profile_colors]
-    colors = [normalize_hex(c) for c in merged if normalize_hex(c)][:8]
+    packet_hexes = [normalize_hex(str(item.get("hex") or "")) for item in packet.get("palette") or [] if isinstance(item, dict)]
+    packet_hexes = [c for c in packet_hexes if c]
+    merged = packet_hexes + profile_colors + [c for c in (palette or []) if normalize_hex(c) not in profile_colors]
+    colors = []
+    for raw in merged:
+        hex6 = normalize_hex(raw)
+        if hex6 and hex6 not in colors:
+            colors.append(hex6)
+    colors = colors[:8]
     aesthetic = profile.get("aesthetic")
     if isinstance(aesthetic, list) and aesthetic:
         mood = ", ".join(str(a) for a in aesthetic[:4]) + (f", {mood}" if mood else "")
@@ -230,7 +252,7 @@ def build_structured_prompt(
     )
     if role == "accent":
         return {
-            "high_level_description": (
+            "high_level_description": _with_palette(
                 f"A single isolated object: {clean}, centred on a plain seamless light studio backdrop."
             ),
             "style_description": {
@@ -256,7 +278,7 @@ def build_structured_prompt(
     # Subject stays on the sheet, clear of a corner, and leaves the quiet type area open.
     subject_box = [80, 40, 920, 680] if sheet["zone"] == "lower" else [120, 80, 880, 920]
     return {
-        "high_level_description": (
+        "high_level_description": _with_palette(
             f"Text-free {sheet['treatment'].replace('-', ' ')}, aspect {sheet['aspect']}. {clean}. "
             f"{sheet['fill']} {sheet['quiet']} No lettering."
         ),
@@ -560,6 +582,7 @@ def generate_layer_image(
     mood: str | None = None,
     brand_profile: dict | None = None,
     treatment: str | None = None,
+    brand_packet: dict | None = None,
 ) -> tuple[str, bytes, dict]:
     """
     Generate a raster layer via Ideogram 4.0 and cache under ``assets_dir``.
@@ -586,6 +609,7 @@ def generate_layer_image(
         mood=mood,
         brand_profile=brand_profile,
         treatment=treatment,
+        brand_packet=brand_packet,
     )
     prompt = structured_prompt_text(structured)
     magic_prompt = resolve_magic_prompt()

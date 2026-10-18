@@ -6,6 +6,17 @@ Project update tracking, changelog, and roadmap for `ai-webapp`.
 
 ## 📝 Recent Updates
 
+### 2026-10-18 - Website and social images feed the Ideogram prompt
+
+- The brand pass stores a small packet: palette hexes with roles, one imagery line written from the site screenshots and public social images, and up to two reference files that are not page text.
+- Ideogram 4 generate (`POST /v2/image/generate/ideogram-4`) has no image or style-reference field. A reference image is not sent. Remix is not called. The hexes and the imagery line are in the text prompt. The judge compares the poster to that same palette and those reference files.
+- When Playwright is missing, the status line says screenshots were skipped, so Ideogram only received colours.
+
+### 2026-10-18 - Logo and headline colour follow the field
+
+- The wordmark and the headline take white or brand ink from the pixels behind them. The SVG’s original black does not win when it misses 4.5:1. A light or mid field uses white. Brand ink is used only when that field lets ink clear 4.5:1. A colour band uses white or the band’s contrast colour, whichever clears 4.5:1.
+- The judge fails logo or headline contrast under 4.5:1.
+
 ### 2026-10-18 - Display type on every treatment
 
 - Headlines use the brand display face when that font is installed, otherwise Noto Sans Display. System fonts are not used.

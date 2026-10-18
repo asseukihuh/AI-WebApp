@@ -882,7 +882,15 @@ def resolve_display_fonts(
     return {"headline": headline, "body": body}
 
 
-def type_quality(*, font: str, headline_size: float, subline_size: float, headline: str) -> dict[str, Any]:
+def type_quality(
+    *,
+    font: str,
+    headline_size: float,
+    subline_size: float,
+    headline: str,
+    headline_contrast: float | None = None,
+    logo_contrast: float | None = None,
+) -> dict[str, Any]:
     """Deterministic type bar. The picture judge uses the same failures."""
     failures: list[str] = []
     if not usable_display_font(font):
@@ -894,6 +902,10 @@ def type_quality(*, font: str, headline_size: float, subline_size: float, headli
     words = [w for w in (headline or "").replace("\n", " ").split() if w]
     if len(words) > 8:
         failures.append("more than 8 words in the headline")
+    if headline_contrast is not None and headline_contrast < TEXT_CONTRAST_MIN:
+        failures.append("headline contrast under 4.5:1")
+    if logo_contrast is not None and logo_contrast < TEXT_CONTRAST_MIN:
+        failures.append("logo contrast under 4.5:1")
     return {"passed": not failures, "reason": "; ".join(failures)}
 
 
@@ -1501,7 +1513,11 @@ def audit_plan(
         add("cta", "cta" in els, "CTA chip present" if "cta" in els else "no CTA")
 
     if contrast:
-        low = {k: round(v, 2) for k, v in contrast.items() if v < (GRAPHIC_CONTRAST_MIN if k in ("logo", "ctaChip") else TEXT_CONTRAST_MIN)}
+        low = {
+            k: round(v, 2)
+            for k, v in contrast.items()
+            if v < (GRAPHIC_CONTRAST_MIN if k == "ctaChip" else TEXT_CONTRAST_MIN)
+        }
         add("contrast", not low, f"min ratios {({k: round(v, 2) for k, v in contrast.items()})}", 3)
 
     if scrim_alpha is not None:

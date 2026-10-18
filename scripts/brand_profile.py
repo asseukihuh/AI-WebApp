@@ -996,7 +996,7 @@ SIGNALS are ground truth for exact values. Your job is to judge what actually de
 - aesthetic: 4–6 specific visual-language tags (2–3 words, Title Case) describing what you SEE — shapes, layering, motion, gradients, texture, grid — e.g. "Chromatic Fluidity", "Modular Layering", "Kinetic Geometry", "Isomorphic Planes". No generic adjectives like "Modern" or "Clean".
 - toneOfVoice: 3–5 single words. brandValues: 3–5 short phrases. keywords: 5–10 business keywords.
 - tagline: the brand's own primary line (hero headline or meta), ≤ 90 characters, in the site's language. businessOverview: 2–3 factual sentences.
-- imageryStyle: primaryMedium + secondaryMedia (from {", ".join(IMAGERY_MEDIA)}), motifs (3–6 concrete visual motifs), colorTreatment, avoid (things never seen in their imagery). ideogramPrompt: ≤ 60 words, reusable text-free background art direction for marketing posters in this brand's visual language (reference palette hexes; no text, no logos, no UI screenshots, no people unless the brand uses them).
+- imageryStyle: primaryMedium + secondaryMedia (from {", ".join(IMAGERY_MEDIA)}), motifs (3–6 concrete visual motifs), colorTreatment, avoid (things never seen in their imagery). ideogramPrompt: one line written from the site screenshots and any public social images, ≤ 60 words, text-free art direction (palette hexes, motifs, lighting; no page text, no logos, no UI, no people unless the brand uses them).
 - layoutTraits: density, cornerRadius (CTA radius px is in layout), whitespace, composition (one sentence).
 - doNots: 3–6 brand guardrails inferred from the site.
 - visualSummary: one sentence on how the site looks.
@@ -1576,6 +1576,51 @@ def _public_path(abs_path: str, repo_root: str | None) -> str:
     return "/" + rel
 
 
+def _screenshots_skipped(capture: dict[str, Any] | None, social: dict[str, Any] | None = None) -> bool:
+    """True when Playwright did not run, so Ideogram cannot be shown the site."""
+    reason = f"{(capture or {}).get('reason') or ''} {(social or {}).get('reason') or ''}"
+    if "playwright" in reason.casefold():
+        return True
+    if (capture or {}).get("available") or (social or {}).get("available"):
+        return False
+    ok, _why = playwright_available()
+    return not ok
+
+
+def _attach_ideogram_packet(
+    result: dict[str, Any],
+    profile: dict[str, Any],
+    kit: dict[str, Any],
+    capture: dict[str, Any] | None,
+    folder: str,
+    social: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    from ideogram_packet import build_ideogram_packet
+
+    paths: list[str] = []
+    for value in ((capture or {}).get("screenshots") or {}).values():
+        if value and value not in paths:
+            paths.append(value)
+    for visit in (social or {}).get("visits") or []:
+        shot = visit.get("screenshot") if isinstance(visit, dict) else ""
+        if shot and shot not in paths:
+            paths.append(shot)
+    skipped = _screenshots_skipped(capture, social)
+    packet = build_ideogram_packet(
+        profile,
+        kit,
+        image_paths=[] if skipped else paths,
+        screenshots_skipped=skipped,
+        out_dir=os.path.join(folder, "ideogram-refs"),
+    )
+    profile["ideogramPacket"] = packet
+    kit["ideogramPacket"] = packet
+    result["ideogramPacket"] = packet
+    if packet.get("statusLine"):
+        result["statusLine"] = packet["statusLine"]
+    return packet
+
+
 def analyze_brand(
     url: str,
     *,
@@ -1657,6 +1702,7 @@ def analyze_brand(
         "rendered": bool(capture.get("available")),
     }
     kit = _apply_logo_choice(kit, signals, profile)
+    _attach_ideogram_packet(result, profile, kit, capture, folder)
     kit["brandProfile"] = profile
     result["brandProfile"] = profile
     result["kit"] = kit
@@ -1867,6 +1913,7 @@ def analyze_brand_bundle(
         "cached": False,
         "cacheTtlSec": KIT_TTL,
     }
+    _attach_ideogram_packet(result, profile, kit_out, capture, folder, social=social)
     _write_cache(
         url,
         cache_dir,

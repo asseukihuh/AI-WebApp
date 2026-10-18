@@ -74,7 +74,9 @@ Fail when any of these are true:
 - It is a huge empty field with a tiny subject.
 - It contains letters, words, numbers, or a painted logo.
 - The colours are not the brand palette.
-- The type is weak: a system font, a headline under 54px, a subline too close to the headline size, low contrast, or a headline of more than 8 words.
+- The type is weak: a system font, a headline under 54px, a subline too close to the headline size, or a headline of more than 8 words.
+- The logo or the headline contrast against the pixels behind it is under 4.5:1.
+- The colours or the imagery do not match the brand palette and the reference images.
 
 Quality bar: Linearity business posters (https://www.linearity.io/templates/business-templates/posters/): one composition across the whole sheet, in the brand's own colours and imagery. A full-bleed photograph with room for type, a pattern that fills the sheet, a graphic field with a type band, or an illustration with room for type in the middle. Not a text column beside a picture box.
 
@@ -82,21 +84,24 @@ reason: one sentence. critique: if it failed, what was wrong and what to show in
 """
 
 
-def picture_references(kit: dict[str, Any] | None, repo_root: str, *, logo_path: str | None = None) -> list[str]:
-    """Up to two existing brand images: a site screenshot, then the scraped logo if it is a raster."""
-    kit = kit or {}
+def picture_references(
+    kit: dict[str, Any] | None,
+    repo_root: str,
+    *,
+    logo_path: str | None = None,
+    packet: dict[str, Any] | None = None,
+) -> list[str]:
+    """Up to two clean reference files from the brand packet. Page screenshots are not passed."""
+    del logo_path
+    packet = packet or ((kit or {}).get("ideogramPacket") if isinstance(kit, dict) else None) or {}
     found: list[str] = []
-    shots = kit.get("screenshotPaths") if isinstance(kit.get("screenshotPaths"), dict) else {}
-    for key in ("desktopFold", "mobileFold", "desktopFull"):
-        rel = str((shots or {}).get(key) or "")
-        if not rel:
+    for rel in packet.get("references") or []:
+        text = str(rel or "")
+        if not text:
             continue
-        path = rel if os.path.isabs(rel) else os.path.join(repo_root, rel.lstrip("/"))
+        path = text if os.path.isabs(text) else os.path.join(repo_root, text.lstrip("/"))
         if os.path.isfile(path):
             found.append(path)
-            break
-    if logo_path and os.path.isfile(logo_path) and not logo_path.lower().endswith(".svg"):
-        found.append(logo_path)
     return found[:JUDGE_MAX_REFERENCES]
 
 
@@ -132,10 +137,18 @@ def _load_image(path: str) -> tuple[str, str] | None:
 def _user_text(palette: list[str] | None, imagery_note: str) -> str:
     colours = ", ".join(str(c) for c in (palette or []) if c) or "not listed"
     note = (imagery_note or "").strip() or "not described"
-    return f"{_RUBRIC}\nBrand palette: {colours}.\nImagery style: {_truncate(note, 240)}"
+    return (
+        f"{_RUBRIC}\n"
+        "Compare image 1 to this palette and to the reference images. "
+        "Fail when the colours or the imagery do not match.\n"
+        f"Brand palette: {colours}.\nImagery: {_truncate(note, 240)}"
+    )
 
 
 def _imagery_note(brand_profile: dict[str, Any] | None) -> str:
+    packet = (brand_profile or {}).get("ideogramPacket") if isinstance(brand_profile, dict) else None
+    if isinstance(packet, dict) and str(packet.get("imagery") or "").strip():
+        return str(packet.get("imagery") or "")
     style = (brand_profile or {}).get("imageryStyle") if isinstance(brand_profile, dict) else None
     if isinstance(style, dict):
         return str(style.get("ideogramPrompt") or style.get("colorTreatment") or "")
@@ -263,6 +276,7 @@ def poster_status_line(
     ideogram_ms: int | None = None,
     judge: dict[str, Any] | None = None,
     treatment: str | None = None,
+    screenshots_skipped: bool = False,
 ) -> str:
     """Crisis status. A skip names the reason and shows 0 ms, so it cannot look like a hit."""
     parts: list[str] = []
@@ -270,6 +284,10 @@ def poster_status_line(
         parts.append(treatment)
     if template:
         parts.append(template)
+    if screenshots_skipped:
+        from ideogram_packet import SCREENSHOTS_SKIPPED_STATUS
+
+        parts.append(SCREENSHOTS_SKIPPED_STATUS)
     if error:
         parts.append(error)
     elif ideogram_used:
@@ -333,6 +351,14 @@ def _picture_prompt(
             )
     except Exception:  # noqa: BLE001 — the scene prompt still POSTs
         prompt = f"{prompt}. Match the brand's colours and imagery. No lettering."
+    from ideogram_packet import packet_for_poster, prompt_with_packet
+
+    packet = packet_for_poster(kit, brand_profile)
+    if isinstance(kit, dict):
+        kit["ideogramPacket"] = packet
+    if isinstance(brand_profile, dict):
+        brand_profile["ideogramPacket"] = packet
+    prompt = prompt_with_packet(prompt, packet)
     return " ".join(prompt.split())
 
 
@@ -389,7 +415,14 @@ def acquire_poster_picture(
         return result
 
     prepared = prepare_picture_brief(prepared, kit, brand_profile, key_set=True)
-    prompt = _picture_prompt(prepared, kit, brand_profile, template)
+    try:
+        prompt = _picture_prompt(prepared, kit, brand_profile, template)
+    except ValueError as exc:
+        result["brief"] = prepared
+        result["ideogramError"] = str(exc)
+        result["ideogramPacket"] = (kit or {}).get("ideogramPacket") if isinstance(kit, dict) else None
+        return result
+    result["ideogramPacket"] = (kit or {}).get("ideogramPacket") if isinstance(kit, dict) else None
     prepared["heroStrategy"] = "ideogram_generate"
     prepared["heroImagePrompt"] = prompt
     prepared["layoutTemplate"] = template
