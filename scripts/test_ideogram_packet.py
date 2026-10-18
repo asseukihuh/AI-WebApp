@@ -20,6 +20,7 @@ from ideogram_client import (  # noqa: E402
     IDEOGRAM_REMIX_URL,
     _call_generate_api,
     build_structured_prompt,
+    closest_ideogram_resolution,
     ideogram_conditioning,
 )
 from ideogram_judge import (  # noqa: E402
@@ -133,7 +134,7 @@ class TestPacketPrompt(unittest.TestCase):
             with patch("urllib.request.urlopen", return_value=mock_resp) as opened:
                 _call_generate_api(
                     "A field",
-                    "1280x720",
+                    "1200x627",
                     api_key="test-key",
                     rendering_speed="default",
                     reference_paths=[photo, peel],
@@ -145,13 +146,53 @@ class TestPacketPrompt(unittest.TestCase):
         self.assertIn(b'name="prompt"', raw)
         self.assertIn(b"A field", raw)
         self.assertIn(b'name="size"', raw)
-        self.assertIn(b"1280x720", raw)
+        self.assertIn(b"1440x720", raw)
+        self.assertNotIn(b"1280x720", raw)
         self.assertEqual(raw.count(b'name="images"'), 2)
         self.assertIn(b"photo.png", raw)
         self.assertIn(b"peel.png", raw)
         self.assertIn(b'name="num_images"', raw)
         self.assertNotIn(b"style_reference_images", raw)
         self.assertNotIn(b"remix", request.full_url.encode())
+
+    def test_4_5_request_uses_a_documented_size_and_skips_svg(self) -> None:
+        import io
+        import urllib.error
+
+        mock_resp = MagicMock()
+        mock_resp.read.return_value = b'{"data":[]}'
+        mock_resp.__enter__ = lambda _self: _self
+        mock_resp.__exit__ = MagicMock(return_value=False)
+        with tempfile.TemporaryDirectory() as tmp:
+            svg = os.path.join(tmp, "logo.svg")
+            with open(svg, "w", encoding="utf-8") as handle:
+                handle.write('<svg xmlns="http://www.w3.org/2000/svg"><path d="M0 0h10v10z"/></svg>')
+            with patch("urllib.request.urlopen", return_value=mock_resp) as opened:
+                _call_generate_api(
+                    "A field",
+                    "1280x720",
+                    api_key="test-key",
+                    rendering_speed="default",
+                    reference_paths=[svg],
+                )
+        raw = opened.call_args[0][0].data
+        self.assertIn(b"1440x720", raw)
+        self.assertNotIn(b"1280x720", raw)
+        self.assertNotIn(b"<svg", raw)
+        self.assertNotIn(b"image/svg", raw)
+        self.assertIn(b"1024x1024", closest_ideogram_resolution("1024x1024").encode())
+        err = urllib.error.HTTPError(
+            IDEOGRAM_GENERATE_URL,
+            400,
+            "Bad Request",
+            hdrs=None,
+            fp=io.BytesIO(b'{"error":"Invalid input"}'),
+        )
+        with patch("urllib.request.urlopen", side_effect=err):
+            with self.assertRaises(ValueError) as caught:
+                _call_generate_api("A field", "1440x720", api_key="test-key", rendering_speed="default")
+        self.assertIn("Invalid input", str(caught.exception))
+        self.assertNotIn("HTTP Error 400", str(caught.exception))
 
 
 class TestPosterUsesPacket(unittest.TestCase):

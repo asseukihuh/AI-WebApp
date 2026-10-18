@@ -41,7 +41,7 @@ Without a key (or on API error), the server falls back to scraped kit photo or b
 
 | Role | Default preset | Notes |
 |------|----------------|-------|
-| Background | `1280x720` | Closest landscape to LinkedIn 1200×627; compiler **cover**-fills |
+| Background | `1440x720` | Closest Ideogram 4.5 preset to LinkedIn 1200×627; compiler **cover**-fills |
 | Accent | `1024x1024` | Sized for ~45% width placement on the right |
 
 Ideogram 4.5 sizes are sent as `size`. Without a reference image the size is a supported preset; CommMaker maps the poster to the nearest one.
@@ -77,7 +77,7 @@ Header: `Api-Key: $IDEOGRAM_API_KEY`
 | `heroSource` | `ideogram-4.5` on success |
 | `ideogramLayers` | Brief layer mode used |
 | `heroImagePrompt` | Background prompt |
-| `ideogramResolution` | Background preset (e.g. `1280x720`) |
+| `ideogramResolution` | Background preset (e.g. `1440x720`) |
 | `ideogramFallback` | Message when falling back |
 
 | `previewUrl` | Flattened PNG of the saved `.pcraft` |

@@ -40,9 +40,10 @@ IDEOGRAM_REMOVE_BG_URL = "https://api.ideogram.ai/v2/image/remove-background/ide
 IDEOGRAM_TIMEOUT_SEC = 120
 MAX_LAYER_BYTES = 8_000_000
 
-# LinkedIn poster is 1200×627; Ideogram 4.0 only accepts preset resolutions (no exact 1200×627).
+# LinkedIn poster is 1200×627. Ideogram 4.5 rejects the 4.0 size 1280x720.
+# Without source images, size must be a supported 1K/2K preset.
 LINKEDIN_TARGET_RESOLUTION = "1200x627"
-DEFAULT_BACKGROUND_RESOLUTION = "1280x720"
+DEFAULT_BACKGROUND_RESOLUTION = "1440x720"
 # Accent subjects are placed at ~45% canvas width — square preset keeps detail without huge files.
 DEFAULT_ACCENT_RESOLUTION = "1024x1024"
 
@@ -80,7 +81,6 @@ IDEOGRAM_PRESET_RESOLUTIONS: tuple[str, ...] = (
     "800x1280",
     "1280x800",
     "720x1280",
-    "1280x720",
     "720x1440",
     "1440x720",
     "512x1536",
@@ -390,7 +390,13 @@ def treatment_spec(treatment: str | None) -> dict[str, str]:
 
 
 def closest_ideogram_resolution(requested: str) -> str:
-    """Map a target size to the nearest supported Ideogram 4 preset."""
+    """Map a target size to a documented Ideogram 4.5 1K/2K preset.
+
+    ``1280x720`` is an Ideogram 4.0 size. 4.5 returns 400 for that ``size``.
+    A 1200×627 poster uses ``1440x720`` instead.
+    """
+    if requested in ("1280x720", "1200x627"):
+        return "1440x720"
     if requested in IDEOGRAM_PRESET_RESOLUTIONS:
         return requested
     target = _parse_resolution(requested)
@@ -468,14 +474,68 @@ def _quality_for_speed(speed: RenderingSpeed, *, has_image: bool) -> str:
     return "medium"
 
 
-def _image_media_type(path: str) -> str | None:
-    lower = path.lower()
-    if lower.endswith(".png"):
+def _sniff_raster(data: bytes) -> str | None:
+    """JPEG, PNG, or WEBP. SVG and anything else is not an Ideogram 4.5 image."""
+    if data.startswith(b"\x89PNG\r\n\x1a\n"):
         return "image/png"
-    if lower.endswith(".webp"):
-        return "image/webp"
-    if lower.endswith(".jpg") or lower.endswith(".jpeg"):
+    if data.startswith(b"\xff\xd8\xff"):
         return "image/jpeg"
+    if len(data) >= 12 and data[:4] == b"RIFF" and data[8:12] == b"WEBP":
+        return "image/webp"
+    return None
+
+
+def _rasterize_svg(path: str) -> bytes | None:
+    """Turn an SVG into a PNG. A failed conversion is dropped, not uploaded."""
+    import subprocess
+
+    try:
+        proc = subprocess.run(
+            [
+                "ffmpeg",
+                "-v",
+                "error",
+                "-i",
+                path,
+                "-frames:v",
+                "1",
+                "-f",
+                "image2pipe",
+                "-vcodec",
+                "png",
+                "pipe:1",
+            ],
+            capture_output=True,
+            timeout=20,
+            check=False,
+        )
+    except (OSError, subprocess.TimeoutExpired):
+        return None
+    png = proc.stdout or b""
+    if proc.returncode != 0 or _sniff_raster(png) != "image/png":
+        return None
+    return png
+
+
+def _reference_file(path: str) -> tuple[bytes, str, str] | None:
+    """Bytes, filename, and media type for one example. SVG is rasterized or dropped."""
+    if not path or not os.path.isfile(path):
+        return None
+    with open(path, "rb") as handle:
+        data = handle.read(MAX_LAYER_BYTES + 1)
+    if len(data) > MAX_LAYER_BYTES:
+        return None
+    media = _sniff_raster(data)
+    name = os.path.basename(path)
+    if media:
+        return data, name, media
+    head = data.lstrip()[:200].lower()
+    if path.lower().endswith(".svg") or head.startswith(b"<svg") or head.startswith(b"<?xml"):
+        png = _rasterize_svg(path)
+        if not png:
+            return None
+        stem = os.path.splitext(name)[0] or "example"
+        return png, f"{stem}.png", "image/png"
     return None
 
 
@@ -486,7 +546,7 @@ def _reference_paths(packet: dict | None) -> list[str]:
     found: list[str] = []
     for raw in (packet or {}).get("references") or []:
         path = str(raw or "")
-        if path and os.path.isfile(path) and _image_media_type(path) and path not in found:
+        if path and path not in found and _reference_file(path):
             found.append(path)
         if len(found) >= MAX_IDEOGRAM_EXAMPLES:
             break
@@ -528,24 +588,25 @@ def _call_generate_api(
 
     paths: list[str] = []
     for path in list(reference_paths or []) + ([reference_path] if reference_path else []):
-        if path and path not in paths and _image_media_type(path):
+        if path and path not in paths:
             paths.append(path)
         if len(paths) >= MAX_IDEOGRAM_EXAMPLES:
             break
     files: list[tuple[str, str, bytes, str]] = []
     for path in paths:
-        media = _image_media_type(path)
-        if not media:
+        prepared = _reference_file(path)
+        if not prepared:
             continue
-        with open(path, "rb") as handle:
-            image_bytes = handle.read(MAX_LAYER_BYTES + 1)
-        if len(image_bytes) > MAX_LAYER_BYTES:
+        image_bytes, name, media = prepared
+        if media not in ("image/png", "image/jpeg", "image/webp"):
             continue
-        files.append(("images", os.path.basename(path), image_bytes, media))
+        files.append(("images", name, image_bytes, media))
     has_image = bool(files)
+    # 1280x720 is an Ideogram 4.0 preset. 4.5 rejects that size.
+    size = closest_ideogram_resolution(resolution)
     fields = [
         ("prompt", prompt),
-        ("size", resolution),
+        ("size", size),
         ("num_images", "1"),
         ("quality", _quality_for_speed(rendering_speed, has_image=has_image)),
         ("magic_prompt", magic_prompt),
@@ -561,8 +622,33 @@ def _call_generate_api(
         },
         method="POST",
     )
-    with urllib.request.urlopen(req, timeout=IDEOGRAM_TIMEOUT_SEC) as resp:
-        return json.loads(resp.read().decode("utf-8"))
+    try:
+        with urllib.request.urlopen(req, timeout=IDEOGRAM_TIMEOUT_SEC) as resp:
+            return json.loads(resp.read().decode("utf-8"))
+    except urllib.error.HTTPError as exc:
+        raise ValueError(ideogram_http_error_message(exc)) from exc
+
+
+def ideogram_http_error_message(exc: urllib.error.HTTPError) -> str:
+    """Ideogram's JSON body, not only urllib's ``HTTP Error 400: Bad Request``."""
+    raw = b""
+    try:
+        raw = exc.read()
+    except Exception:  # noqa: BLE001 — the status line still names the code
+        raw = b""
+    text = raw.decode("utf-8", errors="replace").strip()
+    message = text
+    try:
+        payload = json.loads(text) if text else None
+    except json.JSONDecodeError:
+        payload = None
+    if isinstance(payload, dict):
+        message = str(payload.get("error") or payload.get("message") or payload)
+    elif isinstance(payload, str):
+        message = payload
+    if not message:
+        message = str(exc.reason or "Bad Request")
+    return f"HTTP {exc.code}: {message}"
 
 
 def _encode_multipart_image(
