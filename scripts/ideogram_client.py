@@ -352,8 +352,9 @@ def treatment_spec(treatment: str | None) -> dict[str, str]:
             "zone": "lower",
             "quiet": "The picture sits above a type band. Type sits in that band, not inside a corner of the picture.",
             "fill": (
-                "One text-free photograph of a home interior, in sharp focus, filling this frame. "
-                "A real room. No UI card, no headline, no button, no abstract blur."
+                "One text-free photograph of a home interior, in sharp focus, filling this frame edge to edge. "
+                "A real room. No empty margin, no cream field, no UI card, no headline, no button, no abstract blur. "
+                "Do not draw a logo or a wordmark."
             ),
             "prompt": "",
         }
@@ -689,16 +690,17 @@ def _reference_file(path: str) -> tuple[bytes, str, str] | None:
 
 
 def _reference_paths(packet: dict | None) -> list[str]:
-    """Every graphic example, up to the five Ideogram 4.5 will accept."""
-    from ideogram_packet import MAX_IDEOGRAM_EXAMPLES
+    """Photographs and text-free patterns only.
+
+    Ideogram 4.5 edits the first file on ``images``. A webpage screenshot is never
+    that file. Component crops still inform the prompt; they are not uploaded.
+    """
+    from ideogram_packet import uploadable_edit_sources
 
     found: list[str] = []
-    for raw in (packet or {}).get("references") or []:
-        path = str(raw or "")
-        if path and path not in found and _reference_file(path):
+    for path in uploadable_edit_sources([str(raw or "") for raw in (packet or {}).get("references") or []]):
+        if path not in found and _reference_file(path):
             found.append(path)
-        if len(found) >= MAX_IDEOGRAM_EXAMPLES:
-            break
     return found
 
 
@@ -741,6 +743,9 @@ def _call_generate_api(
             paths.append(path)
         if len(paths) >= MAX_IDEOGRAM_EXAMPLES:
             break
+    from ideogram_packet import uploadable_edit_sources
+
+    paths = uploadable_edit_sources(paths)
     files: list[tuple[str, str, bytes, str]] = []
     for path in paths:
         prepared = _reference_file(path)

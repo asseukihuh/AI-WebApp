@@ -550,6 +550,11 @@ def retry_prompt(prompt: str, reason: str, critique: str, layout: str = "") -> s
     )
 
 
+def _ui_collage_reason(reason: str) -> bool:
+    text = (reason or "").casefold()
+    return re.search(r"\b(ui|screenshot|collage|button)\b", text) is not None
+
+
 def _font_failure_only(reason: str) -> bool:
     """A missing font file is reported once. It does not spend an Ideogram retry."""
     text = (reason or "").casefold()
@@ -988,13 +993,17 @@ def review_generated_picture(
             }
         current_rel = str(rel)
         current_abs = _resolve_image(current_rel, repo_root)
+    reason = last.get("reason") or "The picture did not pass."
+    # A screenshot edit is not the poster. A prompt-only retry replaces it; if that
+    # result is still a UI collage, do not place the collage.
+    drop = _ui_collage_reason(str(reason)) and current_rel is not None
     return {
         "passed": False,
-        "reason": last.get("reason") or "The picture did not pass.",
+        "reason": reason,
         "attempts": attempt,
         "retried": current_rel is not None,
         "skipped": False,
-        "imagePath": current_rel,
+        "imagePath": None if drop else current_rel,
         "treatment": current_treatment,
-        "dropImage": False,
+        "dropImage": drop,
     }

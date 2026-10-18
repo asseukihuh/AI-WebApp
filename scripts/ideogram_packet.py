@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import hashlib
 import os
+import re
 import subprocess
 from typing import Any
 
@@ -146,6 +147,54 @@ def _metrics(pixels: list[tuple[int, int, int]], width: int, height: int) -> dic
         "busy": busy_rows / max(1, height),
         "chroma": chroma / count,
     }
+
+
+_SCREENSHOT_NAME = re.compile(
+    r"screenshot|component-\d|fold|full-?page|page-shot|ui-shot",
+    re.I,
+)
+
+
+def edit_source_kind(path: str) -> str:
+    """What Ideogram may edit. A webpage screenshot is never that file.
+
+    ``photograph`` and ``pattern`` may be uploaded. ``screenshot`` may inform the
+    prompt, and is not sent on the ``images`` field.
+    """
+    name = os.path.basename(path or "")
+    if name.lower().endswith(".svg") or _SCREENSHOT_NAME.search(name) or _SCREENSHOT_NAME.search(path or ""):
+        return "screenshot"
+    loaded = _load_sample(path) if path else None
+    if not loaded:
+        return "screenshot"
+    width, height, pixels = loaded
+    stats = _metrics(pixels, width, height)
+    if width >= 4 and height >= 4 and mostly_page_text(pixels, width, height):
+        return "screenshot"
+    if (
+        width >= 4
+        and height >= 4
+        and stats["paper"] > 0.22
+        and stats["edges"] > 0.045
+        and stats["busy"] >= 0.2
+    ):
+        return "screenshot"
+    if stats["chroma"] >= 0.08 and stats["paper"] < 0.55:
+        return "photograph"
+    if stats["paper"] < 0.35:
+        return "pattern"
+    return "screenshot"
+
+
+def uploadable_edit_sources(paths: list[str], *, limit: int = MAX_IDEOGRAM_EXAMPLES) -> list[str]:
+    """Photographs and text-free patterns. Page and UI screenshots are left out."""
+    chosen: list[str] = []
+    for path in paths:
+        if len(chosen) >= limit:
+            break
+        if path and path not in chosen and edit_source_kind(path) in ("photograph", "pattern"):
+            chosen.append(path)
+    return chosen
 
 
 def mostly_page_text(pixels: list[tuple[int, int, int]], width: int, height: int) -> bool:

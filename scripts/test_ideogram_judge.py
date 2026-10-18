@@ -388,8 +388,15 @@ class TestPictureFill(unittest.TestCase):
             hero_grid={"w": 2, "h": 2, "src_w": 1536, "src_h": 512, "pixels": [(230, 180, 140)] * 4},
         )
         picture = next(item for item in batch["backgroundPlacements"] if item.get("path", "").endswith("photo.png"))
-        self.assertLess(picture["center"][1], 250)
-        self.assertNotEqual(picture["center"][1], LINKEDIN_HEIGHT / 2)
+        from poster_design import PHOTO_BAND
+
+        self.assertEqual(PHOTO_BAND[3], round(LINKEDIN_HEIGHT * 2 / 3))
+        self.assertAlmostEqual(picture["center"][1], PHOTO_BAND[3] / 2, delta=2)
+        self.assertLess(picture["center"][1], LINKEDIN_HEIGHT / 2)
+        band = next(step for step in batch["steps"] if step["params"].get("name") == "Type band")
+        self.assertEqual(band["params"]["rect"][1], PHOTO_BAND[3])
+        self.assertGreater(band["params"]["rect"][3], LINKEDIN_HEIGHT / 4)
+        self.assertNotIn("Text card", [step["params"].get("name") for step in batch["steps"]])
         displayed_h = 512 * picture["scale"] / 100
         self.assertLess(displayed_h, LINKEDIN_HEIGHT - 40)
 
@@ -873,6 +880,43 @@ class TestAirbnbPicture(unittest.TestCase):
         )
         self.assertEqual(line.count("brand font failed"), 1)
         self.assertIn("https://a0.muscache.com/cereal.woff2", line)
+
+    def test_a_ui_collage_is_dropped_after_a_prompt_only_retry(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            path = os.path.join(tmp, "room.png")
+            rows = []
+            for y in range(64):
+                row = bytearray()
+                for x in range(96):
+                    row.extend((24, 92, 48) if (x // 8 + y // 8) % 2 == 0 else (196, 112, 42))
+                rows.append(bytes(row))
+            write_png(path, 96, 64, rows)
+            prompts: list[str] = []
+
+            def regenerate(prompt: str):
+                prompts.append(prompt)
+                return path, b"\x89PNG\r\n\x1a\nxx", {}
+
+            def llm(_path, _refs, _palette, _note):
+                return {
+                    "passed": False,
+                    "reason": "The image is a blurred UI-screenshot collage with a button.",
+                    "critique": "Show a home instead.",
+                    "suggestedTreatment": "same",
+                }
+
+            result = review_generated_picture(
+                path,
+                "Edit this screenshot",
+                brand_profile=self._profile(),
+                llm_fn=llm,
+                regenerate=regenerate,
+            )
+        self.assertTrue(prompts)
+        self.assertIn("home interior", prompts[0].casefold())
+        self.assertNotIn("edit this screenshot", prompts[0].casefold())
+        self.assertTrue(result["dropImage"])
+        self.assertIsNone(result["imagePath"])
 
 
 if __name__ == "__main__":

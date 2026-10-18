@@ -490,7 +490,7 @@ class CommMakerHandler(http.server.SimpleHTTPRequestHandler):
                 )
                 picture_resolution = treatment_spec(poster_treatment).get("resolution") or "1200x627"
 
-                def _generate_picture(scene: str) -> tuple:
+                def _generate_picture(scene: str, *, upload_sources: bool = True) -> tuple:
                     kind = poster_treatment
                     for name in ("full-sheet", "photo-band", "pattern-field", "illustration-cluster", "quiet-type"):
                         if f"Treatment {name}" in scene:
@@ -502,6 +502,8 @@ class CommMakerHandler(http.server.SimpleHTTPRequestHandler):
                         packet = brand_profile.get("ideogramPacket")
                     if not isinstance(packet, dict) and isinstance(kit, dict):
                         packet = kit.get("ideogramPacket")
+                    if isinstance(packet, dict) and not upload_sources:
+                        packet = {**packet, "references": []}
                     return generate_layer_image(
                         scene,
                         "background",
@@ -553,7 +555,7 @@ class CommMakerHandler(http.server.SimpleHTTPRequestHandler):
                         nonlocal ideogram_ms
                         started = time.perf_counter()
                         try:
-                            rel, data, meta = _generate_picture(revised)
+                            rel, data, meta = _generate_picture(revised, upload_sources=False)
                         finally:
                             ideogram_ms += int((time.perf_counter() - started) * 1000)
                         if not is_png(data):
@@ -577,7 +579,7 @@ class CommMakerHandler(http.server.SimpleHTTPRequestHandler):
                         palette=judge_palette,
                         brand_profile=judge_profile,
                         regenerate=_regenerate,
-                        region=(0, 0, 1200, 627) if poster_treatment != "photo-band" else (0, 0, 1200, 340),
+                        region=(0, 0, 1200, 627) if poster_treatment != "photo-band" else (0, 0, 1200, 418),
                         repo_root=ROOT,
                         treatment=poster_treatment,
                     )
@@ -598,7 +600,7 @@ class CommMakerHandler(http.server.SimpleHTTPRequestHandler):
                             picture_bytes = None
                             generated_assets.clear()
                             hero_meta = {}
-                            creative_brief = {**creative_brief, "heroStrategy": "solid", "treatment": "quiet-type"}
+                            creative_brief = {**creative_brief, "heroStrategy": "solid"}
                         elif judge.get("imagePath"):
                             hero_rel = str(judge["imagePath"])
                             generated_assets[-1]["path"] = hero_rel

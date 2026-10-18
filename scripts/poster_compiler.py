@@ -1352,7 +1352,7 @@ def compile_poster_batch(
         # Picture on top. A symbol sits in the colour band, with the headline beside it.
         symbol_logo = bool(logo_size and logo_width and logo_height and logo_width / max(1, logo_height) < 1.8)
         if symbol_logo:
-            logo_h = 72.0
+            logo_h = 112.0
             logo_size = (logo_h * (logo_width / logo_height), logo_h)
         text_w = design.span_w(7)
         text_x = design.MARGIN_X
@@ -1390,6 +1390,8 @@ def compile_poster_batch(
                     sw,
                     sh,
                 )
+        plan.card = None
+        plan.panel = None
     elif treatment == "full-sheet":
         plan = _plan(
             tpl.name,
@@ -1832,7 +1834,7 @@ def compile_poster_batch(
         "height": LINKEDIN_HEIGHT,
         "mode": "rgb",
         "depth": 8,
-        "background": roles.dark if not has_photo_hero else roles.brand,
+        "background": roles.brand if photo_band or has_photo_hero else roles.dark,
         "resolution": 72,
         "name": f"CommMaker LinkedIn — {site_name}",
     }
