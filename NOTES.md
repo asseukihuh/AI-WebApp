@@ -10,6 +10,7 @@ Project update tracking and changelog for CommMaker.
 
 - The invalid field was `size`. The call sent `1280x720`, an Ideogram 4.0 preset. 4.5 returns 400 for that value. A 1200×627 poster now asks for `1440x720`.
 - Example files that are not JPEG, PNG, or WEBP are not uploaded. An SVG is rasterized to PNG when that works, and dropped when it does not. A 400 includes Ideogram’s JSON message, such as `Invalid input`, in `ideogramError`.
+- A reference wider than 6:1 or taller than 1:6 is center-cropped before upload so the graphic in the middle stays and the file lands inside Ideogram’s limit. A file that cannot be cropped is skipped. The poster still generates from the other images and the palette.
 
 ### 2026-10-18 - Scraped logos and the site's own type
 

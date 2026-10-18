@@ -18,7 +18,10 @@ from ideogram_client import generate_layer_image  # noqa: E402
 from ideogram_client import (  # noqa: E402
     IDEOGRAM_GENERATE_URL,
     IDEOGRAM_REMIX_URL,
+    _MAX_REFERENCE_ASPECT,
     _call_generate_api,
+    _png_size,
+    _reference_file,
     build_structured_prompt,
     closest_ideogram_resolution,
     ideogram_conditioning,
@@ -27,6 +30,7 @@ from ideogram_judge import (  # noqa: E402
     acquire_poster_picture,
     picture_references,
     poster_status_line,
+    read_rgb_png,
     review_generated_picture,
 )
 from ideogram_packet import (  # noqa: E402
@@ -193,6 +197,97 @@ class TestPacketPrompt(unittest.TestCase):
                 _call_generate_api("A field", "1440x720", api_key="test-key", rendering_speed="default")
         self.assertIn("Invalid input", str(caught.exception))
         self.assertNotIn("HTTP Error 400", str(caught.exception))
+
+    def test_wide_and_tall_references_are_center_cropped(self) -> None:
+        """A full-page screenshot outside 1:6–6:1 is center-cropped. One that cannot be cropped is skipped."""
+        mock_resp = MagicMock()
+        mock_resp.read.return_value = b'{"data":[]}'
+        mock_resp.__enter__ = lambda _self: _self
+        mock_resp.__exit__ = MagicMock(return_value=False)
+
+        def wide_pixel(x: int, _y: int) -> tuple[int, int, int]:
+            if x < 20:
+                return (1, 2, 3)
+            if 350 <= x < 370:
+                return (240, 20, 20)
+            return (10, 80, 20)
+
+        def tall_pixel(_x: int, y: int) -> tuple[int, int, int]:
+            if y < 20:
+                return (1, 2, 3)
+            if 350 <= y < 370:
+                return (20, 40, 220)
+            return (20, 20, 30)
+
+        with tempfile.TemporaryDirectory() as tmp:
+            wide = os.path.join(tmp, "wide.png")
+            tall = os.path.join(tmp, "tall.png")
+            square = os.path.join(tmp, "square.png")
+            broken = os.path.join(tmp, "page.png")
+            _png(wide, 720, 40, wide_pixel)
+            _png(tall, 40, 720, tall_pixel)
+            _png(square, 32, 32, lambda _x, _y: (4, 90, 160))
+            with open(broken, "wb") as handle:
+                handle.write(_png_claiming_size(2000, 10))
+
+            wide_file = _reference_file(wide)
+            tall_file = _reference_file(tall)
+            self.assertIsNotNone(wide_file)
+            self.assertIsNotNone(tall_file)
+            assert wide_file is not None and tall_file is not None
+            self.assertIsNone(_reference_file(broken))
+            for blob in (wide_file[0], tall_file[0]):
+                size = _png_size(blob)
+                self.assertIsNotNone(size)
+                assert size is not None
+                ratio = size[0] / size[1]
+                self.assertGreaterEqual(ratio, 1 / _MAX_REFERENCE_ASPECT)
+                self.assertLessEqual(ratio, _MAX_REFERENCE_ASPECT)
+
+            wide_png = os.path.join(tmp, "wide-cropped.png")
+            tall_png = os.path.join(tmp, "tall-cropped.png")
+            with open(wide_png, "wb") as handle:
+                handle.write(wide_file[0])
+            with open(tall_png, "wb") as handle:
+                handle.write(tall_file[0])
+            wide_pixels = read_rgb_png(wide_png)
+            tall_pixels = read_rgb_png(tall_png)
+            self.assertIsNotNone(wide_pixels)
+            self.assertIsNotNone(tall_pixels)
+            assert wide_pixels is not None and tall_pixels is not None
+            self.assertIn((240, 20, 20), wide_pixels[2])
+            self.assertNotIn((1, 2, 3), wide_pixels[2])
+            self.assertIn((20, 40, 220), tall_pixels[2])
+            self.assertNotIn((1, 2, 3), tall_pixels[2])
+
+            with patch("urllib.request.urlopen", return_value=mock_resp) as opened:
+                _call_generate_api(
+                    "Palette: primary #635bff",
+                    "1440x720",
+                    api_key="test-key",
+                    rendering_speed="default",
+                    reference_paths=[wide, broken, tall, square],
+                )
+        raw = opened.call_args[0][0].data
+        self.assertIn(b"Palette: primary #635bff", raw)
+        self.assertEqual(raw.count(b'name="images"'), 3)
+        self.assertIn(b"wide.png", raw)
+        self.assertIn(b"tall.png", raw)
+        self.assertIn(b"square.png", raw)
+        self.assertNotIn(b"page.png", raw)
+        self.assertNotIn(os.path.basename(broken).encode(), raw)
+
+
+def _png_claiming_size(width: int, height: int) -> bytes:
+    """A PNG header Ideogram would reject, with an IDAT ffmpeg cannot decode."""
+    import struct
+    import zlib
+
+    def chunk(tag: bytes, data: bytes) -> bytes:
+        return struct.pack(">I", len(data)) + tag + data + struct.pack(">I", zlib.crc32(tag + data) & 0xFFFFFFFF)
+
+    ihdr = struct.pack(">IIBBBBB", width, height, 8, 2, 0, 0, 0)
+    return b"\x89PNG\r\n\x1a\n" + chunk(b"IHDR", ihdr) + chunk(b"IDAT", b"not-zlib") + chunk(b"IEND", b"")
 
 
 class TestPosterUsesPacket(unittest.TestCase):
