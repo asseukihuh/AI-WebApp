@@ -18,16 +18,19 @@ SCRIPTS = os.path.dirname(os.path.abspath(__file__))
 if SCRIPTS not in sys.path:
     sys.path.insert(0, SCRIPTS)
 
+from ideogram_client import treatment_spec  # noqa: E402
 from ideogram_judge import (  # noqa: E402
+    MAX_IDEOGRAM_ATTEMPTS,
     JUDGE_JSON_SCHEMA,
     acquire_poster_picture,
     fetch_picture_layer,
+    frame_fill_report,
     judge_real_png,
     poster_status_line,
     retry_prompt,
     review_generated_picture,
 )
-from poster_compiler import compile_poster_batch  # noqa: E402
+from poster_compiler import LINKEDIN_HEIGHT, LINKEDIN_WIDTH, compile_poster_batch, cover_scale_percent  # noqa: E402
 from render_poster_samples import write_png  # noqa: E402
 
 
@@ -91,9 +94,10 @@ class TestCircleBitmap(unittest.TestCase):
         )
         names = [step.get("params", {}).get("name") for step in batch["steps"]]
         self.assertNotIn("Illustration plate", names)
-        pictures = [item for item in batch["placements"] if item.get("name") == "Picture"]
+        pictures = [item for item in batch.get("backgroundPlacements") or [] if "duo-illustration" in item.get("path", "")]
         self.assertEqual(len(pictures), 1)
-        self.assertTrue(pictures[0]["path"].endswith("duo-illustration.png"))
+        self.assertEqual(pictures[0]["center"], [LINKEDIN_WIDTH / 2, LINKEDIN_HEIGHT / 2])
+        self.assertNotIn("Picture", [item.get("name") for item in batch["placements"]])
 
     def test_key_set_and_api_error_is_on_the_status_line(self) -> None:
         def generate(_prompt):
@@ -160,13 +164,13 @@ class TestPictureJudge(unittest.TestCase):
         self.assertIsNone(result["imagePath"])
         self.assertEqual(calls, {"llm": 1, "regen": 0})
 
-    def test_fail_regenerates_once_with_the_critique(self) -> None:
-        seen = {}
+    def test_fail_regenerates_twice_then_places_the_last(self) -> None:
+        seen = {"calls": 0, "regen": 0}
 
         def llm(_path, refs, palette, note):
             seen["refs"] = refs
             seen["palette"] = palette
-            seen["calls"] = seen.get("calls", 0) + 1
+            seen["calls"] += 1
             return {
                 "passed": False,
                 "reason": "Flat empty disc, no subject.",
@@ -174,8 +178,9 @@ class TestPictureJudge(unittest.TestCase):
             }
 
         def regen(prompt):
+            seen["regen"] += 1
             seen["prompt"] = prompt
-            return "generated/assets/layer-ideogram-background-retry.png", b"png", {"source": "ideogram-4"}
+            return f"generated/assets/retry-{seen['regen']}.png", b"png", {"source": "ideogram-4"}
 
         with tempfile.TemporaryDirectory() as folder:
             picture = _fixture_png(folder)
@@ -190,12 +195,15 @@ class TestPictureJudge(unittest.TestCase):
             )
         self.assertFalse(result["passed"])
         self.assertTrue(result["retried"])
-        self.assertEqual(result["imagePath"], "generated/assets/layer-ideogram-background-retry.png")
+        self.assertEqual(result["attempts"], 3)
+        self.assertEqual(result["imagePath"], "generated/assets/retry-2.png")
         self.assertEqual(result["reason"], "Flat empty disc, no subject.")
-        self.assertEqual(seen["calls"], 1)
-        self.assertEqual(len(seen["refs"]), 2)
+        self.assertEqual(seen["calls"], 3)
+        self.assertEqual(seen["regen"], 2)
+        self.assertEqual(len(seen["refs"]), 3)
         self.assertIn("green character", seen["prompt"])
         self.assertIn("Flat empty disc", seen["prompt"])
+        self.assertIn("Fill the frame", seen["prompt"])
         self.assertNotIn("circle", retry_prompt("scene", "disc", "show a character").casefold())
 
     @patch("ideogram_judge.resolve_llm_provider", return_value=None)
@@ -210,6 +218,222 @@ class TestPictureJudge(unittest.TestCase):
         self.assertIsNone(result["passed"])
         self.assertFalse(result["retried"])
         self.assertIn("no model key", result["reason"])
+
+
+def _save_rgb(path: str, width: int, height: int, color_at) -> str:
+    rows = []
+    for y in range(height):
+        row = bytearray()
+        for x in range(width):
+            row.extend(color_at(x, y))
+        rows.append(bytes(row))
+    write_png(path, width, height, rows)
+    return path
+
+
+class TestPictureFill(unittest.TestCase):
+    def test_worst_case_is_three_ideogram_calls(self) -> None:
+        self.assertEqual(MAX_IDEOGRAM_ATTEMPTS, 3)
+
+    def test_too_small_fixture_fails_and_a_full_frame_passes(self) -> None:
+        with tempfile.TemporaryDirectory() as folder:
+            small = _save_rgb(
+                os.path.join(folder, "small.png"),
+                80,
+                80,
+                lambda x, y: (88, 204, 2) if 36 <= x < 44 and 36 <= y < 44 else (255, 255, 255),
+            )
+            full = _save_rgb(
+                os.path.join(folder, "full.png"),
+                80,
+                80,
+                lambda x, y: (28, 176, 246) if y < 40 else (88, 204, 2),
+            )
+            inset = frame_fill_report(small)
+            filled = frame_fill_report(full)
+        self.assertIsNotNone(inset)
+        self.assertIsNotNone(filled)
+        self.assertFalse(inset["passed"])
+        self.assertTrue("inset" in inset["reason"] or "cramped" in inset["reason"])
+        self.assertTrue(filled["passed"])
+
+    def test_tiny_image_is_not_returned_as_a_pass(self) -> None:
+        seen = {"regen": 0}
+
+        def llm(_path, _refs, _palette, _note):
+            return {"passed": True, "reason": "Looks fine.", "critique": ""}
+
+        with tempfile.TemporaryDirectory() as folder:
+            small = _save_rgb(
+                os.path.join(folder, "small.png"),
+                80,
+                80,
+                lambda x, y: (88, 204, 2) if 36 <= x < 44 and 36 <= y < 44 else (255, 255, 255),
+            )
+            full = _save_rgb(
+                os.path.join(folder, "full.png"),
+                80,
+                80,
+                lambda x, y: (28, 176, 246) if y < 40 else (88, 204, 2),
+            )
+
+            def regen(_prompt):
+                seen["regen"] += 1
+                return full, b"png", {}
+
+            result = review_generated_picture(
+                small,
+                "A text-free character.",
+                llm_fn=llm,
+                regenerate=regen,
+                region=(0, 0, 1200, 627),
+                repo_root=folder,
+            )
+        self.assertTrue(result["passed"])
+        self.assertEqual(result["attempts"], 2)
+        self.assertEqual(result["imagePath"], full)
+        self.assertEqual(seen["regen"], 1)
+        self.assertNotEqual(result["imagePath"], small)
+
+    def test_circle_stage_bitmap_covers_the_canvas_not_a_well(self) -> None:
+        sheet = treatment_spec("illustration-cluster")
+        self.assertEqual(sheet["resolution"], "1280x720")
+        self.assertEqual(sheet["aspect"], "16:9")
+        self.assertEqual(sheet["zone"], "center")
+        self.assertIn("centre", sheet["quiet"].casefold())
+        self.assertNotIn("circle", sheet["fill"].casefold())
+        batch = compile_poster_batch(
+            {"siteName": "Duolingo", "colors": ["#58cc02", "#1cb0f6", "#ffffff"]},
+            {"suggestedHeadline": "Learn a language in five minutes daily", "brief": {"facts": "Free lessons."}},
+            creative_brief=_circle_brief(),
+            hero_relative_path="generated/assets/duo-illustration.png",
+            hero_width=180,
+            hero_height=180,
+            hero_grid={"w": 2, "h": 2, "src_w": 180, "src_h": 180, "pixels": [(88, 204, 2)] * 4},
+            logo_relative_path="generated/assets/duo.png",
+            logo_variants={"original": "generated/assets/duo.png"},
+            logo_width=180,
+            logo_height=180,
+        )
+        picture = next(
+            item for item in batch["backgroundPlacements"] if item.get("path", "").endswith("duo-illustration.png")
+        )
+        self.assertFalse(picture["fit"])
+        self.assertEqual(picture["center"], [LINKEDIN_WIDTH / 2, LINKEDIN_HEIGHT / 2])
+        self.assertEqual(picture["scale"], round(cover_scale_percent(180, 180), 2))
+        self.assertGreaterEqual(180 * picture["scale"] / 100, LINKEDIN_WIDTH)
+        headline = next(step for step in batch["steps"] if step.get("params", {}).get("name") == "Headline")
+        box = headline["params"]["box"]
+        self.assertAlmostEqual(box[0] + box[2] / 2, LINKEDIN_WIDTH / 2, delta=30)
+        self.assertEqual(headline["params"]["align"], "center")
+        self.assertGreaterEqual(headline["params"]["size"], 54)
+        self.assertNotIn("Illustration plate", [step.get("params", {}).get("name") for step in batch["steps"]])
+        line = poster_status_line(
+            template="circle-stage",
+            ideogram_used=True,
+            error=None,
+            ideogram_ms=212,
+            judge={"passed": False, "reason": "The picture is a small inset on an empty field.", "attempts": 3},
+        )
+        self.assertIn("judge fail", line)
+        self.assertIn("small inset", line)
+        self.assertIn("3 attempts", line)
+
+    def test_quiet_type_is_sent_to_ideogram(self) -> None:
+        kit, profile = _duo()
+        seen: list[str] = []
+
+        def generate(prompt: str):
+            seen.append(prompt)
+            return "generated/assets/quiet-field.png", PNG, {"source": "ideogram-4.5"}
+
+        result = acquire_poster_picture(
+            {"layoutTemplate": "centered-statement", "heroStrategy": "solid", "treatment": "quiet-type"},
+            kit,
+            profile,
+            template="centered-statement",
+            key_set=True,
+            generate=generate,
+        )
+        self.assertTrue(result["called"])
+        self.assertTrue(result["ideogramUsed"])
+        self.assertIn("one coherent text-free asset", seen[0])
+        self.assertIn("Do not copy the words in the examples", seen[0])
+        line = poster_status_line(
+            template="centered-statement",
+            ideogram_used=True,
+            error=None,
+            treatment="quiet-type",
+            ideogram_ms=result["ideogramMs"],
+            judge={"passed": True, "reason": "Matches the crop.", "attempts": 1},
+        )
+        self.assertIn("quiet-type", line)
+        self.assertIn("judge pass", line)
+
+    def test_photo_band_does_not_cover_the_whole_canvas(self) -> None:
+        band = treatment_spec("photo-band")
+        self.assertNotEqual(band["resolution"], "1280x720")
+        batch = compile_poster_batch(
+            {"siteName": "Airbnb", "colors": ["#e61e4d", "#ffffff"]},
+            {"suggestedHeadline": "Stay somewhere new", "brief": {"facts": "Homes with a kitchen."}},
+            creative_brief={
+                **_circle_brief(),
+                "layoutTemplate": "photo-block",
+                "treatment": "photo-band",
+                "headline": "Stay somewhere new",
+            },
+            hero_relative_path="generated/assets/photo.png",
+            hero_width=1536,
+            hero_height=512,
+            hero_grid={"w": 2, "h": 2, "src_w": 1536, "src_h": 512, "pixels": [(230, 180, 140)] * 4},
+        )
+        picture = next(item for item in batch["backgroundPlacements"] if item.get("path", "").endswith("photo.png"))
+        self.assertLess(picture["center"][1], 250)
+        self.assertNotEqual(picture["center"][1], LINKEDIN_HEIGHT / 2)
+        displayed_h = 512 * picture["scale"] / 100
+        self.assertLess(displayed_h, LINKEDIN_HEIGHT - 40)
+
+    def test_failed_treatment_retries_quiet_type_with_the_crop(self) -> None:
+        calls = {"n": 0}
+
+        def llm(_path, _refs, _palette, _note):
+            calls["n"] += 1
+            if calls["n"] == 1:
+                return {
+                    "passed": False,
+                    "reason": "full-bleed was wrong for this brand.",
+                    "critique": "Use a quiet type poster.",
+                    "suggestedTreatment": "quiet-type",
+                }
+            return {"passed": True, "reason": "Matches the crop.", "critique": "", "suggestedTreatment": "same"}
+
+        seen: list[str] = []
+
+        def regen(prompt: str):
+            seen.append(prompt)
+            return picture, b"\x89PNG\r\n\x1a\n", {}
+
+        with tempfile.TemporaryDirectory() as folder:
+            picture = _save_rgb(
+                os.path.join(folder, "full.png"),
+                80,
+                80,
+                lambda x, y: (28, 176, 246) if y < 40 else (88, 204, 2),
+            )
+            result = review_generated_picture(
+                picture,
+                "A full-bleed scene.",
+                reference_paths=[picture],
+                llm_fn=llm,
+                regenerate=regen,
+                treatment="full-sheet",
+            )
+        self.assertTrue(result["passed"])
+        self.assertFalse(result["dropImage"])
+        self.assertEqual(result["treatment"], "quiet-type")
+        self.assertTrue(seen)
+        self.assertIn("Do not copy the words in the examples", seen[0])
+        self.assertIn("quiet-type", seen[0])
 
 
 PNG = b"\x89PNG\r\n\x1a\n" + b"\x00" * 24
@@ -273,9 +497,13 @@ class TestPictureFrameMustPost(unittest.TestCase):
         )
         names = [step.get("params", {}).get("name") for step in batch["steps"]]
         self.assertNotIn("Illustration plate", names)
-        pictures = [item for item in batch["placements"] if item.get("name") == "Picture"]
+        pictures = [
+            item for item in batch.get("backgroundPlacements") or [] if item.get("path", "").endswith("duo-illustration.png")
+        ]
         self.assertEqual(len(pictures), 1)
-        self.assertTrue(pictures[0]["path"].endswith("duo-illustration.png"))
+        self.assertEqual(pictures[0]["center"], [LINKEDIN_WIDTH / 2, LINKEDIN_HEIGHT / 2])
+        self.assertNotIn("circle", invoked[0].casefold())
+        self.assertIn("illustration cluster", invoked[0].casefold())
 
     def test_every_picture_frame_invokes_a_stubbed_client(self) -> None:
         kit, profile = _duo()
@@ -327,24 +555,28 @@ class TestPictureFrameMustPost(unittest.TestCase):
         self.assertIn("0 ms", line)
         self.assertNotIn("Ideogram ·", line)
 
-    def test_type_frame_with_a_key_skips_and_says_why(self) -> None:
+    def test_quiet_type_still_calls_ideogram(self) -> None:
         kit, profile = _duo()
+        seen: list[str] = []
 
-        def generate(_prompt: str):
-            raise AssertionError("Ideogram client must not be called")
+        def generate(prompt: str):
+            seen.append(prompt)
+            return "generated/assets/vercel-field.png", PNG, {"source": "ideogram-4.5"}
 
         result = acquire_poster_picture(
-            {"layoutTemplate": "type-only", "heroStrategy": "ideogram_generate", "heroImagePrompt": "A scene"},
+            {"layoutTemplate": "mark-stage", "heroStrategy": "solid", "heroImagePrompt": ""},
             kit,
             profile,
-            template="type-only",
+            template="mark-stage",
             key_set=True,
             generate=generate,
         )
-        self.assertFalse(result["called"])
-        self.assertEqual(result["ideogramMs"], 0)
-        self.assertIn("not a picture frame", result["ideogramError"])
-        self.assertEqual(result["brief"]["heroStrategy"], "solid")
+        self.assertTrue(result["called"])
+        self.assertTrue(result["ideogramUsed"])
+        self.assertEqual(result["brief"]["heroStrategy"], "ideogram_generate")
+        self.assertEqual(result["brief"]["layoutRecipe"], "photo-hero-type")
+        self.assertIn("one coherent text-free asset", seen[0])
+        self.assertIn("Do not copy the words in the examples", seen[0])
 
     def test_empty_image_is_not_a_judge_pass(self) -> None:
         kit, profile = _duo()
@@ -389,11 +621,11 @@ def _poster_body() -> dict:
             "communicationKit": {"devices": [{"kind": "mascot"}], "bundled": True},
         },
         "session": {
-            "suggestedHeadline": "Learn a language in five minutes a day",
+            "suggestedHeadline": "Learn a language",
             "brief": {"facts": "Free lessons, no textbook.", "tone": "factual"},
         },
         "creativeBrief": {
-            "headline": "Learn a language in five minutes a day",
+            "headline": "Learn a language",
             "subhead": "The most fun way to learn languages, chess, and more.",
             "cta": "Learn more",
             "layoutTemplate": "circle-stage",

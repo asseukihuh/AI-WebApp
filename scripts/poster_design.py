@@ -740,8 +740,9 @@ def template_needs_raster(name: str | None) -> bool:
 
 
 def template_skips_ideogram(name: str | None) -> bool:
-    """Type-only statements and vector marks. No generated picture."""
-    return (name or "") in {"type-only", "communique", "mark-stage", "device-stage"}
+    """Every poster gets an Ideogram field. The template name does not skip the call."""
+    del name
+    return False
 
 
 def kit_hero_unsuitable(kit: dict[str, Any] | None) -> bool:
@@ -818,6 +819,95 @@ def template_hint_from_profile(brand_profile: dict[str, Any] | None) -> str | No
         if hits:
             return min(hits)[1]
     return None
+
+
+_GENERIC_TYPEFACES = frozenset(
+    {
+        "",
+        "inherit",
+        "initial",
+        "sans-serif",
+        "serif",
+        "monospace",
+        "system-ui",
+        "ui-sans-serif",
+        "ui-serif",
+        "-apple-system",
+        "dejavu sans",
+        "dejavu sans mono",
+        "liberation sans",
+    }
+)
+DISPLAY_FALLBACK = "Noto Sans Display"
+
+
+def _font_installed(name: str) -> bool:
+    import subprocess
+
+    try:
+        proc = subprocess.run(
+            ["fc-match", "-f", "%{family}", name],
+            capture_output=True,
+            text=True,
+            timeout=2,
+        )
+    except (OSError, subprocess.TimeoutExpired):
+        return False
+    family = (proc.stdout or "").split(",")[0].strip().casefold()
+    wanted = name.strip().casefold()
+    return bool(family) and (wanted in family or family in wanted)
+
+
+def usable_display_font(name: str | None) -> str | None:
+    """A real face. Generic and missing families are not usable."""
+    cleaned = (name or "").strip()
+    if cleaned.casefold() in _GENERIC_TYPEFACES:
+        return None
+    if _font_installed(cleaned):
+        return cleaned
+    return None
+
+
+def resolve_display_fonts(
+    brand_profile: dict[str, Any] | None,
+    kit: dict[str, Any] | None = None,
+) -> dict[str, str]:
+    """Brand display face when it is installed, otherwise a real display fallback."""
+    chosen = profile_fonts(brand_profile)
+    headline = usable_display_font(chosen.get("headline"))
+    body = usable_display_font(chosen.get("body"))
+    if not headline:
+        headline = DISPLAY_FALLBACK if _font_installed(DISPLAY_FALLBACK) else "Inter"
+    if not body:
+        body = "Inter" if _font_installed("Inter") else headline
+    return {"headline": headline, "body": body}
+
+
+def type_quality(
+    *,
+    font: str,
+    headline_size: float,
+    subline_size: float,
+    headline: str,
+    headline_contrast: float | None = None,
+    logo_contrast: float | None = None,
+) -> dict[str, Any]:
+    """Deterministic type bar. The picture judge uses the same failures."""
+    failures: list[str] = []
+    if not usable_display_font(font):
+        failures.append("system font")
+    if headline_size < 54:
+        failures.append("headline under 54px")
+    if subline_size and headline_size and subline_size > headline_size * 0.62:
+        failures.append("subline too close in size")
+    words = [w for w in (headline or "").replace("\n", " ").split() if w]
+    if len(words) > 8:
+        failures.append("more than 8 words in the headline")
+    if headline_contrast is not None and headline_contrast < TEXT_CONTRAST_MIN:
+        failures.append("headline contrast under 4.5:1")
+    if logo_contrast is not None and logo_contrast < TEXT_CONTRAST_MIN:
+        failures.append("logo contrast under 4.5:1")
+    return {"passed": not failures, "reason": "; ".join(failures)}
 
 
 def profile_fonts(brand_profile: dict[str, Any] | None) -> dict[str, Any]:
@@ -955,6 +1045,16 @@ def balance_lines(text: str, size: float, box_w: float, em: float) -> list[str]:
     return lines
 
 
+def avoid_orphan(lines: list[str]) -> list[str]:
+    """Keep the last line from being a single word."""
+    if len(lines) < 2 or len(lines[-1].split()) != 1:
+        return lines
+    words = " ".join(lines).split()
+    if len(words) <= 2:
+        return [" ".join(words)]
+    return [" ".join(words[:-2]), " ".join(words[-2:])]
+
+
 def fit_headline(
     text: str,
     box_w: float,
@@ -967,7 +1067,7 @@ def fit_headline(
         longest = max((len(w) for w in text.split()), default=0)
         fits_words = longest * size * HEADLINE_EM <= box_w
         if (len(lines) <= max_lines and fits_words) or size <= HEADLINE_MIN_SIZE:
-            return size, balance_lines(text, size, box_w, HEADLINE_EM)
+            return size, avoid_orphan(balance_lines(text, size, box_w, HEADLINE_EM))
         size -= 2
 
 
@@ -1019,6 +1119,126 @@ def logo_target_size(img_w: int | None, img_h: int | None) -> tuple[float, float
     return w, h
 
 
+TREATMENTS = ("full-sheet", "photo-band", "pattern-field", "illustration-cluster", "quiet-type")
+IMAGE_TREATMENTS = frozenset(
+    {"full-sheet", "photo-band", "pattern-field", "illustration-cluster", "quiet-type"}
+)
+# Photograph above a type band. Not a full-bleed sheet.
+PHOTO_BAND: Box = (0.0, 0.0, CANVAS_W, 340.0)
+
+
+def treatment_needs_image(treatment: str | None) -> bool:
+    return treatment in IMAGE_TREATMENTS
+
+
+def treatment_for_energy(energy: str | None) -> str:
+    """Pick a poster treatment from the brand. A stark brand stays type-led."""
+    if energy in ("quiet-type", "mark-stage", "type-only", "communique", "device-stage"):
+        return "quiet-type"
+    if energy in ("photo-block", "photo-card", "product-card"):
+        return "photo-band"
+    if energy == "gradient-field":
+        return "pattern-field"
+    if energy in ("circle-stage", "character-scene", "product-ui"):
+        return "illustration-cluster"
+    return "full-sheet"
+
+
+def treatment_for_template(name: str | None) -> str:
+    if name in ("type-only", "communique", "mark-stage", "device-stage", "centered-statement"):
+        return "quiet-type"
+    if name in ("photo-block", "photo-card", "product-card", "split-text-left"):
+        return "photo-band"
+    if name in ("circle-stage", "character-scene", "product-ui"):
+        return "illustration-cluster"
+    if name == "full-bleed-scrim":
+        return "pattern-field"
+    return "full-sheet"
+
+
+def choose_treatment(brief: dict[str, Any] | None, energy: str | None = None) -> str:
+    """The brief's treatment wins. Otherwise the brand energy chooses."""
+    raw = (brief or {}).get("treatment")
+    if raw in TREATMENTS:
+        return str(raw)
+    if energy:
+        return treatment_for_energy(energy)
+    return treatment_for_template(str((brief or {}).get("layoutTemplate") or ""))
+
+
+def treatment_type_zone(treatment: str) -> str:
+    if treatment in ("pattern-field", "illustration-cluster"):
+        return "center"
+    return "lower"
+
+
+def quiet_zone_for(template: str | None) -> str:
+    """Where editable type sits on a full-sheet poster. Not a side column beside a picture box."""
+    if template in ("photo-block", "photo-card", "product-card", "split-text-left", "full-bleed-scrim"):
+        return "lower"
+    return "center"
+
+
+def quiet_zone_phrase(zone: str) -> str:
+    if zone == "lower":
+        return (
+            "Leave a quiet band along the bottom of the sheet, still part of the same composition, "
+            "so type can sit there later."
+        )
+    return (
+        "Leave the centre of the sheet quieter and clearer, still part of the same composition, "
+        "so type can sit in the middle later."
+    )
+
+
+def place_type_in_quiet_zone(plan: LayoutPlan, zone: str) -> LayoutPlan:
+    """Move the type stack onto the sheet, over the image, instead of a left column."""
+    text_keys = [key for key in ("eyebrow", "headline", "subline", "cta") if key in plan.elements]
+    if not text_keys:
+        return plan
+    boxes = [plan.elements[key]["box"] for key in text_keys]
+    min_y = min(box[1] for box in boxes)
+    max_y = max(box[1] + box[3] for box in boxes)
+    stack_h = max_y - min_y
+    if zone == "lower":
+        new_top = CANVAS_H - MARGIN_Y - stack_h
+    else:
+        new_top = (CANVAS_H - stack_h) / 2
+    new_top = max(MARGIN_Y, new_top)
+    shift = new_top - min_y
+    for key in text_keys:
+        _x, y, width, height = plan.elements[key]["box"]
+        plan.elements[key]["box"] = (
+            round((CANVAS_W - width) / 2, 1),
+            round(y + shift, 1),
+            width,
+            height,
+        )
+    plan.align = "center"
+    if "logo" in plan.elements:
+        _x, _y, logo_w, logo_h = plan.elements["logo"]["box"]
+        if zone == "lower":
+            logo_y = MARGIN_Y
+        else:
+            logo_y = max(MARGIN_Y, new_top - 28 - logo_h)
+        plan.elements["logo"]["box"] = (
+            round((CANVAS_W - logo_w) / 2, 1),
+            round(logo_y, 1),
+            logo_w,
+            logo_h,
+        )
+    content_w = max(plan.elements[key]["box"][2] for key in text_keys)
+    plan.text_zone = (
+        round((CANVAS_W - content_w) / 2, 1),
+        round(new_top, 1),
+        content_w,
+        stack_h,
+    )
+    plan.panel = None
+    plan.card = None
+    return plan
+
+
 def plan_layout(
     template_name: str,
     *,
@@ -1030,21 +1250,28 @@ def plan_layout(
     headline_scale: str | None = None,
     headline_weight: str | None = None,
     logo_size: tuple[float, float] | None = None,
+    box_x: float | None = None,
+    box_w: float | None = None,
+    anchor: str | None = None,
+    align: str | None = None,
+    max_lines: int | None = None,
 ) -> LayoutPlan:
     tpl = get_template(template_name)
-    plan = LayoutPlan(template=tpl.name, align=tpl.align)
+    plan = LayoutPlan(template=tpl.name, align=align or tpl.align)  # type: ignore[arg-type]
     scale = headline_scale if headline_scale in HEADLINE_SCALE else headline_scale_for(headline)
     weight_key = headline_weight if headline_weight in HEADLINE_WEIGHT else (
         "bold" if scale == "md" else "extrabold"
     )
-    box_x, box_w = tpl.text_x, tpl.text_w
+    box_x = tpl.text_x if box_x is None else box_x
+    box_w = tpl.text_w if box_w is None else box_w
+    anchor = anchor or tpl.anchor
 
-    h_size, h_lines = fit_headline(headline, box_w, scale, tpl.max_headline_lines)
-    s_lines = balance_lines(subline, SUBLINE_SIZE, box_w, BODY_EM) if subline else []
-    s_size = SUBLINE_SIZE
+    h_size, h_lines = fit_headline(headline, box_w, scale, max_lines or min(2, tpl.max_headline_lines) or 2)
+    # Subline is about half the headline and lighter. Never close to the headline size.
+    s_size = max(SUBLINE_MIN_SIZE, round(h_size * 0.46))
+    s_lines = balance_lines(subline, s_size, box_w, BODY_EM) if subline else []
     if len(s_lines) > 2:
-        s_size = SUBLINE_MIN_SIZE
-        s_lines = balance_lines(subline, s_size, box_w, BODY_EM)
+        s_lines = s_lines[:2]
 
     show_cta = bool(cta) and cta_style != "none"
     eyebrow_h = EYEBROW_SIZE * 1.2 if eyebrow else 0.0
@@ -1073,7 +1300,7 @@ def plan_layout(
     bottom_limit = CANVAS_H - MARGIN_Y
     if tpl.surface == "card":
         bottom_limit -= CARD_PAD
-    if tpl.anchor == "bottom":
+    if anchor == "bottom":
         top = bottom_limit - total_h
     else:
         region_top = logo_bottom + 32 if logo_size else MARGIN_Y
@@ -1096,7 +1323,7 @@ def plan_layout(
                 "weight": HEADLINE_WEIGHT[weight_key],
                 "weightKey": weight_key,
                 "lines": len(h_lines),
-                "leading": round(h_size * HEADLINE_LEADING, 1),
+                "leading": round(h_size * 0.96, 1),
                 "text": "\n".join(h_lines),
             }
         elif name == "subline":
@@ -1110,7 +1337,7 @@ def plan_layout(
         elif name == "cta":
             label_w = len(cta) * CTA_LABEL_SIZE * 0.56
             chip_w = round(label_w + 2 * CTA_PAD_X)
-            chip_x = box_x if tpl.align == "left" else CANVAS_W / 2 - chip_w / 2
+            chip_x = box_x if plan.align == "left" else CANVAS_W / 2 - chip_w / 2
             plan.elements["cta"] = {
                 "box": (round(chip_x, 1), round(y, 1), chip_w, CTA_HEIGHT),
                 "label": cta,
@@ -1128,7 +1355,7 @@ def plan_layout(
             plan.elements["cta"]["box"][2] if "cta" in plan.elements else 0.0,
         )
         content_w = min(box_w, content_w)
-        x0 = box_x if tpl.align == "left" else CANVAS_W / 2 - content_w / 2
+        x0 = box_x if plan.align == "left" else CANVAS_W / 2 - content_w / 2
         y0 = min(b[1] for b in text_boxes)
         y1 = max(b[1] + b[3] for b in text_boxes)
         plan.text_zone = (x0, y0, content_w, y1 - y0)
@@ -1289,7 +1516,11 @@ def audit_plan(
         add("cta", "cta" in els, "CTA chip present" if "cta" in els else "no CTA")
 
     if contrast:
-        low = {k: round(v, 2) for k, v in contrast.items() if v < (GRAPHIC_CONTRAST_MIN if k in ("logo", "ctaChip") else TEXT_CONTRAST_MIN)}
+        low = {
+            k: round(v, 2)
+            for k, v in contrast.items()
+            if v < (GRAPHIC_CONTRAST_MIN if k == "ctaChip" else TEXT_CONTRAST_MIN)
+        }
         add("contrast", not low, f"min ratios {({k: round(v, 2) for k, v in contrast.items()})}", 3)
 
     if scrim_alpha is not None:

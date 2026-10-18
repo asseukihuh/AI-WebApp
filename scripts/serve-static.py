@@ -37,6 +37,7 @@ from creative_brief import (  # noqa: E402
     _normalize_api_key,
     art_director_enabled,
     art_director_review,
+    brand_layout_energy,
     build_creative_brief,
     coerce_ideogram_for_unsuitable_kit_hero,
 )
@@ -44,6 +45,7 @@ from ideogram_client import (  # noqa: E402
     brand_terms_from_kit,
     generate_layer_image,
     ideogram_api_key,
+    treatment_spec,
 )
 from ideogram_judge import (  # noqa: E402
     acquire_poster_picture,
@@ -70,6 +72,7 @@ from poster_compiler import (  # noqa: E402
 )
 from poster_design import (  # noqa: E402
     brand_roles,
+    choose_treatment,
     kit_hero_unsuitable,
     resolve_template_name,
 )
@@ -463,6 +466,7 @@ class CommMakerHandler(http.server.SimpleHTTPRequestHandler):
             ideogram_used = False
             picture_bytes: bytes | None = None
             picture_prompt = ""
+            poster_treatment = ""
             if isinstance(creative_brief, dict):
                 roles = brand_roles(kit, brand_profile)
                 resolved_template = resolve_template_name(
@@ -487,12 +491,30 @@ class CommMakerHandler(http.server.SimpleHTTPRequestHandler):
                     "brand_profile": brand_profile,
                 }
 
+                poster_treatment = choose_treatment(
+                    creative_brief, brand_layout_energy(kit, brand_profile)
+                )
+                picture_resolution = treatment_spec(poster_treatment).get("resolution") or "1200x627"
+
                 def _generate_picture(scene: str) -> tuple:
+                    kind = poster_treatment
+                    for name in ("full-sheet", "photo-band", "pattern-field", "illustration-cluster", "quiet-type"):
+                        if f"Treatment {name}" in scene:
+                            kind = name
+                            break
+                    resolution = treatment_spec(kind).get("resolution") or picture_resolution
+                    packet = None
+                    if isinstance(brand_profile, dict):
+                        packet = brand_profile.get("ideogramPacket")
+                    if not isinstance(packet, dict) and isinstance(kit, dict):
+                        packet = kit.get("ideogramPacket")
                     return generate_layer_image(
                         scene,
                         "background",
-                        "1200x627",
+                        resolution,
                         assets_dir=ASSETS_DIR,
+                        treatment=kind,
+                        brand_packet=packet if isinstance(packet, dict) else None,
                         **ideogram_style,
                     )
 
@@ -514,10 +536,10 @@ class CommMakerHandler(http.server.SimpleHTTPRequestHandler):
                     hero_rel = str(acquired["path"])
                     bg_meta = acquired.get("meta") or {}
                     generated_assets.append(
-                        {"role": "background", "path": hero_rel, "source": "ideogram-4"}
+                        {"role": "background", "path": hero_rel, "source": "ideogram-4.5"}
                     )
                     hero_meta = {
-                        "heroSource": "ideogram-4",
+                        "heroSource": "ideogram-4.5",
                         "heroImagePrompt": picture_prompt,
                         "ideogramResolution": bg_meta.get("ideogramResolution"),
                         "ideogramLayers": "background-only",
@@ -527,10 +549,11 @@ class CommMakerHandler(http.server.SimpleHTTPRequestHandler):
                     if bg_meta.get("resolutionNote"):
                         hero_meta["resolutionNote"] = (
                             f"{bg_meta['resolutionNote']} "
-                            "Poster compiler cover-fills 1200×627."
+                            "Poster compiler cover-fills the 1200×627 canvas."
                         )
                     kit["heroImageUrl"] = f"/{hero_rel}"
                     picture_path = os.path.join(ROOT, hero_rel)
+                    self._maybe_cache_logo_variants(kit, asset_errors)
 
                     def _regenerate(revised: str) -> tuple:
                         nonlocal ideogram_ms
@@ -543,27 +566,55 @@ class CommMakerHandler(http.server.SimpleHTTPRequestHandler):
                             raise ValueError("Ideogram retry did not return a PNG.")
                         return rel, data, meta
 
+                    judge_packet = acquired.get("ideogramPacket") if isinstance(acquired.get("ideogramPacket"), dict) else {}
+                    judge_palette = [
+                        f"{item.get('role')} {item.get('hex')}"
+                        for item in judge_packet.get("palette") or []
+                        if item.get("role") and item.get("hex")
+                    ] or ideogram_style["palette"]
+                    judge_profile = dict(brand_profile or {})
+                    if judge_packet:
+                        judge_profile["ideogramPacket"] = judge_packet
                     judge = judge_real_png(
                         picture_bytes,
                         picture_path,
                         picture_prompt,
-                        reference_paths=picture_references(kit, ROOT),
-                        palette=ideogram_style["palette"],
-                        brand_profile=brand_profile,
+                        reference_paths=picture_references(kit, ROOT, packet=judge_packet),
+                        palette=judge_palette,
+                        brand_profile=judge_profile,
                         regenerate=_regenerate,
+                        region=(0, 0, 1200, 627) if poster_treatment != "photo-band" else (0, 0, 1200, 340),
+                        repo_root=ROOT,
+                        treatment=poster_treatment,
                     )
                     if judge:
                         ideogram_judge = {
                             "passed": judge.get("passed"),
                             "reason": judge.get("reason") or "",
+                            "attempts": int(judge.get("attempts") or 1),
                             "retried": bool(judge.get("retried")),
+                            "treatment": poster_treatment,
                         }
-                        if judge.get("retried") and judge.get("imagePath"):
+                        if judge.get("treatment"):
+                            poster_treatment = str(judge["treatment"])
+                            ideogram_judge["treatment"] = poster_treatment
+                            creative_brief = {**creative_brief, "treatment": poster_treatment}
+                        if judge.get("dropImage"):
+                            hero_rel = None
+                            picture_bytes = None
+                            generated_assets.clear()
+                            hero_meta = {}
+                            creative_brief = {**creative_brief, "heroStrategy": "solid", "treatment": "quiet-type"}
+                        elif judge.get("imagePath"):
                             hero_rel = str(judge["imagePath"])
                             generated_assets[-1]["path"] = hero_rel
-                            generated_assets[-1]["source"] = "ideogram-4-retry"
+                            generated_assets[-1]["source"] = "ideogram-4.5-retry"
                             kit["heroImageUrl"] = f"/{hero_rel}"
                             hero_meta["retried"] = True
+                            picture_path = os.path.join(ROOT, hero_rel)
+                            if os.path.isfile(picture_path):
+                                with open(picture_path, "rb") as handle:
+                                    picture_bytes = handle.read()
                 elif acquired.get("called"):
                     asset_errors.append(
                         {
@@ -719,6 +770,13 @@ class CommMakerHandler(http.server.SimpleHTTPRequestHandler):
             payload["ideogramError"] = ideogram_fallback_message
             if ideogram_judge and ideogram_judge.get("passed") is True and not is_png(picture_bytes):
                 ideogram_judge = None
+            type_report = (batch.get("meta") or {}).get("typeQuality") or {}
+            if ideogram_used and type_report and not type_report.get("passed"):
+                ideogram_judge = dict(ideogram_judge or {})
+                ideogram_judge["passed"] = False
+                ideogram_judge["reason"] = type_report.get("reason") or "Weak type."
+                ideogram_judge.setdefault("attempts", 1)
+                ideogram_judge.setdefault("treatment", poster_treatment)
             if ideogram_judge:
                 payload["ideogramJudge"] = ideogram_judge
             if ideogram_fallback_message:
@@ -729,6 +787,9 @@ class CommMakerHandler(http.server.SimpleHTTPRequestHandler):
                 error=ideogram_fallback_message,
                 score=((batch.get("meta") or {}).get("designAudit") or {}).get("score"),
                 ideogram_ms=int(ideogram_ms),
+                judge=ideogram_judge,
+                treatment=(ideogram_judge or {}).get("treatment") or poster_treatment or None,
+                screenshots_skipped=bool((acquired.get("ideogramPacket") or {}).get("screenshotsSkipped")),
             )
             sys.stderr.write(
                 "CommMaker poster: template=%s ideogramUsed=%s ideogramMs=%s ideogramError=%s\n"

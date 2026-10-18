@@ -474,6 +474,22 @@ def cover_scale_percent(
     return max(canvas_width / img_width, canvas_height / img_height) * 100.0
 
 
+def region_cover_scale_percent(
+    img_width: int,
+    img_height: int,
+    region_width: float,
+    region_height: float,
+) -> float:
+    """Scale % of native pixels so the bitmap covers the picture well.
+
+    Contain (the shorter side) leaves a tiny inset. Native 100% leaves a small
+    file small. Cover enlarges or crops until both sides of the well are filled.
+    """
+    if img_width <= 0 or img_height <= 0 or region_width <= 0 or region_height <= 0:
+        return 100.0
+    return max(region_width / img_width, region_height / img_height) * 100.0
+
+
 def _logo_target_width(img_width: int) -> int:
     if img_width <= 0:
         return LOGO_TARGET_WIDTH
@@ -878,7 +894,7 @@ def _type_step(
     }
     if leading:
         params["leading"] = leading
-    if tracking:
+    if tracking is not None:
         params["tracking"] = tracking
     return {"command": "type.create", "params": params}
 
@@ -905,28 +921,57 @@ def _pick_text_and_scrim(
     return dark if dark[1] + 0.25 < white[1] else white
 
 
+def _field_contrast_color(samples: list[design.RGB], roles: design.BrandRoles) -> str:
+    """White or brand ink from the pixels behind the type.
+
+    White when ink misses 4.5:1, including a light or mid field. Brand ink only when
+    ink clears 4.5:1 against that field and beats white.
+    """
+    ink = roles.dark if design.contrast_ratio(design.hex_to_rgb(roles.dark), (255, 255, 255)) >= 12 else design.INK
+    white_ratio = design.min_contrast(design.hex_to_rgb(design.WHITE), samples)
+    ink_ratio = design.min_contrast(design.hex_to_rgb(ink), samples)
+    if ink_ratio >= design.TEXT_CONTRAST_MIN and ink_ratio >= white_ratio:
+        return ink
+    if white_ratio >= ink_ratio:
+        return design.WHITE
+    return ink
+
+
 def _pick_logo_variant(
     available: dict[str, str],
     colors: dict[str, str],
     samples: list[design.RGB],
     preference: str | None,
 ) -> tuple[str, float]:
-    order = ["original", "light", "dark"]
-    if preference == "wordmark-white" or preference == "symbol-only":
-        order = ["light", "original", "dark"]
-    elif preference == "wordmark-dark":
-        order = ["dark", "original", "light"]
-    scored = []
-    for name in order:
-        if name not in available:
+    """Logo colour from the field behind the mark, not the SVG's original black.
+
+    ``preference`` (wordmark-dark / wordmark-white) does not keep a variant that misses 4.5:1.
+    """
+    del preference
+    scored: list[tuple[str, float]] = []
+    for name in ("light", "dark", "original"):
+        if name not in available or name not in colors:
             continue
         ratio = design.min_contrast(design.hex_to_rgb(colors[name]), samples)
         scored.append((name, ratio))
-        if ratio >= design.GRAPHIC_CONTRAST_MIN:
-            return name, ratio
     if not scored:
         return "original", 0.0
-    return max(scored, key=lambda item: item[1])
+    passing = [item for item in scored if item[1] >= design.TEXT_CONTRAST_MIN]
+    light = next((item for item in scored if item[0] == "light"), None)
+    dark = next((item for item in scored if item[0] == "dark"), None)
+    if passing:
+        light_ok = light if light and light[1] >= design.TEXT_CONTRAST_MIN else None
+        dark_ok = dark if dark and dark[1] >= design.TEXT_CONTRAST_MIN else None
+        if light_ok and dark_ok:
+            return light_ok if light_ok[1] >= dark_ok[1] else dark_ok
+        if light_ok:
+            return light_ok
+        if dark_ok:
+            return dark_ok
+        return max(passing, key=lambda item: item[1])
+    # Neither white nor ink clears. Keep the stronger of those two, not the source black.
+    usable = [item for item in (light, dark) if item] or scored
+    return max(usable, key=lambda item: item[1])
 
 
 def _cta_colors(
@@ -1038,12 +1083,9 @@ def compile_poster_batch(
     comm_kit = kit.get("communicationKit") if isinstance(kit.get("communicationKit"), dict) else {}
     pairing = kit_design.kit_type_pairing(comm_kit)
     resolved = fonts_resolved or {}
-    headline_font = str(
-        resolved.get("headline") or profile_font.get("headline") or pairing.get("displayFamily") or _pick_headline_font(kit)
-    )
-    body_font = str(
-        resolved.get("body") or profile_font.get("body") or pairing.get("bodyFamily") or _pick_body_font(kit, headline_font)
-    )
+    display = design.resolve_display_fonts(brand_profile, kit)
+    headline_font = design.usable_display_font(str(resolved.get("headline") or "")) or display["headline"]
+    body_font = design.usable_display_font(str(resolved.get("body") or "")) or display["body"]
 
     composition = clean_composition(brief.get("composition")) or default_composition(kit, brand_profile)
     template_name = design.resolve_template_name(
@@ -1097,18 +1139,19 @@ def compile_poster_batch(
             logo_h = logo_w / aspect
         logo_size = (logo_w, logo_h)
 
-    def _plan(name: str) -> design.LayoutPlan:
-        return design.plan_layout(
-            name,
-            headline=headline,
-            subline=subline,
-            eyebrow=eyebrow,
-            cta=cta,
-            cta_style=cta_style,
-            headline_scale=headline_scale,
-            headline_weight=headline_weight,
-            logo_size=logo_size,
-        )
+    def _plan(name: str, **overrides) -> design.LayoutPlan:
+        kwargs = {
+            "headline": headline,
+            "subline": subline,
+            "eyebrow": eyebrow,
+            "cta": cta,
+            "cta_style": cta_style,
+            "headline_scale": headline_scale,
+            "headline_weight": headline_weight,
+            "logo_size": logo_size,
+        }
+        kwargs.update(overrides)
+        return design.plan_layout(name, **kwargs)
 
     identity_stops = design.identity_gradient_stops(brand_profile, roles)
     wants_gradient = any(
@@ -1145,14 +1188,74 @@ def compile_poster_batch(
     tpl = design.get_template(template_name)
     plan = _plan(tpl.name)
     energy = brand_layout_energy(kit, brand_profile)
+    treatment = design.choose_treatment(brief, energy)
+    # Only the treatments that are a full sheet cover the canvas. A photo band
+    # and a quiet type poster do not.
+    reserved_well = tpl.image_region != (0, 0, LINKEDIN_WIDTH, LINKEDIN_HEIGHT)
+    full_sheet = bool(hero_relative_path) and reserved_well and treatment in (
+        "full-sheet",
+        "pattern-field",
+        "illustration-cluster",
+    )
+    photo_band = bool(hero_relative_path) and treatment == "photo-band"
+    if full_sheet:
+        measure = design.span_w(10)
+        zone = design.treatment_type_zone(treatment)
+        plan = _plan(
+            tpl.name,
+            box_x=(design.CANVAS_W - measure) / 2,
+            box_w=measure,
+            align="center",
+            anchor="center" if zone == "center" else "bottom",
+            headline_scale="xl",
+            max_lines=2,
+        )
+    elif photo_band:
+        # Picture on top. Type is a left-aligned stack in the band beneath it.
+        plan = _plan(
+            tpl.name,
+            box_x=design.MARGIN_X,
+            box_w=design.span_w(7),
+            anchor="bottom",
+            align="left",
+            headline_scale="lg",
+            max_lines=2,
+        )
+    elif treatment == "full-sheet":
+        plan = _plan(
+            tpl.name,
+            box_x=design.MARGIN_X,
+            box_w=design.span_w(10),
+            anchor="bottom",
+            align="left",
+            headline_scale="xl",
+            max_lines=2,
+        )
+    elif treatment == "quiet-type":
+        plan = _plan(tpl.name, headline_scale="xl", max_lines=2, align="center")
+    if plan.align == "center" and "logo" in plan.elements:
+        _x, logo_y, logo_w, logo_h = plan.elements["logo"]["box"]
+        plan.elements["logo"]["box"] = (
+            round((design.CANVAS_W - logo_w) / 2, 1),
+            logo_y,
+            logo_w,
+            logo_h,
+        )
     ground = _ground_color(tpl.name, energy, kit, roles)
-    if ground:
+    if ground and not full_sheet:
         identity_field = False
 
         def _sampler_for(tpl: design.LayoutTemplate) -> design.Sampler:
             return design.solid_sampler(ground)
+    elif full_sheet and has_photo_hero and hero_grid:
+        def _sampler_for(tpl: design.LayoutTemplate) -> design.Sampler:
+            return design.raster_sampler(
+                hero_grid,
+                region=(0, 0, LINKEDIN_WIDTH, LINKEDIN_HEIGHT),
+                align="center",
+            )
 
-    surface = _surface_color(tpl)
+    surface = None if full_sheet or photo_band else _surface_color(tpl)
     scrim_alpha: float | None = 0.0
     scrim_color = roles.dark
     if surface:
@@ -1164,7 +1267,16 @@ def compile_poster_batch(
         zone = plan.text_zone or (design.MARGIN_X, design.MARGIN_Y, 600, 300)
         raw_samples = _zone_samples(tpl, zone)
         text_color, scrim_alpha, scrim_color = _pick_text_and_scrim(raw_samples, roles)
-        if scrim_alpha is None or (tpl.scrim == "none" and scrim_alpha > 0):
+        if full_sheet or photo_band:
+            # Type stays on the full-bleed image, not on a side panel.
+            if scrim_alpha and scrim_alpha > 0:
+                scrim_alpha = round(min(design.SCRIM_MAX_ALPHA, scrim_alpha + 0.05), 3)
+                scrim_rgb = design.hex_to_rgb(scrim_color)
+                text_samples = [design.blend(s, scrim_rgb, scrim_alpha) for s in raw_samples]
+            else:
+                scrim_alpha = 0.0
+                text_samples = raw_samples
+        elif scrim_alpha is None or (tpl.scrim == "none" and scrim_alpha > 0):
             tpl = design.get_template("text-panel")
             plan = _plan(tpl.name)
             surface = _surface_color(tpl)
@@ -1180,11 +1292,24 @@ def compile_poster_batch(
             scrim_rgb = design.hex_to_rgb(scrim_color)
             text_samples = [design.blend(s, scrim_rgb, scrim_alpha) for s in raw_samples]
 
+    if photo_band:
+        # The type sits on the colour band, so the band — not the photo — picks the ink.
+        band_rgb = design.hex_to_rgb(roles.brand)
+        text_samples = [band_rgb]
+        text_color = _field_contrast_color(text_samples, roles)
+        scrim_alpha = 0.0
+    elif design.min_contrast(design.hex_to_rgb(text_color), text_samples) < design.TEXT_CONTRAST_MIN:
+        alt = _field_contrast_color(text_samples, roles)
+        if design.min_contrast(design.hex_to_rgb(alt), text_samples) >= design.min_contrast(
+            design.hex_to_rgb(text_color), text_samples
+        ):
+            text_color = alt
+
     steps: list[dict[str, Any]] = []
     background_placements: list[dict[str, Any]] = []
 
     brand_gradient_rel: str | None = None
-    if ground:
+    if ground and not has_photo_hero:
         steps.append(
             {"command": "layer.newFillLayer.solidColor", "params": {"color": ground, "name": "Field"}}
         )
@@ -1237,25 +1362,33 @@ def compile_poster_batch(
     # A fitted picture must be placed after the Field step. Background placements are
     # painted first, and the solid field would cover the bitmap.
     picture_on_top: dict[str, Any] | None = None
-    if hero_relative_path:
+    if hero_relative_path and photo_band:
+        band_x, band_y, band_w, band_h = design.PHOTO_BAND
+        known_w = hero_width or 1280
+        known_h = hero_height or 720
+        placement = _hero_background_placement(
+            hero_relative_path,
+            img_width=known_w,
+            img_height=known_h,
+            layer_name="Background",
+        )
+        placement["name"] = "Background"
+        placement["cover"] = False
+        placement["fit"] = False
+        placement["center"] = [round(band_x + band_w / 2, 1), round(band_y + band_h / 2, 1)]
+        placement["scale"] = round(region_cover_scale_percent(known_w, known_h, band_w, band_h), 2)
+        background_placements.append(placement)
+    elif hero_relative_path:
+        # Full-sheet, pattern, and illustration treatments cover the canvas.
+        # Other heroes keep the canvas cover only when that is the chosen frame.
         placement = _hero_background_placement(
             hero_relative_path,
             img_width=hero_width,
             img_height=hero_height,
-            layer_name="Background" if ideogram_layers else "Hero image",
+            layer_name="Background" if ideogram_layers or full_sheet else "Hero image",
         )
-        rx, ry, rw, rh = tpl.image_region
-        fitted = (rx, ry, rw, rh) != (0, 0, LINKEDIN_WIDTH, LINKEDIN_HEIGHT) and hero_width and hero_height
-        if fitted:
-            scale = min(rw / hero_width, rh / hero_height)
-            placement["cover"] = False
-            placement["fit"] = True
-            placement["name"] = "Picture"
-            placement["center"] = [round(rx + rw / 2, 1), round(ry + rh / 2, 1)]
-            placement["scale"] = round(scale * 100, 2)
-            picture_on_top = placement
-        else:
-            background_placements.append(placement)
+        placement["name"] = "Background"
+        background_placements.append(placement)
     if accent_relative_path:
         accent = _accent_background_placement(
             accent_relative_path, img_width=accent_width, img_height=accent_height
@@ -1306,6 +1439,14 @@ def compile_poster_batch(
             }
         )
 
+    if photo_band and "cta" in plan.elements:
+        _x, y, width, height = plan.elements["cta"]["box"]
+        plan.elements["cta"]["box"] = (
+            round(design.CANVAS_W - design.MARGIN_X - width, 1),
+            y,
+            width,
+            height,
+        )
     contrast: dict[str, float] = {}
     text_rgb = design.hex_to_rgb(text_color)
     els = plan.elements
@@ -1326,7 +1467,8 @@ def compile_poster_batch(
     steps.append(
         _type_step(
             "Headline", h["text"], h["box"], font=headline_font, size=h["size"], color=text_color,
-            weight=h["weight"], align=plan.align, leading=h["leading"], tracking=design.HEADLINE_TRACKING,
+            weight=h["weight"], align=plan.align, leading=h["leading"],
+            tracking=-32 if plan.align == "left" else -18,
         )
     )
     if "subline" in els:
@@ -1336,6 +1478,7 @@ def compile_poster_batch(
             _type_step(
                 "Subline", sub["text"], sub["box"], font=body_font, size=sub["size"], color=text_color,
                 weight=design.SUBLINE_WEIGHT, align=plan.align, leading=sub["leading"],
+                tracking=24 if plan.align == "center" else 0,
             )
         )
     cta_meta: dict[str, Any] | None = None
@@ -1387,15 +1530,15 @@ def compile_poster_batch(
             preference = "wordmark-white"
         logo_variant, logo_ratio = _pick_logo_variant(logo_paths, variant_colors, logo_samples, preference)
         logo_on_dark = logo_variant == "light" or (
-            logo_ratio < design.GRAPHIC_CONTRAST_MIN
+            logo_ratio < design.TEXT_CONTRAST_MIN
             and design.min_contrast((255, 255, 255), logo_samples)
             >= design.min_contrast(design.hex_to_rgb(original), logo_samples)
         )
-        if logo_ratio < design.GRAPHIC_CONTRAST_MIN:
+        if logo_ratio < design.TEXT_CONTRAST_MIN:
             light_rgb = design.hex_to_rgb(design.WHITE if "light" in logo_paths else variant_colors[logo_variant])
             alpha = design.required_scrim_alpha(
                 design.worst_samples(logo_samples, for_light_text=True),
-                design.hex_to_rgb(roles.dark), light_rgb, target=design.GRAPHIC_CONTRAST_MIN,
+                design.hex_to_rgb(roles.dark), light_rgb, target=design.TEXT_CONTRAST_MIN,
             ) or design.SCRIM_MAX_ALPHA
             geometry = _scrim_geometry("radial", (lx, ly, lw, lh), alpha)
             if geometry:
@@ -1479,6 +1622,16 @@ def compile_poster_batch(
     else:
         visual_share = mark_share
 
+    headline_box = (plan.elements.get("headline") or {})
+    subline_box = plan.elements.get("subline") or {}
+    type_report = design.type_quality(
+        font=headline_font,
+        headline_size=float(headline_box.get("size") or 0),
+        subline_size=float(subline_box.get("size") or 0),
+        headline=str(headline_box.get("text") or headline),
+        headline_contrast=contrast.get("headline"),
+        logo_contrast=contrast.get("logo"),
+    )
     audit = design.audit_plan(
         plan,
         contrast=contrast,
@@ -1513,6 +1666,8 @@ def compile_poster_batch(
         "output": {"relativePath": f"generated/{filename}"},
         "meta": {
             "headline": headline,
+            "typeQuality": type_report,
+            "fonts": {"headline": headline_font, "body": body_font},
             "tagline": subline,
             "eyebrow": eyebrow or None,
             "cta": cta_meta,

@@ -306,15 +306,84 @@ class TestCompilerRules(unittest.TestCase):
     def test_light_background_keeps_dark_logo(self) -> None:
         batch = self._compile(_uniform_grid((246, 246, 250)), brief=_brief(logoTreatment="wordmark-dark"))
         self.assertIn(batch["meta"]["logoVariant"], ("original", "dark"))
+        self.assertGreaterEqual(batch["meta"]["contrast"]["logo"], design.TEXT_CONTRAST_MIN)
 
-    def test_split_template_places_hero_in_right_half(self) -> None:
+    def test_blurple_field_uses_white_logo_when_black_misses_4_5(self) -> None:
+        batch = self._compile(
+            _uniform_grid((80, 69, 234)),
+            brief=_brief(logoTreatment="wordmark-dark", treatment="full-sheet"),
+        )
+        self.assertEqual(batch["meta"]["logoVariant"], "light")
+        self.assertGreaterEqual(batch["meta"]["contrast"]["logo"], design.TEXT_CONTRAST_MIN)
+        self.assertGreaterEqual(batch["meta"]["contrast"]["headline"], design.TEXT_CONTRAST_MIN)
+        headline = next(step for step in batch["steps"] if step["params"].get("name") == "Headline")
+        self.assertEqual(headline["params"]["color"].lower(), design.WHITE)
+        self.assertTrue(batch["meta"]["typeQuality"]["passed"], batch["meta"]["typeQuality"])
+
+    def test_coloured_band_uses_the_contrast_colour(self) -> None:
+        kit = _fixture("kit-stripe.json")
+        kit = dict(kit)
+        kit["colors"] = ["#ff5a5f", "#ffffff", "#484848"]
+        batch = compile_poster_batch(
+            kit,
+            _session(),
+            hero_relative_path="generated/assets/test-hero.png",
+            hero_width=1200,
+            hero_height=627,
+            hero_grid=_uniform_grid((220, 180, 140)),
+            logo_relative_path="generated/assets/logo.svg",
+            logo_variants={
+                "original": "generated/assets/logo.svg",
+                "light": "generated/assets/logo-light.svg",
+                "dark": "generated/assets/logo-dark.svg",
+            },
+            logo_width=60,
+            logo_height=25,
+            creative_brief=_brief(
+                logoTreatment="wordmark-white",
+                layoutTemplate="photo-block",
+                treatment="photo-band",
+            ),
+        )
+        headline = next(step for step in batch["steps"] if step["params"].get("name") == "Headline")
+        self.assertNotEqual(headline["params"]["color"].lower(), design.WHITE)
+        self.assertGreaterEqual(batch["meta"]["contrast"]["headline"], design.TEXT_CONTRAST_MIN)
+
+    def test_type_quality_fails_contrast_under_4_5(self) -> None:
+        logo_fail = design.type_quality(
+            font="Noto Sans Display",
+            headline_size=76,
+            subline_size=32,
+            headline="Payments that scale",
+            headline_contrast=5.0,
+            logo_contrast=3.01,
+        )
+        self.assertFalse(logo_fail["passed"])
+        self.assertIn("logo contrast under 4.5:1", logo_fail["reason"])
+        headline_fail = design.type_quality(
+            font="Noto Sans Display",
+            headline_size=76,
+            subline_size=32,
+            headline="Payments that scale",
+            headline_contrast=3.05,
+            logo_contrast=7.4,
+        )
+        self.assertFalse(headline_fail["passed"])
+        self.assertIn("headline contrast under 4.5:1", headline_fail["reason"])
+
+    def test_split_template_covers_the_canvas_and_types_on_the_image(self) -> None:
         batch = self._compile(_uniform_grid((20, 24, 40)), brief=_brief(layoutTemplate="split-text-left"))
         self.assertEqual(batch["meta"]["layoutTemplate"], "split-text-left")
         hero = batch["backgroundPlacements"][0]
+        self.assertEqual(hero["center"], [design.CANVAS_W / 2, design.CANVAS_H / 2])
         right_edge = hero["center"][0] + 1200 * hero["scale"] / 100 / 2
         self.assertAlmostEqual(right_edge, design.CANVAS_W, delta=1)
         names = [s["params"].get("name") for s in batch["steps"]]
-        self.assertIn("Brand panel", names)
+        self.assertNotIn("Brand panel", names)
+        headline = next(s for s in batch["steps"] if s["params"].get("name") == "Headline")
+        box = headline["params"]["box"]
+        self.assertAlmostEqual(box[0] + box[2] / 2, design.CANVAS_W / 2, delta=30)
+        self.assertEqual(headline["params"]["align"], "center")
 
     def test_design_audit_in_meta(self) -> None:
         batch = self._compile(_uniform_grid((20, 24, 40)))
@@ -360,8 +429,16 @@ class TestIdeogramPrompt(unittest.TestCase):
         elements = prompt["compositional_deconstruction"]["elements"]
         self.assertTrue(elements)
         self.assertTrue(all(e["type"] == "obj" for e in elements))
+        blob = json.dumps(prompt)
+        self.assertIn("type band", blob)
+        self.assertNotIn("generous negative space", blob)
+        self.assertNotIn("circle", blob.lower())
         for element in elements:
-            self.assertGreaterEqual(element["bbox"][1], 500)
+            x, y, x2, y2 = element["bbox"]
+            self.assertLessEqual(x, 160)
+            self.assertLessEqual(y, 120)
+            self.assertGreaterEqual(x2, 850)
+            self.assertGreaterEqual(y2, 650)
         self.assertEqual(prompt["style_description"]["color_palette"][0], "#533afd")
         self.assertIn("Chromatic Fluidity", prompt["style_description"]["aesthetics"])
         art_style = prompt["style_description"]["art_style"]

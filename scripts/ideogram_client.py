@@ -1,4 +1,4 @@
-"""Ideogram 4.0 raster layers for CommMaker LinkedIn posters."""
+"""Ideogram 4.5 raster layers for CommMaker LinkedIn posters."""
 
 from __future__ import annotations
 
@@ -11,29 +11,29 @@ import urllib.error
 import urllib.request
 from typing import Literal
 
-IDEOGRAM_GENERATE_URL = "https://api.ideogram.ai/v2/image/generate/ideogram-4"
+IDEOGRAM_GENERATE_URL = "https://api.ideogram.ai/v2/image/generate/ideogram-4-5"
 IDEOGRAM_REMIX_URL = "https://api.ideogram.ai/v2/image/remix/ideogram-4"
 
 
 def ideogram_conditioning() -> dict[str, str | bool]:
     """How a poster field is conditioned on the website.
 
-    Ideogram 4 generate (the endpoint CommMaker calls) takes a prompt and a resolution.
-    It has no style-reference, character-reference, or image input. Remix accepts one
-    image, but the prompt is an edit instruction and the source is preserved, so a page
-    screenshot would come back with its text and logos. Screenshots are therefore shown
-    to the brief model, and only the text-free prompt plus the palette are sent here.
+    Every graphic crop is uploaded on the multipart ``images`` field (up to five). They are examples for
+    one poster, not a single source to copy. Remix is not used, because remix keeps
+    text from the source. A page screenshot is not one of those files.
     """
     return {
         "generateUrl": IDEOGRAM_GENERATE_URL,
-        "generateAcceptsReferenceImage": False,
+        "generateAcceptsReferenceImage": True,
+        "imageField": "images",
+        "maxExampleImages": 5,
         "remixUrl": IDEOGRAM_REMIX_URL,
         "remixKeepsSourceText": True,
-        "mode": "vision-prompt",
+        "mode": "reference-image",
         "note": (
-            "Ideogram 4 generate has no image reference. Remix would keep page text, so it is not "
-            "used. Website screenshots are vision input when the brief model writes the prompt; "
-            "the generate call sends that text-free prompt and the brand palette."
+            "Ideogram 4.5 generate accepts up to five images on the images field. "
+            "Every graphic crop is sent as an example. Remix is not used, because remix keeps "
+            "text from the source. Palette hexes and the imagery line stay in the text prompt."
         ),
     }
 IDEOGRAM_REMOVE_BG_URL = "https://api.ideogram.ai/v2/image/remove-background/ideogram-1"
@@ -204,6 +204,8 @@ def build_structured_prompt(
     brand_terms: list[str] | None = None,
     mood: str | None = None,
     brand_profile: dict | None = None,
+    treatment: str | None = None,
+    brand_packet: dict | None = None,
 ) -> dict:
     """Ideogram 4 JSON caption: zero ``text`` elements, subject boxes away from the text zone.
 
@@ -213,10 +215,31 @@ def build_structured_prompt(
     from poster_design import get_template, normalize_hex, profile_palette_list
 
     profile = brand_profile or {}
+    packet = brand_packet if isinstance(brand_packet, dict) else profile.get("ideogramPacket")
+    packet = packet if isinstance(packet, dict) else {}
     clean = sanitize_scene_description(scene, brand_terms) or "abstract flowing brand-colored shapes"
+    from ideogram_packet import palette_line as _packet_palette
+    from ideogram_packet import scene_is_generic
+
+    described = sanitize_scene_description(str(packet.get("imagery") or ""), brand_terms)
+    if described and described.casefold() not in clean.casefold():
+        clean = described if scene_is_generic(clean) else f"{described}. {clean}"
+    role_line = _packet_palette(packet)
+
+    def _with_palette(text: str) -> str:
+        if role_line and "palette:" not in text.casefold():
+            return f"{text.rstrip()} Palette: {role_line}."
+        return text
     profile_colors = profile_palette_list(profile)
-    merged = profile_colors + [c for c in (palette or []) if normalize_hex(c) not in profile_colors]
-    colors = [normalize_hex(c) for c in merged if normalize_hex(c)][:8]
+    packet_hexes = [normalize_hex(str(item.get("hex") or "")) for item in packet.get("palette") or [] if isinstance(item, dict)]
+    packet_hexes = [c for c in packet_hexes if c]
+    merged = packet_hexes + profile_colors + [c for c in (palette or []) if normalize_hex(c) not in profile_colors]
+    colors = []
+    for raw in merged:
+        hex6 = normalize_hex(raw)
+        if hex6 and hex6 not in colors:
+            colors.append(hex6)
+    colors = colors[:8]
     aesthetic = profile.get("aesthetic")
     if isinstance(aesthetic, list) and aesthetic:
         mood = ", ".join(str(a) for a in aesthetic[:4]) + (f", {mood}" if mood else "")
@@ -229,7 +252,7 @@ def build_structured_prompt(
     )
     if role == "accent":
         return {
-            "high_level_description": (
+            "high_level_description": _with_palette(
                 f"A single isolated object: {clean}, centred on a plain seamless light studio backdrop."
             ),
             "style_description": {
@@ -251,31 +274,31 @@ def build_structured_prompt(
                 ],
             },
         }
-    tpl = get_template(template)
-    elements = [
-        {
-            "type": "obj",
-            "bbox": list(bbox),
-            "desc": f"{clean}; smooth, unmarked surfaces.",
-            **({"color_palette": colors[:5]} if colors else {}),
-        }
-        for bbox in tpl.ideogram_subject_bboxes
-    ]
+    sheet = treatment_spec(treatment or treatment_for_name(template))
+    # Subject stays on the sheet, clear of a corner, and leaves the quiet type area open.
+    subject_box = [80, 40, 920, 680] if sheet["zone"] == "lower" else [120, 80, 880, 920]
     return {
-        "high_level_description": (
-            f"A clean, text-free marketing background image: {clean}. "
-            f"Composition: {tpl.ideogram_layout_note}."
+        "high_level_description": _with_palette(
+            f"Text-free {sheet['treatment'].replace('-', ' ')}, aspect {sheet['aspect']}. {clean}. "
+            f"{sheet['fill']} {sheet['quiet']} No lettering."
         ),
         "style_description": {
-            "aesthetics": f"{tone}, uncluttered, generous negative space",
-            "lighting": "soft diffused light, smooth tonal gradients",
+            "aesthetics": tone,
+            "lighting": "soft diffused light",
             "medium": "graphic design",
             "art_style": art_style,
             **({"color_palette": colors} if colors else {}),
         },
         "compositional_deconstruction": {
-            "background": f"{tpl.ideogram_background[0].upper()}{tpl.ideogram_background[1:]}.",
-            "elements": elements,
+            "background": f"{sheet['fill']} {sheet['quiet']} No lettering and no border.",
+            "elements": [
+                {
+                    "type": "obj",
+                    "bbox": subject_box,
+                    "desc": f"{clean}; one focal subject across the sheet, not cramped into a corner.",
+                    **({"color_palette": colors[:5]} if colors else {}),
+                }
+            ],
         },
     }
 
@@ -289,6 +312,81 @@ def _parse_resolution(resolution: str) -> tuple[int, int] | None:
     if not match:
         return None
     return int(match.group(1)), int(match.group(2))
+
+
+def treatment_for_name(template: str | None) -> str:
+    from poster_design import treatment_for_template
+
+    return treatment_for_template(template)
+
+
+def treatment_spec(treatment: str | None) -> dict[str, str]:
+    """Prompt and Ideogram size for one treatment. Quiet type has no image."""
+    kind = treatment if treatment in (
+        "full-sheet",
+        "photo-band",
+        "pattern-field",
+        "illustration-cluster",
+        "quiet-type",
+    ) else "full-sheet"
+    if kind == "quiet-type":
+        return {
+            "treatment": kind,
+            "resolution": closest_ideogram_resolution("1200x627"),
+            "aspect": "16:9",
+            "zone": "center",
+            "quiet": "The words sit on this field in editable type.",
+            "fill": (
+                "Study the example images for materials, shapes, and palette. "
+                "Make one coherent text-free asset for the quiet-type poster in that language. "
+                "Do not paste the examples together. Do not copy the words in the examples."
+            ),
+            "prompt": "",
+        }
+    if kind == "photo-band":
+        return {
+            "treatment": kind,
+            "resolution": closest_ideogram_resolution("1200x440"),
+            "aspect": "wide",
+            "zone": "lower",
+            "quiet": "The type sits in a band below this picture, not inside a corner of it.",
+            "fill": (
+                "A text-free photograph in this brand's colours and imagery, filling its frame. "
+                "It is the picture above a type band, not a full-bleed poster and not a separate box."
+            ),
+            "prompt": "",
+        }
+    if kind == "pattern-field":
+        fill = (
+            "A pattern or graphic field that fills the sheet in this brand's colours. "
+            "One focal motif, with a calmer centre where type will sit. Not a picture box."
+        )
+    elif kind == "illustration-cluster":
+        fill = (
+            "An illustration cluster across the sheet in this brand's colours and imagery. "
+            "The subject gathers around a quieter centre where type will sit. Not a sticker in a corner."
+        )
+    else:
+        fill = (
+            "A full-bleed scene that fills the sheet in this brand's colours and imagery. "
+            "Leave a quieter area for type. Not a separate picture box."
+        )
+    zone = "center" if kind in ("pattern-field", "illustration-cluster") else "lower"
+    quiet = (
+        "Leave the centre quieter so type can sit in the middle."
+        if zone == "center"
+        else "Leave a quieter area for type on the sheet."
+    )
+    resolution = closest_ideogram_resolution("1200x627")
+    return {
+        "treatment": kind,
+        "resolution": resolution,
+        "aspect": "16:9",
+        "zone": zone,
+        "quiet": quiet,
+        "fill": fill,
+        "prompt": f"{fill} {quiet} No lettering.",
+    }
 
 
 def closest_ideogram_resolution(requested: str) -> str:
@@ -361,6 +459,60 @@ def _download_image(url: str) -> bytes:
     return data
 
 
+def _quality_for_speed(speed: RenderingSpeed, *, has_image: bool) -> str:
+    """4.5 uses ``quality``. ``very_low`` is only valid when a source image is attached."""
+    if speed == "turbo":
+        return "very_low" if has_image else "low"
+    if speed == "quality":
+        return "high"
+    return "medium"
+
+
+def _image_media_type(path: str) -> str | None:
+    lower = path.lower()
+    if lower.endswith(".png"):
+        return "image/png"
+    if lower.endswith(".webp"):
+        return "image/webp"
+    if lower.endswith(".jpg") or lower.endswith(".jpeg"):
+        return "image/jpeg"
+    return None
+
+
+def _reference_paths(packet: dict | None) -> list[str]:
+    """Every graphic example, up to the five Ideogram 4.5 will accept."""
+    from ideogram_packet import MAX_IDEOGRAM_EXAMPLES
+
+    found: list[str] = []
+    for raw in (packet or {}).get("references") or []:
+        path = str(raw or "")
+        if path and os.path.isfile(path) and _image_media_type(path) and path not in found:
+            found.append(path)
+        if len(found) >= MAX_IDEOGRAM_EXAMPLES:
+            break
+    return found
+
+
+def _encode_form(fields: list[tuple[str, str]], files: list[tuple[str, str, bytes, str]]) -> tuple[bytes, str]:
+    boundary = f"----CommMaker{uuid.uuid4().hex}"
+    chunks: list[bytes] = []
+    for name, value in fields:
+        chunks.append(
+            f'--{boundary}\r\nContent-Disposition: form-data; name="{name}"\r\n\r\n{value}\r\n'.encode()
+        )
+    for name, filename, data, content_type in files:
+        chunks.append(
+            (
+                f'--{boundary}\r\nContent-Disposition: form-data; name="{name}"; filename="{filename}"\r\n'
+                f"Content-Type: {content_type}\r\n\r\n"
+            ).encode()
+        )
+        chunks.append(data)
+        chunks.append(b"\r\n")
+    chunks.append(f"--{boundary}--\r\n".encode())
+    return b"".join(chunks), f"multipart/form-data; boundary={boundary}"
+
+
 def _call_generate_api(
     prompt: str,
     resolution: str,
@@ -368,21 +520,44 @@ def _call_generate_api(
     api_key: str,
     rendering_speed: RenderingSpeed,
     magic_prompt: MagicPrompt = "off",
+    reference_path: str | None = None,
+    reference_paths: list[str] | None = None,
 ) -> dict:
-    body = {
-        "prompt": prompt,
-        "resolution": resolution,
-        "num_images": 1,
-        "rendering_speed": rendering_speed,
-        "magic_prompt": magic_prompt,
-        "async": False,
-    }
+    """POST Ideogram 4.5. Every example is a repeated ``images`` part. One poster comes back."""
+    from ideogram_packet import MAX_IDEOGRAM_EXAMPLES
+
+    paths: list[str] = []
+    for path in list(reference_paths or []) + ([reference_path] if reference_path else []):
+        if path and path not in paths and _image_media_type(path):
+            paths.append(path)
+        if len(paths) >= MAX_IDEOGRAM_EXAMPLES:
+            break
+    files: list[tuple[str, str, bytes, str]] = []
+    for path in paths:
+        media = _image_media_type(path)
+        if not media:
+            continue
+        with open(path, "rb") as handle:
+            image_bytes = handle.read(MAX_LAYER_BYTES + 1)
+        if len(image_bytes) > MAX_LAYER_BYTES:
+            continue
+        files.append(("images", os.path.basename(path), image_bytes, media))
+    has_image = bool(files)
+    fields = [
+        ("prompt", prompt),
+        ("size", resolution),
+        ("num_images", "1"),
+        ("quality", _quality_for_speed(rendering_speed, has_image=has_image)),
+        ("magic_prompt", magic_prompt),
+        ("async", "false"),
+    ]
+    body, content_type = _encode_form(fields, files)
     req = urllib.request.Request(
         IDEOGRAM_GENERATE_URL,
-        data=json.dumps(body).encode("utf-8"),
+        data=body,
         headers={
             "Api-Key": api_key,
-            "Content-Type": "application/json",
+            "Content-Type": content_type,
         },
         method="POST",
     )
@@ -495,12 +670,15 @@ def generate_layer_image(
     brand_terms: list[str] | None = None,
     mood: str | None = None,
     brand_profile: dict | None = None,
+    treatment: str | None = None,
+    brand_packet: dict | None = None,
 ) -> tuple[str, bytes, dict]:
     """
-    Generate a raster layer via Ideogram 4.0 and cache under ``assets_dir``.
+    Generate a raster layer via Ideogram 4.5 and cache under ``assets_dir``.
 
-    ``prompt`` is a scene description; it is sanitized and wrapped in a structured Ideogram 4
-    JSON caption (no text elements, template subject boxes, brand palette) before sending.
+    ``prompt`` is a scene description; it is sanitized and wrapped in a structured JSON
+    caption (no text elements, template subject boxes, brand palette). When the brand
+    packet has a clean reference, that file is uploaded on the ``images`` field.
 
     Returns ``(relative_path, image_bytes, meta)`` where relative_path is like
     ``generated/assets/layer-ideogram-background-<hash>.png``.
@@ -520,8 +698,22 @@ def generate_layer_image(
         brand_terms=brand_terms,
         mood=mood,
         brand_profile=brand_profile,
+        treatment=treatment,
+        brand_packet=brand_packet,
     )
     prompt = structured_prompt_text(structured)
+    packet = brand_packet if isinstance(brand_packet, dict) else (brand_profile or {}).get("ideogramPacket")
+    reference_paths = _reference_paths(packet if isinstance(packet, dict) else None)
+    if reference_paths:
+        kind = treatment or "poster"
+        prompt = (
+            f"These {len(reference_paths)} attached images show how this brand's components are built. "
+            "Study all of them for materials, shapes, and palette. "
+            f"Make one coherent text-free asset for the {kind} poster in that language. "
+            "Do not paste the examples together into a jungle. "
+            "Do not copy the words in the examples. "
+            + prompt
+        )
     magic_prompt = resolve_magic_prompt()
     api_resolution = resolve_layer_resolution(role, resolution)
     payload = _call_generate_api(
@@ -530,6 +722,7 @@ def generate_layer_image(
         api_key=key,
         rendering_speed=resolve_rendering_speed(),
         magic_prompt=magic_prompt,
+        reference_paths=reference_paths,
     )
     data = payload.get("data") or []
     if not data:
@@ -543,8 +736,12 @@ def generate_layer_image(
 
     image_bytes = _download_image(url)
     cutout = bool(remove_bg and role == "accent" and accent_cutout_enabled())
+    cache_prompt = prompt
+    if reference_paths:
+        digest = hashlib.sha256("\n".join(reference_paths).encode("utf-8")).hexdigest()[:12]
+        cache_prompt = f"{prompt}\nreferences:{digest}"
     basename = layer_cache_basename_for_prompt(
-        prompt, api_resolution, role=role, cutout=cutout
+        cache_prompt, api_resolution, role=role, cutout=cutout
     )
     os.makedirs(assets_dir, exist_ok=True)
     abs_path = os.path.join(assets_dir, basename)
@@ -555,7 +752,9 @@ def generate_layer_image(
     rel_path = f"generated/assets/{basename}"
     meta: dict = {
         "role": role,
-        "source": "ideogram-4",
+        "source": "ideogram-4.5",
+        "referenceImageSent": bool(reference_paths),
+        "referenceImages": reference_paths,
         "imagePrompt": scene,
         "structuredPrompt": structured,
         "magicPrompt": magic_prompt,
@@ -566,7 +765,7 @@ def generate_layer_image(
     }
     if api_resolution != (resolution or "").replace(" ", "").lower():
         meta["resolutionNote"] = (
-            f"Ideogram 4 uses preset sizes; requested {resolution}, generated at {api_resolution}."
+            f"Ideogram 4.5 uses preset sizes; requested {resolution}, generated at {api_resolution}."
         )
 
     if cutout:
@@ -606,7 +805,7 @@ def generate_hero_image(
         api_key=api_key,
     )
     legacy_meta = {
-        "heroSource": meta.get("source", "ideogram-4"),
+        "heroSource": meta.get("source", "ideogram-4.5"),
         "heroImagePrompt": meta.get("imagePrompt", prompt),
         "ideogramResolution": meta.get("ideogramResolution"),
         "requestedResolution": meta.get("requestedResolution", resolution),

@@ -6,6 +6,29 @@ Project update tracking, changelog, and roadmap for `ai-webapp`.
 
 ## 📝 Recent Updates
 
+### 2026-10-18 - Website and social images feed the Ideogram prompt
+
+- The brand pass stores a small packet: palette hexes with roles, one imagery line written from the site screenshots and public social images, and up to five graphic examples that are not page text.
+- Posters call Ideogram 4.5 (`POST /v2/image/generate/ideogram-4-5`) for every treatment, including a quiet type poster. Brand capture screenshots distinct components. Claude keeps up to five graphic crops and skips page text. All of those crops are uploaded on the `images` field so Ideogram can see how the components are built. The poster is one coherent text-free asset in that language, not a collage of the examples, and it does not copy their words. The judge fails a generic black triangle and a jungle of every example. A retry uploads the same examples again.
+- When Playwright is missing, the status line says screenshots were skipped, so Ideogram only received colours.
+
+### 2026-10-18 - Logo and headline colour follow the field
+
+- The wordmark and the headline take white or brand ink from the pixels behind them. The SVG’s original black does not win when it misses 4.5:1. A light or mid field uses white. Brand ink is used only when that field lets ink clear 4.5:1. A colour band uses white or the band’s contrast colour, whichever clears 4.5:1.
+- The judge fails logo or headline contrast under 4.5:1.
+
+### 2026-10-18 - Display type on every treatment
+
+- Headlines use the brand display face when that font is installed, otherwise Noto Sans Display. System fonts are not used.
+- A headline is heavy, tightly leaded, and at most two lines with no orphan word. The subline is about half that size and lighter. A busy photo puts the type on a brand-colour band, not a grey slab.
+- Full-sheet type stays left. Pattern, illustration, and quiet posters centre it. The judge fails a system font, a headline under 54px, a subline too close in size, low contrast, or a headline longer than eight words.
+
+### 2026-10-18 - The brief chooses the treatment
+
+- Treatments are full-sheet, photo-band, pattern-field, illustration-cluster, and quiet-type. The brand picks one. A stark mark stays type-led. A character brand can be an illustration cluster. Full-bleed is not forced on every poster.
+- Ideogram runs only for a treatment that needs an image, with a prompt for that treatment. A quiet-type poster is not sent.
+- The judge can reject the treatment (“full-bleed was wrong for this brand”). One retry may switch treatment. At most two extra Ideogram calls. The status line names the treatment, the judge result, and the attempt count.
+
 ### 2026-10-18 - A picture frame must call Ideogram
 
 - The HTTP call was nested under `heroStrategy == "ideogram_generate"` and a non-empty `heroImagePrompt`. A picture frame whose brief said solid, or whose prompt was empty, compiled the stand-in ellipse and returned immediately. No request reached Ideogram.
