@@ -154,7 +154,20 @@ export function renderKitSummary(target, kit, session) {
         );
     }
     if (session?.poster?.previewUrl) {
-        const meta = [session.poster.layoutTemplate, session.poster.designScore != null ? `design score ${session.poster.designScore}/100` : ""]
+        const poster = session.poster;
+        const judge = poster.ideogramJudge
+        const judgeLabel = judge
+            ? `judge ${judge.passed === true ? "pass" : judge.passed === false ? "fail" : "skipped"}`
+            : ""
+        const meta = [
+            poster.layoutTemplate,
+            poster.ideogramUsed ? "Ideogram" : "no Ideogram",
+            poster.promptSnippet || "",
+            judgeLabel,
+            judge && judge.reason ? judge.reason : "",
+            judge && judge.retried ? "retry ran" : judge ? "no retry" : "",
+            poster.designScore != null ? `design score ${poster.designScore}/100` : "",
+        ]
             .filter(Boolean)
             .join(" · ");
         parts.push(

@@ -315,6 +315,18 @@ def estimated_unit_costs() -> dict[str, Any]:
             cost_usd({"inputTokens": 1200, "outputTokens": 400}, kind="brief"),
             4,
         ),
+        # One Sonnet vision of the picture (plus at most two brand refs), then at most one more Ideogram.
+        "ideogramJudgeUsd": round(
+            cost_usd(
+                {"inputTokens": 2000, "outputTokens": 200},
+                kind="brief",
+            ),
+            4,
+        ),
+        "ideogramJudgeRetryUsd": round(
+            cost_usd({"inputTokens": 2000, "outputTokens": 200}, kind="brief") + IDEOGRAM_IMAGE_USD,
+            4,
+        ),
     }
 
 

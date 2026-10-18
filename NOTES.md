@@ -6,6 +6,17 @@ Project update tracking, changelog, and roadmap for `ai-webapp`.
 
 ## 📝 Recent Updates
 
+### 2026-10-18 - One check of the Ideogram picture
+
+- After a picture frame is generated, one Sonnet vision call scores the bitmap only: no letters, not a flat disc, one focal subject, some depth, brand colour. Linearity rules for the picture are one focal point, layered depth, brand colour, and the subject not lost in empty space.
+- A failure adds that critique to the prompt and calls Ideogram once more. The second image is not judged. Worst case extra is about $0.07 (the vision call plus one image).
+
+### 2026-10-18 - Picture frames call Ideogram
+
+- `circle-stage` was drawing a flat ellipse and parking the wordmark inside it. The design score only graded the type, so that looked like a pass.
+- A picture frame with an Ideogram key now generates a text-free illustration (palette, magic prompt off, no remix) and places that bitmap. The ellipse is only the stand-in when there is no bitmap. The scraped mark stays in the type column.
+- The crisis status line shows whether Ideogram ran, the frame name, and a prompt snippet.
+
 ### 2026-10-18 - One brand call, social formats
 
 - Site scrape, site screenshots and public social screenshots run together. Instagram and LinkedIn are opened with a fresh browser: no login, no cookies, no bypass. A login wall is recorded and skipped.

@@ -308,6 +308,9 @@ async function generatePosterInPhotoCraft() {
                 previewUrl: data.previewUrl || null,
                 layoutTemplate: data.layoutTemplate || null,
                 designScore: data.designAudit?.score ?? null,
+                ideogramUsed: Boolean(data.ideogramUsed),
+                promptSnippet: data.promptSnippet || "",
+                ideogramJudge: data.ideogramJudge || null,
                 cliAvailable: data.cliAvailable,
                 generatedAt: new Date().toISOString(),
                 cliError: data.cliError || null,
@@ -336,12 +339,18 @@ async function generatePosterInPhotoCraft() {
             data.heroStrategy && data.heroStrategy !== "ideogram_generate"
                 ? ` Brief hero: ${data.heroStrategy}.`
                 : "";
+        const frameNote = data.layoutTemplate ? ` Frame: ${data.layoutTemplate}.` : "";
+        const snippetNote = data.promptSnippet ? ` Prompt: ${data.promptSnippet}` : "";
+        const judge = data.ideogramJudge
+        const judgeNote = judge
+            ? ` Judge: ${judge.passed === true ? "pass" : judge.passed === false ? "fail" : "skipped"}. ${judge.reason || ""}${judge.retried ? " Retry ran." : " No retry."}`
+            : ""
         const heroNote =
             data.ideogramUsed || data.heroSource === "ideogram-4"
-                ? " Hero: Ideogram 4 (AI-generated)."
+                ? ` Ideogram: yes.${frameNote}${snippetNote}${judgeNote}`
                 : data.ideogramFallback
-                  ? ` ${data.ideogramFallback}`
-                  : strategyNote;
+                  ? ` Ideogram: no.${frameNote} ${data.ideogramFallback}`
+                  : ` Ideogram: no.${frameNote}${strategyNote}`;
         setPosterStatus(
             (data.userMessage || "Poster saved. Downloading and opening PhotoCraft…") +
                 heroNote +

@@ -26,6 +26,7 @@ from poster_design import (
     identity_gradient_stops,
     kit_hero_unsuitable,
     template_hint_from_profile,
+    template_needs_raster,
     template_skips_ideogram,
 )
 from ideogram_client import ideogram_conditioning
@@ -1440,6 +1441,85 @@ def _imagery_prompt(kit: dict[str, Any] | None, brand_profile: dict[str, Any] | 
     return _fallback_ideogram_abstract_prompt(kit, {})
 
 
+_FRAME_WORDS = ("circle", "circular", "ring", "disc", "disk")
+
+
+def _palette_phrase(kit: dict[str, Any] | None, brand_profile: dict[str, Any] | None) -> str:
+    from poster_design import profile_palette_list
+
+    colors = profile_palette_list(brand_profile if isinstance(brand_profile, dict) else None)
+    if not colors:
+        colors = [str(c) for c in ((kit or {}).get("colors") or []) if str(c).startswith("#")]
+    return ", ".join(colors[:4])
+
+
+def _character_brand(kit: dict[str, Any] | None, brand_profile: dict[str, Any] | None) -> bool:
+    name = str((kit or {}).get("siteName") or "").casefold()
+    if "duolingo" in name:
+        return True
+    profile = brand_profile if isinstance(brand_profile, dict) else {}
+    style = profile.get("imageryStyle") if isinstance(profile.get("imageryStyle"), dict) else {}
+    blob = " ".join(
+        [
+            str(style.get("primaryMedium") or ""),
+            " ".join(str(m) for m in (style.get("motifs") or [])),
+            " ".join(str(a) for a in (profile.get("aesthetic") or []) if isinstance(profile.get("aesthetic"), list)),
+        ]
+    ).casefold()
+    return any(word in blob for word in ("mascot", "character", "owl", "illustration"))
+
+
+def raster_scene_prompt(
+    template: str,
+    kit: dict[str, Any] | None,
+    brand_profile: dict[str, Any] | None,
+    existing: str = "",
+) -> str:
+    """Text-free picture prompt. Never asks for a circle, a logo, or letters."""
+    text = (existing or "").strip()
+    framed = any(word in text.casefold() for word in _FRAME_WORDS)
+    colors = _palette_phrase(kit, brand_profile)
+    illustration = template in ("circle-stage", "character-scene", "product-ui")
+    if illustration or framed or not text:
+        if _character_brand(kit, brand_profile):
+            scene = "A text-free flat illustration of a simple green character in a simple scene, bold flat shapes"
+        elif template in ("photo-block", "photo-card"):
+            scene = "A text-free photograph of a simple sunlit interior, warm materials"
+        elif template == "product-card":
+            scene = "A text-free product photograph of one unmarked pack"
+        else:
+            scene = "A text-free flat illustration in this brand's visual language, a simple scene, bold flat shapes"
+        if colors:
+            scene += f", using {colors}"
+        return scene + ". No letters, no words, no logo, no frame, no border, no UI."
+    if "no letter" not in text.casefold():
+        text += " No letters, no words, no logo, no frame, no border."
+    return text
+
+
+def prepare_picture_brief(
+    brief: dict[str, Any] | None,
+    kit: dict[str, Any] | None,
+    brand_profile: dict[str, Any] | None,
+    *,
+    key_set: bool,
+) -> dict[str, Any]:
+    """Picture frames call Ideogram when a key is set. Type-only and vector marks do not."""
+    if not isinstance(brief, dict):
+        return {}
+    template = str(brief.get("layoutTemplate") or "")
+    if not key_set or not template_needs_raster(template):
+        return brief
+    out = dict(brief)
+    out["heroStrategy"] = "ideogram_generate"
+    out["ideogramLayers"] = "background-only"
+    out["layoutRecipe"] = "photo-hero-type"
+    out["heroImagePrompt"] = raster_scene_prompt(
+        template, kit, brand_profile, existing=str(out.get("heroImagePrompt") or "")
+    )
+    return out
+
+
 def _energy_image_prompt(
     energy: str,
     kit: dict[str, Any] | None,
@@ -1459,11 +1539,7 @@ def _energy_image_prompt(
         )
         return scene + " The photograph fills the right half; the left half stays a plain flat colour."
     if energy == "circle-stage":
-        scene = captured or (
-            "A text-free flat illustration of simple geometric shapes in the brand palette, "
-            "no characters, no letters, no logos"
-        )
-        return scene + " Hold the illustration inside one large circle on the right of a paper field."
+        return raster_scene_prompt("circle-stage", kit, brand_profile, existing=captured)
     if energy == "product-card":
         scene = captured or (
             "A text-free product photograph of one pack centred on a flat brand colour, "

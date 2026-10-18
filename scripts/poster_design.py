@@ -594,10 +594,10 @@ TEMPLATES: dict[str, LayoutTemplate] = {
         accent_center=(900, 304),
         ideogram_subject_bboxes=((80, 700, 980, 980),),
         ideogram_background=(
-            "a paper-coloured field with one large circular illustration on the right and an empty "
-            "left side for type, no letters and no extra characters"
+            "a text-free flat illustration filling the right side and an empty paper field on the "
+            "left for type, no letters and no frame"
         ),
-        ideogram_layout_note="illustration inside a circle on the right, type on the open left",
+        ideogram_layout_note="flat illustration on the right, type on the left, no letters and no frame",
         max_headline_lines=4,
     ),
     "mark-stage": LayoutTemplate(

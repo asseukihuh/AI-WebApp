@@ -1195,7 +1195,7 @@ def compile_poster_batch(
             steps.extend(_photo_standin_steps(tpl.image_region, picture_accent))
         elif tpl.name == "product-card" and not has_photo_hero:
             steps.extend(_product_standin_steps(tpl.image_region, picture_accent))
-        elif tpl.name == "circle-stage":
+        elif tpl.name == "circle-stage" and not has_photo_hero:
             rx, ry, rw, rh = tpl.image_region
             steps.append(_shape_step("ellipse", "Illustration plate", [rx, ry, rw, rh], picture_accent))
         elif tpl.name == "photo-card" and not has_photo_hero:
@@ -1243,10 +1243,13 @@ def compile_poster_batch(
         )
         rx, ry, rw, rh = tpl.image_region
         if (rx, ry, rw, rh) != (0, 0, LINKEDIN_WIDTH, LINKEDIN_HEIGHT) and hero_width and hero_height:
-            scale = max(rw / hero_width, rh / hero_height)
-            disp_w = hero_width * scale
-            cx = rx + rw - disp_w / 2 if tpl.image_align == "right" else rx + rw / 2
-            placement["center"] = [round(cx, 1), round(ry + rh / 2, 1)]
+            # Fit the bitmap inside the picture area. Covering it would spill across the type
+            # and a shape drawn on top would hide the illustration.
+            scale = min(rw / hero_width, rh / hero_height)
+            placement["cover"] = False
+            placement["fit"] = True
+            placement["name"] = "Picture"
+            placement["center"] = [round(rx + rw / 2, 1), round(ry + rh / 2, 1)]
             placement["scale"] = round(scale * 100, 2)
         background_placements.append(placement)
     if accent_relative_path:
@@ -1410,14 +1413,6 @@ def compile_poster_batch(
         if tpl.name == "mark-stage":
             target_w = 260.0
             foreground_placements[-1]["center"] = [LINKEDIN_WIDTH / 2, 132]
-            foreground_placements[-1]["scale"] = round(
-                logo_scale_percent(logo_width or 0, target_width=int(target_w)), 2
-            )
-            mark_share = 0.35
-        elif tpl.name == "circle-stage":
-            rx, ry, rw, rh = tpl.image_region
-            target_w = rw * 0.72
-            foreground_placements[-1]["center"] = [rx + rw / 2, ry + rh / 2]
             foreground_placements[-1]["scale"] = round(
                 logo_scale_percent(logo_width or 0, target_width=int(target_w)), 2
             )
