@@ -33,7 +33,7 @@ JUDGE_MAX_EDGE = 768
 JUDGE_MAX_REFERENCES = 5
 JUDGE_MAX_TOKENS = 300
 
-# ~2000 in (picture + two refs + the rubric) and ~200 out at Sonnet $3 / $15 per MTok.
+# ~2000 in (picture + example crops + the rubric) and ~200 out at Opus $15 / $75 per MTok.
 TYPICAL_JUDGE_INPUT_TOKENS = 2000
 TYPICAL_JUDGE_OUTPUT_TOKENS = 200
 

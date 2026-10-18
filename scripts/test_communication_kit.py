@@ -66,13 +66,13 @@ class TestSchema(unittest.TestCase):
         self.assertEqual(tool["input_schema"]["additionalProperties"], False)
         self.assertEqual(tool["name"], "submit_communication_kit")
 
-    def test_brand_model_defaults_to_opus_and_briefs_stay_on_sonnet(self) -> None:
+    def test_brand_model_and_briefs_default_to_opus(self) -> None:
         with patch.dict(os.environ, {}, clear=False):
             os.environ.pop("COMMMAKER_BRAND_MODEL", None)
             os.environ.pop("COMMMAKER_LLM_MODEL", None)
             self.assertEqual(kitlib.resolve_brand_model("anthropic"), "claude-opus-5-5")
-            self.assertEqual(resolve_llm_model("anthropic"), "claude-sonnet-5-5")
-            self.assertEqual(kitlib.poster_brief_model("anthropic"), "claude-sonnet-5-5")
+            self.assertEqual(resolve_llm_model("anthropic"), "claude-opus-5-5")
+            self.assertEqual(kitlib.poster_brief_model("anthropic"), "claude-opus-5-5")
 
 
 class TestThinSites(unittest.TestCase):
@@ -142,7 +142,12 @@ class TestCacheAndCost(unittest.TestCase):
         costs = kitlib.estimated_unit_costs()
         self.assertGreater(costs["kitAnalysisUsd"], 0.05)
         self.assertLess(costs["kitAnalysisUsd"], 0.25)
-        self.assertEqual(costs["posterBriefModel"], "claude-sonnet-5-5")
+        self.assertEqual(costs["posterBriefModel"], "claude-opus-5-5")
+        self.assertAlmostEqual(
+            costs["posterWithIdeogramUsd"],
+            costs["posterBriefUsd"] + costs["ideogramJudgeUsd"] + costs["ideogramImageUsd"],
+            places=4,
+        )
         self.assertGreater(costs["posterWithIdeogramUsd"], costs["posterBriefUsd"])
         raw = kitlib.design_fallback(_bds())
         raw["devices"] = raw["devices"][:4]

@@ -202,11 +202,11 @@ class TestCreativeBriefFallback(unittest.TestCase):
             self.assertNotIn("nano", model.lower())
 
     @patch.dict(os.environ, {"ANTHROPIC_API_KEY": "test-key"}, clear=False)
-    def test_default_model_sonnet_when_unset(self) -> None:
+    def test_default_model_opus_when_unset(self) -> None:
         with patch.dict(os.environ, {}, clear=False):
             os.environ.pop("COMMMAKER_LLM_MODEL", None)
             model = resolve_llm_model("anthropic")
-        self.assertEqual(model, "claude-sonnet-5-5")
+        self.assertEqual(model, "claude-opus-5-5")
 
     @patch.dict(os.environ, {"OPENAI_API_KEY": "test-key"})
     @patch("creative_brief._call_llm")
@@ -272,7 +272,7 @@ class TestCreativeBriefFallback(unittest.TestCase):
         self.assertIn("tool_choice", detail)
 
     def test_anthropic_request_uses_auto_tool_choice_and_strict(self) -> None:
-        body = _anthropic_messages_body({}, {"crisisFacts": "x"}, "linkedin-1200x627", model="claude-sonnet-5-5")
+        body = _anthropic_messages_body({}, {"crisisFacts": "x"}, "linkedin-1200x627", model="claude-opus-5-5")
         self.assertEqual(body["tool_choice"], {"type": "auto"})
         tool = body["tools"][0]
         self.assertTrue(tool.get("strict"))
@@ -290,7 +290,7 @@ class TestCreativeBriefFallback(unittest.TestCase):
             {},
             {"crisisFacts": "x"},
             "linkedin-1200x627",
-            model="claude-sonnet-5-5",
+            model="claude-opus-5-5",
             reference_images=[{"label": "desktop", "mediaType": "image/png", "data": "aaaa"}],
         )
         content = body["messages"][0]["content"]
@@ -327,7 +327,7 @@ class TestCreativeBriefFallback(unittest.TestCase):
         mock_urlopen.return_value = mock_resp
 
         usr_key = "sk-ant-usr-mock-key"
-        _post_anthropic_messages({"model": "claude-sonnet-5-5"}, api_key=usr_key)
+        _post_anthropic_messages({"model": "claude-opus-5-5"}, api_key=usr_key)
 
         req = mock_urlopen.call_args[0][0]
         header_map = {k.lower(): v for k, v in req.header_items()}
@@ -362,7 +362,7 @@ class TestCreativeBriefFallback(unittest.TestCase):
             {"crisisFacts": "x"},
             "linkedin-1200x627",
             api_key="key",
-            model="claude-sonnet-5-5",
+            model="claude-opus-5-5",
         )
         self.assertEqual(brief["headline"], "Update")
         self.assertEqual(mock_post.call_count, 2)
@@ -392,7 +392,7 @@ class TestCreativeBriefFallback(unittest.TestCase):
             {"crisisFacts": "x"},
             "linkedin-1200x627",
             api_key="key",
-            model="claude-sonnet-5-5",
+            model="claude-opus-5-5",
         )
         self.assertEqual(brief["headline"], "From text")
         self.assertEqual(mock_post.call_count, 2)

@@ -46,12 +46,12 @@ BriefSource = Literal["llm", "fallback"]
 FallbackReason = Literal["no_provider", "no_api_key", "llm_error"]
 LlmProvider = Literal["openai", "anthropic", "openrouter"]
 
-# Frontier defaults — never mini/nano (quality for marketing copy + layout decisions).
-# Opus override (not a default): COMMMAKER_LLM_MODEL=claude-opus-4-8
+# Frontier defaults — never mini/nano. Briefs and the vision judge use Opus.
+# Override with COMMMAKER_LLM_MODEL.
 FRONTIER_MODEL_BY_PROVIDER: dict[LlmProvider, str] = {
-    "anthropic": "claude-sonnet-5-5",
+    "anthropic": "claude-opus-5-5",
     "openai": "gpt-4.1",
-    "openrouter": "anthropic/claude-sonnet-4",
+    "openrouter": "anthropic/claude-opus-5-5",
 }
 
 OPENAI_API_BASE = os.environ.get("OPENAI_API_BASE", "https://api.openai.com/v1").rstrip("/")
