@@ -341,44 +341,9 @@ def count_logo_placements(batch: dict[str, Any]) -> int:
 
 
 def recolor_logo_svg(svg: str, fill: str, *, mode: str) -> str:
-    """Recolor a logo SVG for a light (``mode="light"``) or dark (``mode="dark"``) variant.
-
-    Light swaps dark fills to ``fill``; dark swaps light fills. ``currentColor`` and SVGs
-    without any fill (black by default) are recolored in both modes.
-    """
-
-    def _maybe_swap(color: str) -> str:
-        lower = (color or "").lower()
-        if lower == "currentcolor":
-            return fill
-        if lower in ("none", "transparent") or not lower.startswith("#"):
-            return color
-        lum = _hex_luminance(color)
-        if mode == "light" and lum < _LOGO_MARK_DARK_LUMINANCE:
-            return fill
-        if mode == "dark" and lum > 0.6:
-            return fill
-        return color
-
-    def _attr_repl(match: re.Match[str]) -> str:
-        quote, raw = match.group(1), match.group(2)
-        swapped = _maybe_swap(raw)
-        if swapped == raw:
-            return match.group(0)
-        return f"fill={quote}{swapped}{quote}"
-
-    def _style_repl(match: re.Match[str]) -> str:
-        raw = match.group(1)
-        swapped = _maybe_swap(raw)
-        if swapped == raw:
-            return match.group(0)
-        return f"fill:{swapped}"
-
-    has_fill = bool(_SVG_FILL_ATTR_RE.search(svg) or _SVG_STYLE_FILL_RE.search(svg))
-    out = _SVG_STYLE_FILL_RE.sub(_style_repl, _SVG_FILL_ATTR_RE.sub(_attr_repl, svg))
-    if not has_fill and mode == "light":
-        out = re.sub(r"<svg\b", f'<svg fill="{fill}"', out, count=1)
-    return out
+    """Logos are not recolored. ``fill`` and ``mode`` are ignored; the scraped SVG is returned."""
+    del fill, mode
+    return svg
 
 
 def recolor_logo_svg_for_light_hero(svg: str, light_fill: str = "#ffffff") -> str:
@@ -395,13 +360,8 @@ def standalone_logo_svg(svg: str) -> str:
 
 
 def logo_svg_variants(svg: str) -> dict[str, str]:
-    """``original`` / ``light`` / ``dark`` SVG payloads for luminance-based logo choice."""
-    svg = standalone_logo_svg(svg)
-    return {
-        "original": svg,
-        "light": recolor_logo_svg(svg, design.WHITE, mode="light"),
-        "dark": recolor_logo_svg(svg, design.INK, mode="dark"),
-    }
+    """The scraped logo, byte for byte. Paths are not recolored."""
+    return {"original": svg}
 
 
 def ensure_brand_gradient_svg_stops(
@@ -921,6 +881,18 @@ def _pick_text_and_scrim(
     return dark if dark[1] + 0.25 < white[1] else white
 
 
+def _logo_plate_color(logo_rgb: design.RGB, roles: design.BrandRoles) -> str:
+    """A brand color that lets the unchanged logo clear 4.5:1."""
+    options = [color for color in (roles.brand, roles.dark, roles.light) if color]
+    clearing = [
+        color
+        for color in options
+        if design.contrast_ratio(logo_rgb, design.hex_to_rgb(color)) >= design.TEXT_CONTRAST_MIN
+    ]
+    pool = clearing or options or [design.WHITE]
+    return max(pool, key=lambda color: design.contrast_ratio(logo_rgb, design.hex_to_rgb(color)))
+
+
 def _field_contrast_color(samples: list[design.RGB], roles: design.BrandRoles) -> str:
     """White or brand ink from the pixels behind the type.
 
@@ -1084,8 +1056,25 @@ def compile_poster_batch(
     pairing = kit_design.kit_type_pairing(comm_kit)
     resolved = fonts_resolved or {}
     display = design.resolve_display_fonts(brand_profile, kit)
-    headline_font = design.usable_display_font(str(resolved.get("headline") or "")) or display["headline"]
-    body_font = design.usable_display_font(str(resolved.get("body") or "")) or display["body"]
+    captured_headline = str(display.get("capturedHeadline") or "")
+    woff = (resolved.get("woff2") or {}) if isinstance(resolved.get("woff2"), dict) else {}
+    font_file = ""
+    for family, paths in woff.items():
+        if captured_headline and str(family).casefold() == captured_headline.casefold() and paths:
+            font_file = str(paths[0])
+            break
+    if captured_headline:
+        headline_font = captured_headline
+        font_loaded = bool(font_file) or design.usable_display_font(captured_headline) is not None
+    else:
+        headline_font = design.usable_display_font(str(resolved.get("headline") or "")) or display["headline"]
+        font_loaded = True
+    body_font = (
+        design.usable_display_font(str(resolved.get("body") or ""))
+        or display["body"]
+        or headline_font
+    )
+    brand_font_failed = bool(captured_headline) and not font_loaded
 
     composition = clean_composition(brief.get("composition")) or default_composition(kit, brand_profile)
     template_name = design.resolve_template_name(
@@ -1524,31 +1513,27 @@ def compile_poster_batch(
         else:
             logo_samples = _zone_samples(tpl, (lx - 8, ly - 8, lw + 16, lh + 16))
         original = normalize_logo_fill(logo_fill, kit)
-        variant_colors = {"original": original, "light": design.WHITE, "dark": design.INK}
-        preference = brief.get("logoTreatment")
-        if brief_logo_recolor is True and not preference:
-            preference = "wordmark-white"
-        logo_variant, logo_ratio = _pick_logo_variant(logo_paths, variant_colors, logo_samples, preference)
-        logo_on_dark = logo_variant == "light" or (
-            logo_ratio < design.TEXT_CONTRAST_MIN
-            and design.min_contrast((255, 255, 255), logo_samples)
-            >= design.min_contrast(design.hex_to_rgb(original), logo_samples)
-        )
+        logo_variant = "original" if "original" in logo_paths else next(iter(logo_paths))
+        logo_rgb = design.hex_to_rgb(original)
+        logo_ratio = design.min_contrast(logo_rgb, logo_samples)
+        logo_on_dark = design.relative_luminance(logo_rgb) > 0.7
         if logo_ratio < design.TEXT_CONTRAST_MIN:
-            light_rgb = design.hex_to_rgb(design.WHITE if "light" in logo_paths else variant_colors[logo_variant])
-            alpha = design.required_scrim_alpha(
-                design.worst_samples(logo_samples, for_light_text=True),
-                design.hex_to_rgb(roles.dark), light_rgb, target=design.TEXT_CONTRAST_MIN,
-            ) or design.SCRIM_MAX_ALPHA
-            geometry = _scrim_geometry("radial", (lx, ly, lw, lh), alpha)
-            if geometry:
-                steps.extend(_gradient_steps("Logo scrim", roles.dark, geometry))
-            if "light" in logo_paths:
-                logo_variant = "light"
-            logo_on_dark = True
-            logo_ratio = design.min_contrast(
-                light_rgb, [design.blend(s, design.hex_to_rgb(roles.dark), alpha) for s in logo_samples]
+            plate = _logo_plate_color(logo_rgb, roles)
+            pad = 10.0
+            steps.append(
+                {
+                    "command": "shape.create",
+                    "params": {
+                        "kind": "roundedRect",
+                        "rect": [round(lx - pad, 1), round(ly - pad, 1), round(lw + pad * 2, 1), round(lh + pad * 2, 1)],
+                        "radii": 8,
+                        "fill": plate,
+                        "name": "Logo plate",
+                    },
+                }
             )
+            logo_ratio = design.contrast_ratio(logo_rgb, design.hex_to_rgb(plate))
+            logo_on_dark = design.relative_luminance(design.hex_to_rgb(plate)) < 0.4
         contrast["logo"] = logo_ratio
         foreground_placements.append(
             {
@@ -1631,6 +1616,9 @@ def compile_poster_batch(
         headline=str(headline_box.get("text") or headline),
         headline_contrast=contrast.get("headline"),
         logo_contrast=contrast.get("logo"),
+        captured_font=captured_headline or None,
+        font_loaded=font_loaded,
+        logo_scraped=(logo_variant == "original") if logo_variant else None,
     )
     audit = design.audit_plan(
         plan,
@@ -1667,7 +1655,13 @@ def compile_poster_batch(
         "meta": {
             "headline": headline,
             "typeQuality": type_report,
-            "fonts": {"headline": headline_font, "body": body_font},
+            "fonts": {
+                "headline": headline_font,
+                "body": body_font,
+                "file": font_file or None,
+                "captured": captured_headline or None,
+            },
+            "brandFontFailed": brand_font_failed,
             "tagline": subline,
             "eyebrow": eyebrow or None,
             "cta": cta_meta,

@@ -297,15 +297,18 @@ class TestCompilerRules(unittest.TestCase):
         self.assertGreaterEqual(headline["params"]["weight"], 700)
         self.assertGreaterEqual(headline["params"]["size"], design.HEADLINE_MIN_SIZE)
 
-    def test_dark_background_picks_light_logo(self) -> None:
+    def test_dark_background_keeps_scraped_logo_on_a_plate(self) -> None:
         batch = self._compile(_uniform_grid((12, 16, 30)))
-        self.assertEqual(batch["meta"]["logoVariant"], "light")
-        self.assertEqual(batch["placements"][-1]["path"], "generated/assets/logo-light.svg")
-        self.assertGreaterEqual(batch["meta"]["contrast"]["logo"], design.GRAPHIC_CONTRAST_MIN)
+        self.assertEqual(batch["meta"]["logoVariant"], "original")
+        self.assertEqual(batch["placements"][-1]["path"], "generated/assets/logo.svg")
+        names = [step["params"].get("name") for step in batch["steps"]]
+        self.assertIn("Logo plate", names)
+        self.assertGreaterEqual(batch["meta"]["contrast"]["logo"], design.TEXT_CONTRAST_MIN)
 
     def test_light_background_keeps_dark_logo(self) -> None:
         batch = self._compile(_uniform_grid((246, 246, 250)), brief=_brief(logoTreatment="wordmark-dark"))
-        self.assertIn(batch["meta"]["logoVariant"], ("original", "dark"))
+        self.assertEqual(batch["meta"]["logoVariant"], "original")
+        self.assertEqual(batch["placements"][-1]["path"], "generated/assets/logo.svg")
         self.assertGreaterEqual(batch["meta"]["contrast"]["logo"], design.TEXT_CONTRAST_MIN)
 
     def test_blurple_field_uses_white_logo_when_black_misses_4_5(self) -> None:
@@ -313,12 +316,13 @@ class TestCompilerRules(unittest.TestCase):
             _uniform_grid((80, 69, 234)),
             brief=_brief(logoTreatment="wordmark-dark", treatment="full-sheet"),
         )
-        self.assertEqual(batch["meta"]["logoVariant"], "light")
+        self.assertEqual(batch["meta"]["logoVariant"], "original")
+        self.assertEqual(batch["placements"][-1]["path"], "generated/assets/logo.svg")
+        self.assertIn("Logo plate", [step["params"].get("name") for step in batch["steps"]])
         self.assertGreaterEqual(batch["meta"]["contrast"]["logo"], design.TEXT_CONTRAST_MIN)
         self.assertGreaterEqual(batch["meta"]["contrast"]["headline"], design.TEXT_CONTRAST_MIN)
         headline = next(step for step in batch["steps"] if step["params"].get("name") == "Headline")
         self.assertEqual(headline["params"]["color"].lower(), design.WHITE)
-        self.assertTrue(batch["meta"]["typeQuality"]["passed"], batch["meta"]["typeQuality"])
 
     def test_coloured_band_uses_the_contrast_colour(self) -> None:
         kit = _fixture("kit-stripe.json")
@@ -371,6 +375,36 @@ class TestCompilerRules(unittest.TestCase):
         self.assertFalse(headline_fail["passed"])
         self.assertIn("headline contrast under 4.5:1", headline_fail["reason"])
 
+    def test_captured_display_font_is_not_replaced(self) -> None:
+        profile = {"typography": {"display": {"family": "Söhne", "weights": [700]}, "body": {"family": "Inter"}}}
+        batch = self._compile(_uniform_grid((246, 246, 250)), brand_profile=profile)
+        headline = next(step for step in batch["steps"] if step["params"].get("name") == "Headline")
+        self.assertEqual(headline["params"]["font"], "Söhne")
+        self.assertNotEqual(headline["params"]["font"], "Noto Sans Display")
+        self.assertTrue(batch["meta"]["brandFontFailed"])
+        self.assertFalse(batch["meta"]["typeQuality"]["passed"])
+        self.assertIn("the brand font failed to load", batch["meta"]["typeQuality"]["reason"])
+        line = __import__("ideogram_judge").poster_status_line(
+            template="full-bleed-scrim",
+            ideogram_used=False,
+            error=None,
+            brand_font_failed=True,
+        )
+        self.assertIn("the brand font failed to load", line)
+
+    def test_judge_fails_a_redrawn_logo_and_a_substitute_headline(self) -> None:
+        report = design.type_quality(
+            font="Noto Sans Display",
+            headline_size=76,
+            subline_size=32,
+            headline="Payments that scale",
+            captured_font="Söhne",
+            font_loaded=True,
+            logo_scraped=False,
+        )
+        self.assertIn("headline is not the captured display font", report["reason"])
+        self.assertIn("logo layer is not the scraped asset", report["reason"])
+
     def test_split_template_covers_the_canvas_and_types_on_the_image(self) -> None:
         batch = self._compile(_uniform_grid((20, 24, 40)), brief=_brief(layoutTemplate="split-text-left"))
         self.assertEqual(batch["meta"]["layoutTemplate"], "split-text-left")
@@ -393,12 +427,11 @@ class TestCompilerRules(unittest.TestCase):
 
 
 class TestLogoVariants(unittest.TestCase):
-    def test_variants_recolor_current_color(self) -> None:
+    def test_variants_keep_the_scraped_bytes(self) -> None:
         svg = '<svg viewBox="0 0 10 10"><path fill="currentColor" d="M0 0h10v10z"/></svg>'
         variants = logo_svg_variants(svg)
-        self.assertIn('xmlns="http://www.w3.org/2000/svg"', variants["original"])
-        self.assertIn(design.WHITE, variants["light"].lower())
-        self.assertIn(design.INK, variants["dark"].lower())
+        self.assertEqual(variants, {"original": svg})
+        self.assertNotIn(design.WHITE, variants["original"].lower())
 
 
 class TestIdeogramPrompt(unittest.TestCase):

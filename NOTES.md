@@ -6,6 +6,11 @@ Project update tracking and changelog for CommMaker.
 
 ## 📝 Recent Updates
 
+### 2026-10-18 - Scraped logos and the site's own type
+
+- The logo layer is the scraped SVG or PNG, unchanged. A poor contrast mark gets a brand-color plate behind it. The file is not recolored, traced, or replaced with typeset letters. Ideogram is told not to draw a logo or a wordmark.
+- A captured display family stays on the headline. Noto Sans Display is not a substitute for that family. If the font file is missing, the status line says the brand font failed to load. The judge fails a logo that is not the scraped asset and a headline that is not the captured display font.
+
 ### 2026-10-18 - Product name is CommMaker
 
 - Removed the unused Ollama chat page, the experimental image page, and their styles, scripts, and curl notes.

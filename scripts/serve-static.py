@@ -66,7 +66,6 @@ from poster_compiler import (  # noqa: E402
     hero_cache_basename,
     logo_cache_basename,
     logo_svg_dimensions_oversized,
-    logo_svg_variants,
     normalize_logo_fill,
     should_skip_hero_for_brief,
 )
@@ -344,7 +343,7 @@ class CommMakerHandler(http.server.SimpleHTTPRequestHandler):
         kit: dict,
         errors: list[dict[str, str]] | None = None,
     ) -> dict[str, str]:
-        """Cache the logo; inline SVGs also get ``light`` / ``dark`` recolored variants."""
+        """Cache the scraped logo bytes. The file is not recolored."""
         if not kit:
             return {}
         logo_svg = kit.get("logoSvg")
@@ -358,13 +357,8 @@ class CommMakerHandler(http.server.SimpleHTTPRequestHandler):
                     kit.get("faviconUrl"), logo_cache_basename, errors, role="logo"
                 )
                 return {"original": fallback} if fallback else {}
-            variants: dict[str, str] = {}
-            for name, markup in logo_svg_variants(payload).items():
-                digest = hashlib.sha256(markup.encode("utf-8")).hexdigest()[:16]
-                variants[name] = self._write_cached_asset(
-                    f"logo-{digest}.svg", markup.encode("utf-8")
-                )
-            return variants
+            digest = hashlib.sha256(payload.encode("utf-8")).hexdigest()[:16]
+            return {"original": self._write_cached_asset(f"logo-{digest}.svg", payload.encode("utf-8"))}
         remote = self._maybe_cache_remote_asset(
             kit.get("logoUrl"), logo_cache_basename, errors, role="logo"
         )
@@ -790,6 +784,7 @@ class CommMakerHandler(http.server.SimpleHTTPRequestHandler):
                 judge=ideogram_judge,
                 treatment=(ideogram_judge or {}).get("treatment") or poster_treatment or None,
                 screenshots_skipped=bool((acquired.get("ideogramPacket") or {}).get("screenshotsSkipped")),
+                brand_font_failed=bool((batch.get("meta") or {}).get("brandFontFailed")),
             )
             sys.stderr.write(
                 "CommMaker poster: template=%s ideogramUsed=%s ideogramMs=%s ideogramError=%s\n"

@@ -71,7 +71,9 @@ Fail when any of these are true:
 - It is a split layout: words or empty space on one side and a picture box or sticker on the other.
 - The subject is cramped into a corner.
 - It is a huge empty field with a tiny subject.
-- It contains letters, words, numbers, or a painted logo.
+- It contains letters, words, numbers, or a painted logo or wordmark. The scraped logo is placed later; do not draw one.
+- The logo layer is not the scraped logo file.
+- A display font was captured and the headline is not that family.
 - The colours are not the brand palette.
 - The type is weak: a system font, a headline under 54px, a subline too close to the headline size, or a headline of more than 8 words.
 - The logo or the headline contrast against the pixels behind it is under 4.5:1.
@@ -280,6 +282,7 @@ def poster_status_line(
     judge: dict[str, Any] | None = None,
     treatment: str | None = None,
     screenshots_skipped: bool = False,
+    brand_font_failed: bool = False,
 ) -> str:
     """Crisis status. A skip names the reason and shows 0 ms, so it cannot look like a hit."""
     parts: list[str] = []
@@ -291,6 +294,8 @@ def poster_status_line(
         from ideogram_packet import SCREENSHOTS_SKIPPED_STATUS
 
         parts.append(SCREENSHOTS_SKIPPED_STATUS)
+    if brand_font_failed:
+        parts.append("the brand font failed to load")
     if error:
         parts.append(error)
     elif ideogram_used:
