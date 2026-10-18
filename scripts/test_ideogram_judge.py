@@ -3,10 +3,15 @@
 
 from __future__ import annotations
 
+import functools
+import importlib.util
+import json
 import os
 import sys
 import tempfile
+import threading
 import unittest
+import urllib.request
 from unittest.mock import patch
 
 SCRIPTS = os.path.dirname(os.path.abspath(__file__))
@@ -15,7 +20,9 @@ if SCRIPTS not in sys.path:
 
 from ideogram_judge import (  # noqa: E402
     JUDGE_JSON_SCHEMA,
+    acquire_poster_picture,
     fetch_picture_layer,
+    judge_real_png,
     poster_status_line,
     retry_prompt,
     review_generated_picture,
@@ -203,6 +210,300 @@ class TestPictureJudge(unittest.TestCase):
         self.assertIsNone(result["passed"])
         self.assertFalse(result["retried"])
         self.assertIn("no model key", result["reason"])
+
+
+PNG = b"\x89PNG\r\n\x1a\n" + b"\x00" * 24
+
+PICTURE_FRAMES = (
+    "circle-stage",
+    "photo-block",
+    "photo-card",
+    "character-scene",
+    "product-card",
+    "product-ui",
+    "full-bleed-scrim",
+    "split-text-left",
+    "text-panel",
+)
+
+
+def _duo():
+    return (
+        {"siteName": "Duolingo", "colors": ["#58cc02", "#1cb0f6", "#ffffff"]},
+        {"imageryStyle": {"primaryMedium": "illustration", "motifs": ["mascot"]}},
+    )
+
+
+class TestPictureFrameMustPost(unittest.TestCase):
+    def test_solid_brief_with_empty_prompt_still_invokes_the_client(self) -> None:
+        """Old skip: heroStrategy == ideogram_generate and a non-empty prompt."""
+        kit, profile = _duo()
+        invoked: list[str] = []
+
+        def generate(prompt: str):
+            invoked.append(prompt)
+            return "generated/assets/duo-illustration.png", PNG, {"source": "ideogram-4"}
+
+        result = acquire_poster_picture(
+            {"layoutTemplate": "circle-stage", "heroStrategy": "solid", "heroImagePrompt": ""},
+            kit,
+            profile,
+            template="circle-stage",
+            key_set=True,
+            generate=generate,
+        )
+        self.assertTrue(invoked, "picture frame returned without invoking the Ideogram client")
+        self.assertTrue(result["ideogramUsed"])
+        self.assertIsNone(result["ideogramError"])
+        self.assertIsInstance(result["ideogramMs"], int)
+        self.assertNotIn("circle", invoked[0].casefold())
+        grid = {"w": 2, "h": 2, "src_w": 640, "src_h": 640, "pixels": [(88, 204, 2)] * 4}
+        batch = compile_poster_batch(
+            kit,
+            {"suggestedHeadline": "Learn a language in five minutes a day", "brief": {"facts": "Free lessons."}},
+            creative_brief=result["brief"],
+            hero_relative_path=result["path"],
+            hero_width=640,
+            hero_height=640,
+            hero_grid=grid,
+            logo_relative_path="generated/assets/duo.png",
+            logo_variants={"original": "generated/assets/duo.png"},
+            logo_width=180,
+            logo_height=180,
+        )
+        names = [step.get("params", {}).get("name") for step in batch["steps"]]
+        self.assertNotIn("Illustration plate", names)
+        pictures = [item for item in batch["placements"] if item.get("name") == "Picture"]
+        self.assertEqual(len(pictures), 1)
+        self.assertTrue(pictures[0]["path"].endswith("duo-illustration.png"))
+
+    def test_every_picture_frame_invokes_a_stubbed_client(self) -> None:
+        kit, profile = _duo()
+        for template in PICTURE_FRAMES:
+            invoked: list[str] = []
+
+            def generate(prompt: str, _invoked: list[str] = invoked, _template: str = template):
+                _invoked.append(prompt)
+                return f"generated/assets/{_template}.png", PNG, {"source": "ideogram-4"}
+
+            result = acquire_poster_picture(
+                {"layoutTemplate": template, "heroStrategy": "gradient_from_palette", "heroImagePrompt": ""},
+                kit,
+                profile,
+                template=template,
+                key_set=True,
+                generate=generate,
+            )
+            self.assertTrue(invoked, f"{template} returned without invoking the Ideogram client")
+            self.assertTrue(result["ideogramUsed"], template)
+            self.assertIsNone(result["ideogramError"], template)
+
+    def test_skip_without_a_key_says_why_and_costs_zero_ms(self) -> None:
+        kit, profile = _duo()
+
+        def generate(_prompt: str):
+            raise AssertionError("Ideogram client must not be called")
+
+        result = acquire_poster_picture(
+            {"layoutTemplate": "circle-stage", "heroStrategy": "ideogram_generate", "heroImagePrompt": "A character"},
+            kit,
+            profile,
+            template="circle-stage",
+            key_set=False,
+            generate=generate,
+        )
+        self.assertFalse(result["called"])
+        self.assertFalse(result["ideogramUsed"])
+        self.assertEqual(result["ideogramMs"], 0)
+        self.assertIn("IDEOGRAM_API_KEY not set", result["ideogramError"])
+        line = poster_status_line(
+            template="circle-stage",
+            ideogram_used=False,
+            error=result["ideogramError"],
+            ideogram_ms=result["ideogramMs"],
+            score=94,
+        )
+        self.assertIn("IDEOGRAM_API_KEY not set", line)
+        self.assertIn("0 ms", line)
+        self.assertNotIn("Ideogram ·", line)
+
+    def test_type_frame_with_a_key_skips_and_says_why(self) -> None:
+        kit, profile = _duo()
+
+        def generate(_prompt: str):
+            raise AssertionError("Ideogram client must not be called")
+
+        result = acquire_poster_picture(
+            {"layoutTemplate": "type-only", "heroStrategy": "ideogram_generate", "heroImagePrompt": "A scene"},
+            kit,
+            profile,
+            template="type-only",
+            key_set=True,
+            generate=generate,
+        )
+        self.assertFalse(result["called"])
+        self.assertEqual(result["ideogramMs"], 0)
+        self.assertIn("not a picture frame", result["ideogramError"])
+        self.assertEqual(result["brief"]["heroStrategy"], "solid")
+
+    def test_empty_image_is_not_a_judge_pass(self) -> None:
+        kit, profile = _duo()
+
+        def generate(_prompt: str):
+            return "generated/assets/empty.png", b"", {"source": "ideogram-4"}
+
+        result = acquire_poster_picture(
+            {"layoutTemplate": "circle-stage", "heroStrategy": "solid"},
+            kit,
+            profile,
+            template="circle-stage",
+            key_set=True,
+            generate=generate,
+        )
+        self.assertTrue(result["called"])
+        self.assertFalse(result["ideogramUsed"])
+        self.assertIn("did not return a PNG", result["ideogramError"])
+
+        def llm(*_args):
+            raise AssertionError("judge must not run without a PNG")
+
+        judged = judge_real_png(b"", "", "scene", llm_fn=llm, regenerate=lambda _p: ("x", PNG, {}))
+        self.assertIsNone(judged)
+
+
+def _load_server():
+    path = os.path.join(SCRIPTS, "serve-static.py")
+    spec = importlib.util.spec_from_file_location("serve_static_force_ideogram", path)
+    if spec is None or spec.loader is None:
+        raise RuntimeError("Could not load serve-static.py")
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+def _poster_body() -> dict:
+    return {
+        "kit": {
+            "siteName": "Duolingo",
+            "colors": ["#58cc02", "#1cb0f6", "#ffffff"],
+            "communicationKit": {"devices": [{"kind": "mascot"}], "bundled": True},
+        },
+        "session": {
+            "suggestedHeadline": "Learn a language in five minutes a day",
+            "brief": {"facts": "Free lessons, no textbook.", "tone": "factual"},
+        },
+        "creativeBrief": {
+            "headline": "Learn a language in five minutes a day",
+            "subhead": "The most fun way to learn languages, chess, and more.",
+            "cta": "Learn more",
+            "layoutTemplate": "circle-stage",
+            "heroStrategy": "solid",
+            "heroImagePrompt": "",
+            "layoutRecipe": "minimal-wordmark",
+            "logoTreatment": "wordmark-dark",
+            "ctaStyle": "pill",
+            "composition": {
+                "textRegion": "left",
+                "visuals": [],
+                "colourBlock": "none",
+                "field": "ideogram",
+                "showCta": True,
+                "offer": "",
+                "proof": "",
+            },
+        },
+    }
+
+
+class TestGeneratePosterPosts(unittest.TestCase):
+    def _post(self, module, port: int) -> dict:
+        raw = json.dumps(_poster_body()).encode("utf-8")
+        req = urllib.request.Request(
+            f"http://127.0.0.1:{port}/api/generate-poster",
+            data=raw,
+            headers={"Content-Type": "application/json"},
+            method="POST",
+        )
+        with urllib.request.urlopen(req, timeout=30) as resp:
+            return json.loads(resp.read().decode("utf-8"))
+
+    def test_circle_stage_posts_before_compile_even_when_the_brief_says_solid(self) -> None:
+        module = _load_server()
+        order: list[str] = []
+
+        def fake_generate(prompt, role, resolution, **_kwargs):
+            order.append("ideogram")
+            self.assertTrue(str(prompt).strip())
+            self.assertEqual(role, "background")
+            return "generated/assets/duo-illustration.png", PNG, {"source": "ideogram-4"}
+
+        def fake_batch(*_args, **_kwargs):
+            order.append("compile")
+            return {"ok": True, "cliAvailable": True, "userMessage": "Poster saved.", "commandBatch": {}}
+
+        handler = functools.partial(module.CommMakerHandler, coop_coep=False)
+        httpd = module.http.server.ThreadingHTTPServer(("127.0.0.1", 0), handler)
+        thread = threading.Thread(target=httpd.serve_forever, daemon=True)
+        with (
+            patch.object(module, "generate_layer_image", fake_generate),
+            patch.object(module, "run_poster_batch", fake_batch),
+            patch.object(
+                module,
+                "judge_real_png",
+                lambda *_a, **_k: {"passed": True, "reason": "One character in a scene.", "retried": False},
+            ),
+            patch.dict(os.environ, {"IDEOGRAM_API_KEY": "test-key"}),
+        ):
+            thread.start()
+            try:
+                payload = self._post(module, httpd.server_address[1])
+            finally:
+                httpd.shutdown()
+                thread.join(timeout=5)
+                httpd.server_close()
+        self.assertTrue(order, "picture frame returned without invoking the Ideogram client")
+        self.assertEqual(order[0], "ideogram")
+        self.assertIn("compile", order)
+        self.assertLess(order.index("ideogram"), order.index("compile"))
+        self.assertTrue(payload["ideogramUsed"])
+        self.assertIsNone(payload["ideogramError"])
+        self.assertIsInstance(payload["ideogramMs"], int)
+        self.assertIn("ms", payload["statusLine"])
+        self.assertIsNotNone(payload.get("ideogramJudge"))
+        self.assertTrue(payload["ideogramJudge"]["passed"])
+
+    def test_missing_key_skips_with_zero_ms_and_does_not_claim_a_judge_pass(self) -> None:
+        module = _load_server()
+        calls: list[str] = []
+
+        def fake_generate(*_args, **_kwargs):
+            calls.append("ideogram")
+            raise AssertionError("Ideogram client must not be called")
+
+        def fake_batch(*_args, **_kwargs):
+            return {"ok": True, "cliAvailable": True, "userMessage": "Poster saved.", "commandBatch": {}}
+
+        handler = functools.partial(module.CommMakerHandler, coop_coep=False)
+        httpd = module.http.server.ThreadingHTTPServer(("127.0.0.1", 0), handler)
+        thread = threading.Thread(target=httpd.serve_forever, daemon=True)
+        with (
+            patch.object(module, "generate_layer_image", fake_generate),
+            patch.object(module, "run_poster_batch", fake_batch),
+            patch.dict(os.environ, {"IDEOGRAM_API_KEY": ""}, clear=False),
+        ):
+            thread.start()
+            try:
+                payload = self._post(module, httpd.server_address[1])
+            finally:
+                httpd.shutdown()
+                thread.join(timeout=5)
+                httpd.server_close()
+        self.assertEqual(calls, [])
+        self.assertFalse(payload["ideogramUsed"])
+        self.assertEqual(payload["ideogramMs"], 0)
+        self.assertIn("IDEOGRAM_API_KEY not set", payload["ideogramError"])
+        self.assertIn("0 ms", payload["statusLine"])
+        self.assertNotIn("ideogramJudge", payload)
 
 
 if __name__ == "__main__":

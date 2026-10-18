@@ -16,6 +16,7 @@ import json
 import mimetypes
 import os
 import sys
+import time
 import urllib.error
 import urllib.request
 from typing import Callable
@@ -38,8 +39,6 @@ from creative_brief import (  # noqa: E402
     art_director_review,
     build_creative_brief,
     coerce_ideogram_for_unsuitable_kit_hero,
-    effective_ideogram_layers,
-    prepare_picture_brief,
 )
 from ideogram_client import (  # noqa: E402
     brand_terms_from_kit,
@@ -47,16 +46,16 @@ from ideogram_client import (  # noqa: E402
     ideogram_api_key,
 )
 from ideogram_judge import (  # noqa: E402
-    fetch_picture_layer,
+    acquire_poster_picture,
+    is_png,
+    judge_real_png,
     picture_references,
     poster_status_line,
-    review_generated_picture,
 )
 from image_luma import load_rgb_grid  # noqa: E402
 from brand_profile import (  # noqa: E402
     analyze_brand_bundle,
     apply_brand_profile_to_kit,
-    augment_ideogram_prompt,
     playwright_available,
 )
 from communication_kit import ensure_communication_kit  # noqa: E402
@@ -70,12 +69,9 @@ from poster_compiler import (  # noqa: E402
     should_skip_hero_for_brief,
 )
 from poster_design import (  # noqa: E402
-    TEMPLATES,
     brand_roles,
     kit_hero_unsuitable,
     resolve_template_name,
-    template_needs_raster,
-    template_skips_ideogram,
 )
 from photocraft_cli import run_poster_batch, _cli_missing_user_message  # noqa: E402
 
@@ -463,50 +459,21 @@ class CommMakerHandler(http.server.SimpleHTTPRequestHandler):
             generated_assets: list[dict[str, str]] = []
             ideogram_fallback_message: str | None = None
             ideogram_judge: dict | None = None
+            ideogram_ms = 0
+            ideogram_used = False
+            picture_bytes: bytes | None = None
+            picture_prompt = ""
             if isinstance(creative_brief, dict):
-                resolved_template = resolve_template_name(
-                    creative_brief,
-                    has_image=True,
-                    monochrome=brand_roles(kit, brand_profile).monochrome,
-                    brand_profile=brand_profile,
-                    communication_kit=kit.get("communicationKit") if isinstance(kit, dict) else None,
-                )
-                creative_brief = {**creative_brief, "layoutTemplate": resolved_template}
-                if template_skips_ideogram(resolved_template):
-                    creative_brief = {**creative_brief, "heroStrategy": "solid"}
-                else:
-                    # A picture frame generates the bitmap even when the brief only named the layout.
-                    creative_brief = prepare_picture_brief(
-                        creative_brief,
-                        kit,
-                        brand_profile,
-                        key_set=bool(ideogram_api_key()),
-                    )
-            if (
-                isinstance(creative_brief, dict)
-                and creative_brief.get("heroStrategy") == "ideogram_generate"
-            ):
-                prompt = augment_ideogram_prompt(
-                    str(creative_brief.get("heroImagePrompt") or ""), kit, role="background"
-                )
-                direction = str(((kit.get("communicationKit") or {}).get("imagery") or {}).get("direction") or "")
-                if direction and not any(word in direction.casefold() for word in ("circle", "circular", "disc", "disk")):
-                    prompt = f"{prompt}. {direction}"
-                layers_mode = effective_ideogram_layers(creative_brief)
-                accent_prompt = augment_ideogram_prompt(
-                    str(creative_brief.get("accentImagePrompt") or ""), kit, role="accent"
-                )
                 roles = brand_roles(kit, brand_profile)
-                template_name = resolve_template_name(
+                resolved_template = resolve_template_name(
                     creative_brief,
                     has_image=True,
                     monochrome=roles.monochrome,
                     brand_profile=brand_profile,
                     communication_kit=kit.get("communicationKit") if isinstance(kit, dict) else None,
                 )
-                creative_brief = {**creative_brief, "layoutTemplate": template_name}
                 ideogram_style = {
-                    "template": template_name,
+                    "template": resolved_template,
                     "palette": [
                         c
                         for c in (roles.dark, roles.brand, roles.accent, roles.light, *roles.palette)
@@ -519,61 +486,73 @@ class CommMakerHandler(http.server.SimpleHTTPRequestHandler):
                     }.get(str(creative_brief.get("emphasis") or ""), "calm, confident, premium"),
                     "brand_profile": brand_profile,
                 }
-                if TEMPLATES[template_name].accent_center is None:
-                    layers_mode = "background-only"
-                if ideogram_api_key() and prompt:
-                    try:
-                        fetched = fetch_picture_layer(
-                            prompt,
-                            key_set=True,
-                            generate=lambda scene: generate_layer_image(
-                                scene,
-                                "background",
-                                "1200x627",
-                                assets_dir=ASSETS_DIR,
-                                **ideogram_style,
-                            ),
+
+                def _generate_picture(scene: str) -> tuple:
+                    return generate_layer_image(
+                        scene,
+                        "background",
+                        "1200x627",
+                        assets_dir=ASSETS_DIR,
+                        **ideogram_style,
+                    )
+
+                acquired = acquire_poster_picture(
+                    creative_brief,
+                    kit,
+                    brand_profile,
+                    template=resolved_template,
+                    key_set=bool(ideogram_api_key()),
+                    generate=_generate_picture,
+                )
+                creative_brief = acquired["brief"]
+                ideogram_ms = int(acquired["ideogramMs"])
+                ideogram_used = bool(acquired["ideogramUsed"])
+                ideogram_fallback_message = acquired["ideogramError"]
+                picture_prompt = str(acquired.get("prompt") or "")
+                picture_bytes = acquired.get("image") if isinstance(acquired.get("image"), (bytes, bytearray)) else None
+                if ideogram_used and acquired.get("path") and is_png(picture_bytes):
+                    hero_rel = str(acquired["path"])
+                    bg_meta = acquired.get("meta") or {}
+                    generated_assets.append(
+                        {"role": "background", "path": hero_rel, "source": "ideogram-4"}
+                    )
+                    hero_meta = {
+                        "heroSource": "ideogram-4",
+                        "heroImagePrompt": picture_prompt,
+                        "ideogramResolution": bg_meta.get("ideogramResolution"),
+                        "ideogramLayers": "background-only",
+                        "ideogramStructuredPrompt": bg_meta.get("structuredPrompt"),
+                        "layoutTemplate": resolved_template,
+                    }
+                    if bg_meta.get("resolutionNote"):
+                        hero_meta["resolutionNote"] = (
+                            f"{bg_meta['resolutionNote']} "
+                            "Poster compiler cover-fills 1200×627."
                         )
-                        if fetched.get("error"):
-                            raise RuntimeError(fetched["error"])
-                        hero_rel = fetched["path"]
-                        _bytes = b"ok"
-                        bg_meta = fetched.get("meta") or {}
-                        generated_assets.append(
-                            {
-                                "role": "background",
-                                "path": hero_rel,
-                                "source": "ideogram-4",
-                            }
-                        )
-                        hero_meta = {
-                            "heroSource": "ideogram-4",
-                            "heroImagePrompt": prompt,
-                            "ideogramResolution": bg_meta.get("ideogramResolution"),
-                            "ideogramLayers": layers_mode,
-                            "ideogramStructuredPrompt": bg_meta.get("structuredPrompt"),
-                            "layoutTemplate": template_name,
-                        }
-                        if bg_meta.get("resolutionNote"):
-                            hero_meta["resolutionNote"] = (
-                                f"{bg_meta['resolutionNote']} "
-                                "Poster compiler cover-fills 1200×627."
-                            )
-                        kit["heroImageUrl"] = f"/{hero_rel}"
-                        judge = review_generated_picture(
-                            os.path.join(ROOT, hero_rel),
-                            prompt,
-                            reference_paths=picture_references(kit, ROOT),
-                            palette=ideogram_style["palette"],
-                            brand_profile=brand_profile,
-                            regenerate=lambda revised: generate_layer_image(
-                                revised,
-                                "background",
-                                "1200x627",
-                                assets_dir=ASSETS_DIR,
-                                **ideogram_style,
-                            ),
-                        )
+                    kit["heroImageUrl"] = f"/{hero_rel}"
+                    picture_path = os.path.join(ROOT, hero_rel)
+
+                    def _regenerate(revised: str) -> tuple:
+                        nonlocal ideogram_ms
+                        started = time.perf_counter()
+                        try:
+                            rel, data, meta = _generate_picture(revised)
+                        finally:
+                            ideogram_ms += int((time.perf_counter() - started) * 1000)
+                        if not is_png(data):
+                            raise ValueError("Ideogram retry did not return a PNG.")
+                        return rel, data, meta
+
+                    judge = judge_real_png(
+                        picture_bytes,
+                        picture_path,
+                        picture_prompt,
+                        reference_paths=picture_references(kit, ROOT),
+                        palette=ideogram_style["palette"],
+                        brand_profile=brand_profile,
+                        regenerate=_regenerate,
+                    )
+                    if judge:
                         ideogram_judge = {
                             "passed": judge.get("passed"),
                             "reason": judge.get("reason") or "",
@@ -584,76 +563,17 @@ class CommMakerHandler(http.server.SimpleHTTPRequestHandler):
                             generated_assets[-1]["path"] = hero_rel
                             generated_assets[-1]["source"] = "ideogram-4-retry"
                             kit["heroImageUrl"] = f"/{hero_rel}"
-                            hero_meta["heroImagePrompt"] = prompt
                             hero_meta["retried"] = True
-                        if (
-                            layers_mode == "background-plus-accent"
-                            and accent_prompt
-                        ):
-                            accent_rel, _accent_bytes, accent_meta = generate_layer_image(
-                                accent_prompt,
-                                "accent",
-                                "1024x1024",
-                                assets_dir=ASSETS_DIR,
-                                remove_bg=True,
-                                **ideogram_style,
-                            )
-                            generated_assets.append(
-                                {
-                                    "role": "accent",
-                                    "path": accent_rel,
-                                    "source": accent_meta.get("source", "ideogram-4"),
-                                }
-                            )
-                    except (
-                        urllib.error.URLError,
-                        urllib.error.HTTPError,
-                        ValueError,
-                        json.JSONDecodeError,
-                        OSError,
-                        RuntimeError,
-                    ) as exc:
-                        ideogram_fallback_message = f"Ideogram failed: {exc}"
-                        asset_errors.append(
-                            {"role": "ideogram", "error": str(exc), "url": ""}
-                        )
-                        hero_rel = None
-                        accent_rel = None
-                        generated_assets = []
-                        patched = dict(creative_brief)
-                        if kit.get("heroImageUrl") and not kit_hero_unsuitable(kit):
-                            patched["heroStrategy"] = "use_kit_photo"
-                        else:
-                            patched["heroStrategy"] = "gradient_from_palette"
-                            patched["layoutRecipe"] = "gradient-brand"
-                        creative_brief = patched
-                elif not ideogram_api_key():
-                    ideogram_fallback_message = (
-                        "IDEOGRAM_API_KEY not set — using scraped kit hero or brand gradient."
+                elif acquired.get("called"):
+                    asset_errors.append(
+                        {
+                            "role": "ideogram",
+                            "error": ideogram_fallback_message or "Ideogram failed",
+                            "url": "",
+                        }
                     )
-                    patched = dict(creative_brief)
-                    if kit.get("heroImageUrl") and not kit_hero_unsuitable(kit):
-                        patched["heroStrategy"] = "use_kit_photo"
-                    else:
-                        patched["heroStrategy"] = "gradient_from_palette"
-                        patched["layoutRecipe"] = "gradient-brand"
-                    creative_brief = patched
-                elif not prompt:
-                    ideogram_fallback_message = (
-                        "Creative brief missing heroImagePrompt — using gradient fallback."
-                    )
-                    creative_brief = {
-                        **creative_brief,
-                        "heroStrategy": "gradient_from_palette",
-                        "layoutRecipe": "gradient-brand",
-                    }
-            if (
-                isinstance(creative_brief, dict)
-                and template_needs_raster(str(creative_brief.get("layoutTemplate") or ""))
-                and not ideogram_api_key()
-                and not ideogram_fallback_message
-            ):
-                ideogram_fallback_message = "IDEOGRAM_API_KEY not set — picture stand-in only."
+            else:
+                ideogram_fallback_message = "No creative brief — Ideogram skipped."
             if not should_skip_hero_for_brief(kit, creative_brief):
                 hero_rel = self._maybe_cache_hero(kit, asset_errors)
             logo_variants = self._maybe_cache_logo_variants(kit, asset_errors)
@@ -790,25 +710,37 @@ class CommMakerHandler(http.server.SimpleHTTPRequestHandler):
                     payload["ideogramLayers"] = hero_meta.get("ideogramLayers")
                 if hero_meta.get("resolutionNote"):
                     payload["resolutionNote"] = hero_meta["resolutionNote"]
-            if ideogram_fallback_message:
-                payload["ideogramFallback"] = ideogram_fallback_message
             if isinstance(creative_brief, dict):
                 payload["heroStrategy"] = creative_brief.get("heroStrategy")
                 if creative_brief.get("ideogramLayers"):
                     payload["briefIdeogramLayers"] = creative_brief.get("ideogramLayers")
-            payload["ideogramUsed"] = hero_meta.get("heroSource") == "ideogram-4"
+            payload["ideogramUsed"] = bool(ideogram_used) and is_png(picture_bytes)
+            payload["ideogramMs"] = int(ideogram_ms)
+            payload["ideogramError"] = ideogram_fallback_message
+            if ideogram_judge and ideogram_judge.get("passed") is True and not is_png(picture_bytes):
+                ideogram_judge = None
             if ideogram_judge:
                 payload["ideogramJudge"] = ideogram_judge
             if ideogram_fallback_message:
-                payload["ideogramError"] = ideogram_fallback_message
+                payload["ideogramFallback"] = ideogram_fallback_message
             payload["statusLine"] = poster_status_line(
                 template=(batch.get("meta") or {}).get("layoutTemplate"),
                 ideogram_used=bool(payload["ideogramUsed"]),
                 error=ideogram_fallback_message,
                 score=((batch.get("meta") or {}).get("designAudit") or {}).get("score"),
+                ideogram_ms=int(ideogram_ms),
             )
-            scene = ""
-            if isinstance(creative_brief, dict):
+            sys.stderr.write(
+                "CommMaker poster: template=%s ideogramUsed=%s ideogramMs=%s ideogramError=%s\n"
+                % (
+                    payload.get("layoutTemplate") or "-",
+                    payload["ideogramUsed"],
+                    payload["ideogramMs"],
+                    ideogram_fallback_message or "-",
+                )
+            )
+            scene = picture_prompt
+            if not scene and isinstance(creative_brief, dict):
                 scene = str(creative_brief.get("heroImagePrompt") or hero_meta.get("heroImagePrompt") or "")
             payload["promptSnippet"] = " ".join(scene.split())[:90]
             if result.get("error"):

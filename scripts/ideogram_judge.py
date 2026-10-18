@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import json
 import os
+import time
 import urllib.error
 import urllib.request
 from typing import Any, Callable
@@ -19,9 +20,12 @@ from creative_brief import (
     _anthropic_request_headers,
     _truncate,
     api_key_for_provider,
+    prepare_picture_brief,
+    raster_scene_prompt,
     resolve_llm_model,
     resolve_llm_provider,
 )
+from poster_design import template_needs_raster, template_skips_ideogram
 
 # Small on purpose: the generated PNG plus at most two brand references.
 JUDGE_MAX_EDGE = 768
@@ -223,14 +227,24 @@ def _default_llm(image_path: str, reference_paths: list[str], palette: list[str]
     return _call_openai(content, api_key=api_key, model=model, base_url=base)
 
 
+PNG_MAGIC = b"\x89PNG\r\n\x1a\n"
+
+
+def is_png(data: bytes | bytearray | None) -> bool:
+    """A real Ideogram file, not an empty body or the compiler's vector stand-in."""
+    raw = bytes(data or b"")
+    return raw.startswith(PNG_MAGIC) and len(raw) > len(PNG_MAGIC)
+
+
 def poster_status_line(
     *,
     template: str | None,
     ideogram_used: bool,
     error: str | None,
     score: int | None = None,
+    ideogram_ms: int | None = None,
 ) -> str:
-    """Crisis status. An Ideogram failure is part of the line, not only the frame name."""
+    """Crisis status. A skip names the reason and shows 0 ms, so it cannot look like a hit."""
     parts: list[str] = []
     if template:
         parts.append(template)
@@ -240,9 +254,126 @@ def poster_status_line(
         parts.append("Ideogram")
     else:
         parts.append("no Ideogram")
+    if ideogram_ms is not None:
+        parts.append(f"{int(ideogram_ms)} ms")
     if score is not None:
         parts.append(f"design score {score}/100")
     return " · ".join(parts)
+
+
+def _picture_prompt(
+    brief: dict[str, Any],
+    kit: dict[str, Any] | None,
+    brand_profile: dict[str, Any] | None,
+    template: str,
+) -> str:
+    prompt = str(brief.get("heroImagePrompt") or "").strip()
+    if not prompt:
+        prompt = raster_scene_prompt(template, kit, brand_profile, "")
+    try:
+        from brand_profile import augment_ideogram_prompt
+
+        prompt = augment_ideogram_prompt(prompt, kit, role="background") or prompt
+    except Exception:  # noqa: BLE001 — the scene prompt is enough to POST
+        pass
+    direction = ""
+    comm = (kit or {}).get("communicationKit") if isinstance(kit, dict) else None
+    if isinstance(comm, dict):
+        imagery = comm.get("imagery") if isinstance(comm.get("imagery"), dict) else {}
+        direction = str(imagery.get("direction") or "")
+    if direction and not any(word in direction.casefold() for word in ("circle", "circular", "disc", "disk")):
+        prompt = f"{prompt}. {direction}"
+    return " ".join(prompt.split())
+
+
+def acquire_poster_picture(
+    brief: dict[str, Any] | None,
+    kit: dict[str, Any] | None,
+    brand_profile: dict[str, Any] | None,
+    *,
+    template: str,
+    key_set: bool,
+    generate: Callable[[str], tuple],
+) -> dict[str, Any]:
+    """POST a picture frame to Ideogram before the poster is compiled.
+
+    The HTTP call is not gated on ``heroStrategy == ideogram_generate`` or on a
+    pre-filled ``heroImagePrompt``. Those two checks returned the stand-in
+    ellipse with ``ideogramMs`` 0 and no request.
+    """
+    prepared = dict(brief or {})
+    prepared["layoutTemplate"] = template
+    result: dict[str, Any] = {
+        "brief": prepared,
+        "path": None,
+        "image": None,
+        "meta": {},
+        "prompt": "",
+        "ideogramUsed": False,
+        "ideogramMs": 0,
+        "ideogramError": None,
+        "called": False,
+    }
+    if template_skips_ideogram(template) or not template_needs_raster(template):
+        prepared["heroStrategy"] = "solid"
+        result["brief"] = prepared
+        result["ideogramError"] = f"{template or 'unknown'} is not a picture frame — Ideogram skipped."
+        return result
+    if not key_set:
+        result["ideogramError"] = "IDEOGRAM_API_KEY not set — picture stand-in only."
+        return result
+
+    prepared = prepare_picture_brief(prepared, kit, brand_profile, key_set=True)
+    prompt = _picture_prompt(prepared, kit, brand_profile, template)
+    prepared["heroStrategy"] = "ideogram_generate"
+    prepared["heroImagePrompt"] = prompt
+    prepared["layoutTemplate"] = template
+    prepared["ideogramLayers"] = "background-only"
+    t0 = time.perf_counter()
+    try:
+        rel, data, meta = generate(prompt)
+    except Exception as exc:  # noqa: BLE001 — report the failure; do not hide it as a stand-in
+        result.update(
+            {
+                "brief": prepared,
+                "prompt": prompt,
+                "ideogramMs": int((time.perf_counter() - t0) * 1000),
+                "ideogramError": f"Ideogram failed: {type(exc).__name__}: {exc}",
+                "called": True,
+            }
+        )
+        return result
+    raw = bytes(data or b"")
+    result.update(
+        {
+            "brief": prepared,
+            "path": rel,
+            "image": raw or None,
+            "meta": meta or {},
+            "prompt": prompt,
+            "ideogramMs": int((time.perf_counter() - t0) * 1000),
+            "called": True,
+        }
+    )
+    if not is_png(raw):
+        result["ideogramError"] = "Ideogram did not return a PNG."
+        result["ideogramUsed"] = False
+        return result
+    result["ideogramUsed"] = True
+    result["ideogramError"] = None
+    return result
+
+
+def judge_real_png(
+    image: bytes | bytearray | None,
+    image_path: str,
+    prompt: str,
+    **kwargs: Any,
+) -> dict[str, Any] | None:
+    """One vision check, and only after Ideogram returned a PNG. No PNG is not a pass."""
+    if not is_png(image) or not image_path or not os.path.isfile(image_path):
+        return None
+    return review_generated_picture(image_path, prompt, **kwargs)
 
 
 def fetch_picture_layer(prompt: str, *, key_set: bool, generate: Callable[..., tuple]) -> dict[str, Any]:

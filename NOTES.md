@@ -6,6 +6,12 @@ Project update tracking, changelog, and roadmap for `ai-webapp`.
 
 ## 📝 Recent Updates
 
+### 2026-10-18 - A picture frame must call Ideogram
+
+- The HTTP call was nested under `heroStrategy == "ideogram_generate"` and a non-empty `heroImagePrompt`. A picture frame whose brief said solid, or whose prompt was empty, compiled the stand-in ellipse and returned immediately. No request reached Ideogram.
+- A picture frame with `IDEOGRAM_API_KEY` set now POSTs before compile, even when the brief did not ask for Ideogram. The response always includes `ideogramUsed`, `ideogramMs`, and `ideogramError`. A skip says why and sets `ideogramMs` to 0, and the crisis status line shows that instead of a success.
+- The illustration judge runs only after a real PNG: one vision check, then at most one retry. No PNG is not a pass.
+
 ### 2026-10-18 - The empty circle was the stand-in
 
 - A picture-frame bitmap was placed before the solid field, so the field covered it. When Ideogram did not return a file, `circle-stage` still drew the light-blue “Illustration plate” and the status line omitted the error.
