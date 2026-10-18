@@ -309,6 +309,7 @@ async function generatePosterInPhotoCraft() {
                 layoutTemplate: data.layoutTemplate || null,
                 designScore: data.designAudit?.score ?? null,
                 ideogramUsed: Boolean(data.ideogramUsed),
+                ideogramMs: Number.isFinite(data.ideogramMs) ? data.ideogramMs : 0,
                 promptSnippet: data.promptSnippet || "",
                 ideogramJudge: data.ideogramJudge || null,
                 ideogramError: data.ideogramError || data.ideogramFallback || "",
@@ -326,7 +327,8 @@ async function generatePosterInPhotoCraft() {
                 data.userMessage ||
                 data.cliError ||
                 "Poster generation failed. Fix the issue below and try again.";
-            setPosterStatus(detail, { error: true });
+            const skipNote = data.statusLine ? ` ${data.statusLine}` : "";
+            setPosterStatus(detail + skipNote, { error: true });
             generatePosterBtn.disabled = false;
             openEditorBtn.disabled = false;
             return;
@@ -350,16 +352,18 @@ async function generatePosterInPhotoCraft() {
         const errorNote = data.ideogramError || data.ideogramFallback
             ? ` ${data.ideogramError || data.ideogramFallback}`
             : ""
+        const msNote = Number.isFinite(data.ideogramMs) ? ` ${data.ideogramMs} ms.` : ""
         const heroNote = data.statusLine
             ? ` ${data.statusLine}`
             : data.ideogramUsed || data.heroSource === "ideogram-4"
-                ? ` Ideogram: yes.${frameNote}${snippetNote}${judgeNote}`
-                : ` Ideogram: no.${frameNote}${errorNote}${strategyNote}`
+                ? ` Ideogram: yes.${msNote}${frameNote}${snippetNote}${judgeNote}`
+                : ` Ideogram: no.${msNote}${frameNote}${errorNote}${strategyNote}`
+        const pictureSkipped = !data.ideogramUsed && Boolean(data.ideogramError || data.ideogramFallback);
         setPosterStatus(
             (data.userMessage || "Poster saved. Downloading and opening PhotoCraft…") +
                 heroNote +
                 fontNote,
-            { success: true }
+            { success: !pictureSkipped, error: pictureSkipped }
         );
 
         const docParam = data.openUrl || data.documentPath;

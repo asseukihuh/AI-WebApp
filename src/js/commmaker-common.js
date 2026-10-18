@@ -165,6 +165,7 @@ export function renderKitSummary(target, kit, session) {
             poster.layoutTemplate,
             poster.ideogramError || "",
             poster.ideogramUsed ? "Ideogram" : "no Ideogram",
+            poster.ideogramMs != null ? `${poster.ideogramMs} ms` : "",
             poster.promptSnippet || "",
             judgeLabel,
             judge && judge.reason ? judge.reason : "",
