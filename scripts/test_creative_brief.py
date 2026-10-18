@@ -18,6 +18,8 @@ if SCRIPTS not in sys.path:
 
 from creative_brief import (  # noqa: E402
     CREATIVE_BRIEF_JSON_SCHEMA,
+    prepare_picture_brief,
+    raster_scene_prompt,
     _anthropic_messages_body,
     brand_layout_energy,
     _anthropic_request_headers,
@@ -594,6 +596,77 @@ class TestLayoutEnergy(unittest.TestCase):
         self.assertIn("Brand panel", names)
         self.assertNotIn("Brand gradient", [item.get("name") for item in batch.get("backgroundPlacements") or []])
         self.assertEqual(batch["meta"]["layoutTemplate"], "photo-block")
+
+
+class TestCircleStagePicture(unittest.TestCase):
+    def test_duolingo_prompt_is_an_illustration_not_a_circle(self) -> None:
+        kit = {"siteName": "Duolingo", "colors": ["#78c800", "#ffffff"]}
+        profile = {"imageryStyle": {"primaryMedium": "illustration", "motifs": ["mascot"]}}
+        scene = raster_scene_prompt("circle-stage", kit, profile, existing="Hold this inside a circle")
+        self.assertNotIn("circle", scene.casefold())
+        self.assertIn("green character", scene)
+        self.assertIn("no letters", scene.casefold())
+        brief = prepare_picture_brief(
+            {
+                "layoutTemplate": "circle-stage",
+                "heroStrategy": "solid",
+                "heroImagePrompt": "",
+            },
+            kit,
+            profile,
+            key_set=True,
+        )
+        self.assertEqual(brief["heroStrategy"], "ideogram_generate")
+        self.assertNotIn("circle", brief["heroImagePrompt"].casefold())
+        skipped = prepare_picture_brief(
+            {"layoutTemplate": "type-only", "heroStrategy": "solid"},
+            kit,
+            profile,
+            key_set=True,
+        )
+        self.assertEqual(skipped["heroStrategy"], "solid")
+
+    def test_bitmap_replaces_the_circle_and_the_logo_stays_outside(self) -> None:
+        grid = {"w": 2, "h": 2, "src_w": 800, "src_h": 800, "pixels": [(120, 200, 0)] * 4}
+        batch = compile_poster_batch(
+            {"siteName": "Duolingo", "colors": ["#78c800", "#ffffff"]},
+            {"suggestedHeadline": "Learn a language in five minutes a day", "brief": {"facts": "Free lessons, no textbook."}},
+            creative_brief={
+                "headline": "Learn a language in five minutes a day",
+                "subhead": "Free lessons, no textbook.",
+                "cta": "Start learning",
+                "layoutRecipe": "photo-hero-type",
+                "heroStrategy": "ideogram_generate",
+                "logoTreatment": "wordmark-dark",
+                "layoutTemplate": "circle-stage",
+                "headlineScale": "lg",
+                "ctaStyle": "pill",
+                "composition": {
+                    "textRegion": "left",
+                    "visuals": [],
+                    "colourBlock": "none",
+                    "field": "ideogram",
+                    "showCta": True,
+                    "offer": "",
+                    "proof": "",
+                },
+            },
+            logo_relative_path="generated/assets/duo.png",
+            logo_variants={"original": "generated/assets/duo.png"},
+            logo_width=180,
+            logo_height=180,
+            hero_relative_path="generated/assets/layer-ideogram-background.png",
+            hero_width=800,
+            hero_height=800,
+            hero_grid=grid,
+        )
+        names = [step.get("params", {}).get("name") for step in batch["steps"]]
+        self.assertNotIn("Illustration plate", names)
+        pictures = [item for item in batch["backgroundPlacements"] if item.get("name") == "Picture"]
+        self.assertEqual(len(pictures), 1)
+        self.assertIn("layer-ideogram-background.png", pictures[0]["path"])
+        logo = next(item for item in batch["placements"] if item.get("name") == "Logo")
+        self.assertLess(logo["center"][0], 400)
 
 
 if __name__ == "__main__":

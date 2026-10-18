@@ -39,6 +39,7 @@ from creative_brief import (  # noqa: E402
     build_creative_brief,
     coerce_ideogram_for_unsuitable_kit_hero,
     effective_ideogram_layers,
+    prepare_picture_brief,
 )
 from ideogram_client import (  # noqa: E402
     brand_terms_from_kit,
@@ -84,7 +85,7 @@ mimetypes.add_type("application/wasm", ".wasm")
 mimetypes.add_type("text/javascript", ".js")
 
 
-CREATIVE_BRIEF_STACK = "v26-design-system"
+CREATIVE_BRIEF_STACK = "v27-ideogram-picture"
 
 
 def _request_brand_profile(body: dict, kit: dict) -> dict | None:
@@ -454,7 +455,7 @@ class CommMakerHandler(http.server.SimpleHTTPRequestHandler):
             hero_meta: dict = {}
             generated_assets: list[dict[str, str]] = []
             ideogram_fallback_message: str | None = None
-            if isinstance(creative_brief, dict) and creative_brief.get("heroStrategy") == "ideogram_generate":
+            if isinstance(creative_brief, dict):
                 resolved_template = resolve_template_name(
                     creative_brief,
                     has_image=True,
@@ -465,6 +466,14 @@ class CommMakerHandler(http.server.SimpleHTTPRequestHandler):
                 creative_brief = {**creative_brief, "layoutTemplate": resolved_template}
                 if template_skips_ideogram(resolved_template):
                     creative_brief = {**creative_brief, "heroStrategy": "solid"}
+                else:
+                    # A picture frame generates the bitmap even when the brief only named the layout.
+                    creative_brief = prepare_picture_brief(
+                        creative_brief,
+                        kit,
+                        brand_profile,
+                        key_set=bool(ideogram_api_key()),
+                    )
             if (
                 isinstance(creative_brief, dict)
                 and creative_brief.get("heroStrategy") == "ideogram_generate"
@@ -473,7 +482,7 @@ class CommMakerHandler(http.server.SimpleHTTPRequestHandler):
                     str(creative_brief.get("heroImagePrompt") or ""), kit, role="background"
                 )
                 direction = str(((kit.get("communicationKit") or {}).get("imagery") or {}).get("direction") or "")
-                if direction:
+                if direction and not any(word in direction.casefold() for word in ("circle", "circular", "disc", "disk")):
                     prompt = f"{prompt}. {direction}"
                 layers_mode = effective_ideogram_layers(creative_brief)
                 accent_prompt = augment_ideogram_prompt(
@@ -739,6 +748,10 @@ class CommMakerHandler(http.server.SimpleHTTPRequestHandler):
                 if creative_brief.get("ideogramLayers"):
                     payload["briefIdeogramLayers"] = creative_brief.get("ideogramLayers")
             payload["ideogramUsed"] = hero_meta.get("heroSource") == "ideogram-4"
+            scene = ""
+            if isinstance(creative_brief, dict):
+                scene = str(creative_brief.get("heroImagePrompt") or hero_meta.get("heroImagePrompt") or "")
+            payload["promptSnippet"] = " ".join(scene.split())[:90]
             if result.get("error"):
                 payload["cliError"] = result["error"]
             if result.get("cliError"):
