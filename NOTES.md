@@ -81,6 +81,6 @@ Project update tracking and changelog for CommMaker.
 ### 2026-10-17 - Communication kit
 
 - Thin sites (BDS IG2I and the like) get a designed kit: colour proportions, type pairing, and a few graphic devices drawn from the logo and the sector.
-- `COMMMAKER_BRAND_MODEL` defaults to `claude-opus-5-5` for that pass, cached per domain. Poster briefs stay on `claude-sonnet-5-5`.
+- `COMMMAKER_BRAND_MODEL` and `COMMMAKER_LLM_MODEL` both default to `claude-opus-5-5`. The poster brief and the vision judge use that default. Brief and judge are priced at Opus rates, $15 / $75 per million tokens.
 - Posters place the devices as PhotoCraft vectors and score the Linearity rules (one focal point, hook, scale, asymmetry, depth, colour block, whitespace, thumbnail type, logo size).
 - Onboard edits the kit before a poster is generated.

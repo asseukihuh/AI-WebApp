@@ -22,7 +22,7 @@ ANTHROPIC_API_KEY=
 IDEOGRAM_API_KEY=
 ```
 
-`ANTHROPIC_API_KEY` is the brand profile, communication kit, and poster brief. `IDEOGRAM_API_KEY` paints the poster field. Optional names are listed in `.env.example`.
+`ANTHROPIC_API_KEY` runs the brand pass, the poster brief, and the vision judge. The default model is Claude Opus 5.5 (`claude-opus-5-5`). `IDEOGRAM_API_KEY` paints the poster field. Optional names are listed in `.env.example`.
 
 ```powershell
 .\scripts\dev-commmaker.ps1
