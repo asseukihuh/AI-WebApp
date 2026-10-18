@@ -37,6 +37,7 @@ from creative_brief import (  # noqa: E402
     _normalize_api_key,
     art_director_enabled,
     art_director_review,
+    brand_layout_energy,
     build_creative_brief,
     coerce_ideogram_for_unsuitable_kit_hero,
 )
@@ -44,6 +45,7 @@ from ideogram_client import (  # noqa: E402
     brand_terms_from_kit,
     generate_layer_image,
     ideogram_api_key,
+    treatment_spec,
 )
 from ideogram_judge import (  # noqa: E402
     acquire_poster_picture,
@@ -70,6 +72,7 @@ from poster_compiler import (  # noqa: E402
 )
 from poster_design import (  # noqa: E402
     brand_roles,
+    choose_treatment,
     kit_hero_unsuitable,
     resolve_template_name,
 )
@@ -463,6 +466,7 @@ class CommMakerHandler(http.server.SimpleHTTPRequestHandler):
             ideogram_used = False
             picture_bytes: bytes | None = None
             picture_prompt = ""
+            poster_treatment = ""
             if isinstance(creative_brief, dict):
                 roles = brand_roles(kit, brand_profile)
                 resolved_template = resolve_template_name(
@@ -487,14 +491,24 @@ class CommMakerHandler(http.server.SimpleHTTPRequestHandler):
                     "brand_profile": brand_profile,
                 }
 
-                picture_resolution = "1200x627"
+                poster_treatment = choose_treatment(
+                    creative_brief, brand_layout_energy(kit, brand_profile)
+                )
+                picture_resolution = treatment_spec(poster_treatment).get("resolution") or "1200x627"
 
                 def _generate_picture(scene: str) -> tuple:
+                    kind = poster_treatment
+                    for name in ("full-sheet", "photo-band", "pattern-field", "illustration-cluster", "quiet-type"):
+                        if f"Treatment {name}" in scene:
+                            kind = name
+                            break
+                    resolution = treatment_spec(kind).get("resolution") or picture_resolution
                     return generate_layer_image(
                         scene,
                         "background",
-                        picture_resolution,
+                        resolution,
                         assets_dir=ASSETS_DIR,
+                        treatment=kind,
                         **ideogram_style,
                     )
 
@@ -556,8 +570,9 @@ class CommMakerHandler(http.server.SimpleHTTPRequestHandler):
                         palette=ideogram_style["palette"],
                         brand_profile=brand_profile,
                         regenerate=_regenerate,
-                        region=(0, 0, 1200, 627),
+                        region=(0, 0, 1200, 627) if poster_treatment != "photo-band" else (0, 0, 1200, 420),
                         repo_root=ROOT,
+                        treatment=poster_treatment,
                     )
                     if judge:
                         ideogram_judge = {
@@ -565,8 +580,19 @@ class CommMakerHandler(http.server.SimpleHTTPRequestHandler):
                             "reason": judge.get("reason") or "",
                             "attempts": int(judge.get("attempts") or 1),
                             "retried": bool(judge.get("retried")),
+                            "treatment": poster_treatment,
                         }
-                        if judge.get("imagePath"):
+                        if judge.get("treatment"):
+                            poster_treatment = str(judge["treatment"])
+                            ideogram_judge["treatment"] = poster_treatment
+                            creative_brief = {**creative_brief, "treatment": poster_treatment}
+                        if judge.get("dropImage"):
+                            hero_rel = None
+                            picture_bytes = None
+                            generated_assets.clear()
+                            hero_meta = {}
+                            creative_brief = {**creative_brief, "heroStrategy": "solid", "treatment": "quiet-type"}
+                        elif judge.get("imagePath"):
                             hero_rel = str(judge["imagePath"])
                             generated_assets[-1]["path"] = hero_rel
                             generated_assets[-1]["source"] = "ideogram-4-retry"
@@ -742,6 +768,7 @@ class CommMakerHandler(http.server.SimpleHTTPRequestHandler):
                 score=((batch.get("meta") or {}).get("designAudit") or {}).get("score"),
                 ideogram_ms=int(ideogram_ms),
                 judge=ideogram_judge,
+                treatment=(ideogram_judge or {}).get("treatment") or poster_treatment or None,
             )
             sys.stderr.write(
                 "CommMaker poster: template=%s ideogramUsed=%s ideogramMs=%s ideogramError=%s\n"

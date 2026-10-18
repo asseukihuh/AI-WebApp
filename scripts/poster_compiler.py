@@ -1160,17 +1160,28 @@ def compile_poster_batch(
 
     tpl = design.get_template(template_name)
     plan = _plan(tpl.name)
-    sheet = bool(hero_relative_path) and tpl.image_region != (0, 0, LINKEDIN_WIDTH, LINKEDIN_HEIGHT)
-    if sheet:
-        plan = design.place_type_in_quiet_zone(plan, design.quiet_zone_for(tpl.name))
     energy = brand_layout_energy(kit, brand_profile)
+    treatment = design.choose_treatment(brief, energy)
+    # Only the treatments that are a full sheet cover the canvas. A photo band
+    # and a quiet type poster do not.
+    reserved_well = tpl.image_region != (0, 0, LINKEDIN_WIDTH, LINKEDIN_HEIGHT)
+    full_sheet = bool(hero_relative_path) and reserved_well and treatment in (
+        "full-sheet",
+        "pattern-field",
+        "illustration-cluster",
+    )
+    photo_band = bool(hero_relative_path) and treatment == "photo-band"
+    if full_sheet:
+        plan = design.place_type_in_quiet_zone(plan, design.treatment_type_zone(treatment))
+    elif photo_band:
+        plan = design.place_type_in_quiet_zone(plan, "lower")
     ground = _ground_color(tpl.name, energy, kit, roles)
-    if ground and not sheet:
+    if ground and not full_sheet:
         identity_field = False
 
         def _sampler_for(tpl: design.LayoutTemplate) -> design.Sampler:
             return design.solid_sampler(ground)
-    elif sheet and has_photo_hero and hero_grid:
+    elif full_sheet and has_photo_hero and hero_grid:
         def _sampler_for(tpl: design.LayoutTemplate) -> design.Sampler:
             return design.raster_sampler(
                 hero_grid,
@@ -1178,7 +1189,7 @@ def compile_poster_batch(
                 align="center",
             )
 
-    surface = None if sheet else _surface_color(tpl)
+    surface = None if full_sheet or photo_band else _surface_color(tpl)
     scrim_alpha: float | None = 0.0
     scrim_color = roles.dark
     if surface:
@@ -1190,7 +1201,7 @@ def compile_poster_batch(
         zone = plan.text_zone or (design.MARGIN_X, design.MARGIN_Y, 600, 300)
         raw_samples = _zone_samples(tpl, zone)
         text_color, scrim_alpha, scrim_color = _pick_text_and_scrim(raw_samples, roles)
-        if sheet:
+        if full_sheet or photo_band:
             # Type stays on the full-bleed image, not on a side panel.
             if scrim_alpha and scrim_alpha > 0:
                 scrim_alpha = round(min(design.SCRIM_MAX_ALPHA, scrim_alpha + 0.05), 3)
@@ -1272,13 +1283,30 @@ def compile_poster_batch(
     # A fitted picture must be placed after the Field step. Background placements are
     # painted first, and the solid field would cover the bitmap.
     picture_on_top: dict[str, Any] | None = None
-    if hero_relative_path:
-        # One full-bleed image. Type layers are drawn later, on top of it.
+    if hero_relative_path and photo_band:
+        band_x, band_y, band_w, band_h = design.PHOTO_BAND
+        known_w = hero_width or 1280
+        known_h = hero_height or 720
+        placement = _hero_background_placement(
+            hero_relative_path,
+            img_width=known_w,
+            img_height=known_h,
+            layer_name="Background",
+        )
+        placement["name"] = "Background"
+        placement["cover"] = False
+        placement["fit"] = False
+        placement["center"] = [round(band_x + band_w / 2, 1), round(band_y + band_h / 2, 1)]
+        placement["scale"] = round(region_cover_scale_percent(known_w, known_h, band_w, band_h), 2)
+        background_placements.append(placement)
+    elif hero_relative_path:
+        # Full-sheet, pattern, and illustration treatments cover the canvas.
+        # Other heroes keep the canvas cover only when that is the chosen frame.
         placement = _hero_background_placement(
             hero_relative_path,
             img_width=hero_width,
             img_height=hero_height,
-            layer_name="Background" if ideogram_layers else "Hero image",
+            layer_name="Background" if ideogram_layers or full_sheet else "Hero image",
         )
         placement["name"] = "Background"
         background_placements.append(placement)

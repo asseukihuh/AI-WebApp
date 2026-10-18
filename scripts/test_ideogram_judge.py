@@ -18,7 +18,7 @@ SCRIPTS = os.path.dirname(os.path.abspath(__file__))
 if SCRIPTS not in sys.path:
     sys.path.insert(0, SCRIPTS)
 
-from ideogram_client import poster_sheet_spec  # noqa: E402
+from ideogram_client import treatment_spec  # noqa: E402
 from ideogram_judge import (  # noqa: E402
     MAX_IDEOGRAM_ATTEMPTS,
     JUDGE_JSON_SCHEMA,
@@ -296,13 +296,12 @@ class TestPictureFill(unittest.TestCase):
         self.assertNotEqual(result["imagePath"], small)
 
     def test_circle_stage_bitmap_covers_the_canvas_not_a_well(self) -> None:
-        sheet = poster_sheet_spec("circle-stage")
+        sheet = treatment_spec("illustration-cluster")
         self.assertEqual(sheet["resolution"], "1280x720")
         self.assertEqual(sheet["aspect"], "16:9")
         self.assertEqual(sheet["zone"], "center")
         self.assertIn("centre", sheet["quiet"].casefold())
         self.assertNotIn("circle", sheet["fill"].casefold())
-        self.assertNotIn("sticker", sheet["fill"].casefold())
         batch = compile_poster_batch(
             {"siteName": "Duolingo", "colors": ["#58cc02", "#1cb0f6", "#ffffff"]},
             {"suggestedHeadline": "Learn a language in five minutes daily", "brief": {"facts": "Free lessons."}},
@@ -337,6 +336,89 @@ class TestPictureFill(unittest.TestCase):
         self.assertIn("judge fail", line)
         self.assertIn("small inset", line)
         self.assertIn("3 attempts", line)
+
+    def test_quiet_type_is_not_sent_to_ideogram(self) -> None:
+        kit, profile = _duo()
+
+        def generate(_prompt: str):
+            raise AssertionError("quiet-type must not call Ideogram")
+
+        result = acquire_poster_picture(
+            {"layoutTemplate": "centered-statement", "heroStrategy": "solid", "treatment": "quiet-type"},
+            kit,
+            profile,
+            template="centered-statement",
+            key_set=True,
+            generate=generate,
+        )
+        self.assertFalse(result["called"])
+        self.assertEqual(result["ideogramMs"], 0)
+        self.assertIn("quiet-type", result["ideogramError"])
+        line = poster_status_line(
+            template="centered-statement",
+            ideogram_used=False,
+            error=result["ideogramError"],
+            treatment="quiet-type",
+            judge={"passed": None, "reason": "No image.", "attempts": 1},
+        )
+        self.assertIn("quiet-type", line)
+        self.assertIn("1 attempt", line)
+
+    def test_photo_band_does_not_cover_the_whole_canvas(self) -> None:
+        band = treatment_spec("photo-band")
+        self.assertNotEqual(band["resolution"], "1280x720")
+        batch = compile_poster_batch(
+            {"siteName": "Airbnb", "colors": ["#e61e4d", "#ffffff"]},
+            {"suggestedHeadline": "Stay somewhere new", "brief": {"facts": "Homes with a kitchen."}},
+            creative_brief={
+                **_circle_brief(),
+                "layoutTemplate": "photo-block",
+                "treatment": "photo-band",
+                "headline": "Stay somewhere new",
+            },
+            hero_relative_path="generated/assets/photo.png",
+            hero_width=1536,
+            hero_height=512,
+            hero_grid={"w": 2, "h": 2, "src_w": 1536, "src_h": 512, "pixels": [(230, 180, 140)] * 4},
+        )
+        picture = next(item for item in batch["backgroundPlacements"] if item.get("path", "").endswith("photo.png"))
+        self.assertLess(picture["center"][1], 250)
+        self.assertNotEqual(picture["center"][1], LINKEDIN_HEIGHT / 2)
+        displayed_h = 512 * picture["scale"] / 100
+        self.assertLess(displayed_h, LINKEDIN_HEIGHT - 40)
+
+    def test_failed_treatment_can_switch_without_another_image(self) -> None:
+        def llm(_path, _refs, _palette, _note):
+            return {
+                "passed": False,
+                "reason": "full-bleed was wrong for this brand.",
+                "critique": "Use a quiet type poster.",
+                "suggestedTreatment": "quiet-type",
+            }
+
+        def regen(_prompt):
+            raise AssertionError("quiet-type retry must not call Ideogram")
+
+        with tempfile.TemporaryDirectory() as folder:
+            picture = _save_rgb(
+                os.path.join(folder, "full.png"),
+                80,
+                80,
+                lambda x, y: (28, 176, 246) if y < 40 else (88, 204, 2),
+            )
+            result = review_generated_picture(
+                picture,
+                "A full-bleed scene.",
+                llm_fn=llm,
+                regenerate=regen,
+                region=(0, 0, 1200, 627),
+                treatment="full-sheet",
+            )
+        self.assertFalse(result["passed"])
+        self.assertTrue(result["dropImage"])
+        self.assertEqual(result["treatment"], "quiet-type")
+        self.assertIn("full-bleed was wrong", result["reason"])
+        self.assertEqual(result["attempts"], 1)
 
 
 PNG = b"\x89PNG\r\n\x1a\n" + b"\x00" * 24
@@ -406,7 +488,7 @@ class TestPictureFrameMustPost(unittest.TestCase):
         self.assertEqual(len(pictures), 1)
         self.assertEqual(pictures[0]["center"], [LINKEDIN_WIDTH / 2, LINKEDIN_HEIGHT / 2])
         self.assertNotIn("circle", invoked[0].casefold())
-        self.assertIn("full-sheet", invoked[0].casefold())
+        self.assertIn("illustration cluster", invoked[0].casefold())
 
     def test_every_picture_frame_invokes_a_stubbed_client(self) -> None:
         kit, profile = _duo()

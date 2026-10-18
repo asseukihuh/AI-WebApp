@@ -1019,6 +1019,57 @@ def logo_target_size(img_w: int | None, img_h: int | None) -> tuple[float, float
     return w, h
 
 
+TREATMENTS = ("full-sheet", "photo-band", "pattern-field", "illustration-cluster", "quiet-type")
+IMAGE_TREATMENTS = frozenset({"full-sheet", "photo-band", "pattern-field", "illustration-cluster"})
+# Photograph above a type band. Not a full-bleed sheet.
+PHOTO_BAND: Box = (0.0, 0.0, CANVAS_W, 420.0)
+
+
+def treatment_needs_image(treatment: str | None) -> bool:
+    return treatment in IMAGE_TREATMENTS
+
+
+def treatment_for_energy(energy: str | None) -> str:
+    """Pick a poster treatment from the brand. A stark brand stays type-led."""
+    if energy in ("quiet-type", "mark-stage", "type-only", "communique", "device-stage"):
+        return "quiet-type"
+    if energy in ("photo-block", "photo-card", "product-card"):
+        return "photo-band"
+    if energy == "gradient-field":
+        return "pattern-field"
+    if energy in ("circle-stage", "character-scene", "product-ui"):
+        return "illustration-cluster"
+    return "full-sheet"
+
+
+def treatment_for_template(name: str | None) -> str:
+    if name in ("type-only", "communique", "mark-stage", "device-stage", "centered-statement"):
+        return "quiet-type"
+    if name in ("photo-block", "photo-card", "product-card", "split-text-left"):
+        return "photo-band"
+    if name in ("circle-stage", "character-scene", "product-ui"):
+        return "illustration-cluster"
+    if name == "full-bleed-scrim":
+        return "pattern-field"
+    return "full-sheet"
+
+
+def choose_treatment(brief: dict[str, Any] | None, energy: str | None = None) -> str:
+    """The brief's treatment wins. Otherwise the brand energy chooses."""
+    raw = (brief or {}).get("treatment")
+    if raw in TREATMENTS:
+        return str(raw)
+    if energy:
+        return treatment_for_energy(energy)
+    return treatment_for_template(str((brief or {}).get("layoutTemplate") or ""))
+
+
+def treatment_type_zone(treatment: str) -> str:
+    if treatment in ("pattern-field", "illustration-cluster"):
+        return "center"
+    return "lower"
+
+
 def quiet_zone_for(template: str | None) -> str:
     """Where editable type sits on a full-sheet poster. Not a side column beside a picture box."""
     if template in ("photo-block", "photo-card", "product-card", "split-text-left", "full-bleed-scrim"):

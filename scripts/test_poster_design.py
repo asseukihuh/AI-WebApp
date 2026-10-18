@@ -365,8 +365,7 @@ class TestIdeogramPrompt(unittest.TestCase):
         self.assertTrue(elements)
         self.assertTrue(all(e["type"] == "obj" for e in elements))
         blob = json.dumps(prompt)
-        self.assertIn("full-sheet poster", blob)
-        self.assertIn("quiet band along the bottom", blob)
+        self.assertIn("type band", blob)
         self.assertNotIn("generous negative space", blob)
         self.assertNotIn("circle", blob.lower())
         for element in elements:

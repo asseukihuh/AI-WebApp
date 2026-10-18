@@ -45,8 +45,12 @@ JUDGE_JSON_SCHEMA: dict[str, Any] = {
         "passed": {"type": "boolean"},
         "reason": {"type": "string"},
         "critique": {"type": "string"},
+        "suggestedTreatment": {
+            "type": "string",
+            "enum": ["same", "full-sheet", "photo-band", "pattern-field", "illustration-cluster", "quiet-type"],
+        },
     },
-    "required": ["passed", "reason", "critique"],
+    "required": ["passed", "reason", "critique", "suggestedTreatment"],
 }
 
 # One generate plus two retries. The first tiny image is not returned as a pass.
@@ -61,7 +65,10 @@ _SYSTEM = (
 
 _RUBRIC = """Score image 1, the full poster canvas. Later images, if any, are the brand (a screenshot or the scraped logo).
 
+The poster used the treatment named in the request. You may reject that treatment, not only the pixels. "full-bleed was wrong for this brand" is a valid fail. If another treatment would fit the brand better, set suggestedTreatment to one of full-sheet, photo-band, pattern-field, illustration-cluster, or quiet-type. Otherwise set suggestedTreatment to same.
+
 Fail when any of these are true:
+- The treatment does not fit the brand (for example a full-bleed sheet on a stark type-led brand).
 - It is a split layout: words or empty space on one side and a picture box or sticker on the other.
 - The subject is cramped into a corner.
 - It is a huge empty field with a tiny subject.
@@ -139,7 +146,11 @@ def _imagery_note(brand_profile: dict[str, Any] | None) -> str:
 def _parse_verdict(raw: dict[str, Any]) -> dict[str, Any]:
     reason = " ".join(str(raw.get("reason") or "").split())[:180] or "No reason given."
     critique = " ".join(str(raw.get("critique") or "").split())[:400]
-    return {"passed": bool(raw.get("passed")), "reason": reason, "critique": critique}
+    suggested = str(raw.get("suggestedTreatment") or "same")
+    allowed = {"same", "full-sheet", "photo-band", "pattern-field", "illustration-cluster", "quiet-type"}
+    if suggested not in allowed:
+        suggested = "same"
+    return {"passed": bool(raw.get("passed")), "reason": reason, "critique": critique, "suggestedTreatment": suggested}
 
 
 def _call_anthropic(content: list[dict[str, Any]], *, api_key: str, model: str) -> dict[str, Any]:
@@ -250,9 +261,12 @@ def poster_status_line(
     score: int | None = None,
     ideogram_ms: int | None = None,
     judge: dict[str, Any] | None = None,
+    treatment: str | None = None,
 ) -> str:
     """Crisis status. A skip names the reason and shows 0 ms, so it cannot look like a hit."""
     parts: list[str] = []
+    if treatment:
+        parts.append(treatment)
     if template:
         parts.append(template)
     if error:
@@ -306,18 +320,18 @@ def _picture_prompt(
     if direction and not any(word in direction.casefold() for word in ("circle", "circular", "disc", "disk")):
         prompt = f"{prompt}. {direction}"
     try:
-        from ideogram_client import poster_sheet_spec
+        from ideogram_client import treatment_spec
+        from poster_design import choose_treatment
 
-        sheet = poster_sheet_spec(template)
-        prompt = (
-            f"{prompt}. Full-sheet poster, aspect {sheet['aspect']}. {sheet['fill']} {sheet['quiet']} "
-            "Use the brand palette and imagery style. No lettering."
-        )
+        kind = choose_treatment(brief)
+        spec = treatment_spec(kind)
+        if spec.get("fill"):
+            prompt = (
+                f"{prompt}. Treatment {kind}. {spec['fill']} {spec.get('quiet') or ''} "
+                "Match the brand's colours and imagery. No lettering."
+            )
     except Exception:  # noqa: BLE001 — the scene prompt still POSTs
-        prompt = (
-            f"{prompt}. A full-sheet poster composition, one focal subject, "
-            "a quiet area for type. No lettering."
-        )
+        prompt = f"{prompt}. Match the brand's colours and imagery. No lettering."
     return " ".join(prompt.split())
 
 
@@ -349,10 +363,25 @@ def acquire_poster_picture(
         "ideogramError": None,
         "called": False,
     }
-    if template_skips_ideogram(template) or not template_needs_raster(template):
+    from poster_design import choose_treatment, treatment_needs_image
+
+    try:
+        from creative_brief import brand_layout_energy
+
+        energy = brand_layout_energy(kit, brand_profile)
+    except Exception:  # noqa: BLE001 — fall back to the template name
+        energy = ""
+    treatment = choose_treatment(prepared, energy)
+    prepared["treatment"] = treatment
+    result["brief"] = prepared
+    result["treatment"] = treatment
+    if template_skips_ideogram(template) or treatment == "quiet-type" or not treatment_needs_image(treatment):
         prepared["heroStrategy"] = "solid"
         result["brief"] = prepared
-        result["ideogramError"] = f"{template or 'unknown'} is not a picture frame — Ideogram skipped."
+        if treatment == "quiet-type" or not treatment_needs_image(treatment):
+            result["ideogramError"] = "quiet-type poster — Ideogram skipped."
+        else:
+            result["ideogramError"] = f"{template or 'unknown'} is not a picture frame — Ideogram skipped."
         return result
     if not key_set:
         result["ideogramError"] = "IDEOGRAM_API_KEY not set — picture stand-in only."
@@ -685,9 +714,21 @@ def _judge_one(
             "critique": "",
         }
     if local and local.get("passed") is False:
-        return {"passed": False, "reason": local["reason"], "critique": local["critique"], "skipped": False}
+        return {
+            "passed": False,
+            "reason": local["reason"],
+            "critique": local["critique"],
+            "suggestedTreatment": (vision or {}).get("suggestedTreatment") or "same",
+            "skipped": False,
+        }
     if vision and vision.get("passed") is False:
-        return {"passed": False, "reason": vision["reason"], "critique": vision.get("critique") or "", "skipped": False}
+        return {
+            "passed": False,
+            "reason": vision["reason"],
+            "critique": vision.get("critique") or "",
+            "suggestedTreatment": vision.get("suggestedTreatment") or "same",
+            "skipped": False,
+        }
     if vision and vision.get("passed") is True and not (local and local.get("passed") is False):
         return {"passed": True, "reason": vision["reason"], "critique": "", "skipped": False}
     if skipped or (vision and vision.get("passed") is None):
@@ -709,15 +750,20 @@ def review_generated_picture(
     regenerate: Callable[[str], tuple[str, bytes, dict[str, Any]]] | None = None,
     region: tuple[float, float, float, float] | None = None,
     repo_root: str | None = None,
+    treatment: str | None = None,
 ) -> dict[str, Any]:
     """Judge the composed poster. Up to two extra Ideogram calls. Place a pass, or the last image.
 
     ``imagePath`` is None when the first image is the one to place. Otherwise it is
     the project-relative path of the chosen later attempt.
     """
+    from poster_design import TREATMENTS, treatment_needs_image
+
     refs = [p for p in (reference_paths or []) if p][:JUDGE_MAX_REFERENCES]
     current_abs = _resolve_image(image_path, repo_root)
     current_rel: str | None = None
+    current_treatment = treatment or ""
+    switched = False
     last: dict[str, Any] = {"passed": False, "reason": "The picture did not pass.", "critique": ""}
     for attempt in range(1, MAX_IDEOGRAM_ATTEMPTS + 1):
         verdict = _judge_one(current_abs, refs, palette, brand_profile, llm_fn, region)
@@ -730,6 +776,8 @@ def review_generated_picture(
                 "retried": attempt > 1,
                 "skipped": False,
                 "imagePath": current_rel,
+                "treatment": current_treatment,
+                "dropImage": False,
             }
         if verdict.get("skipped") and verdict.get("passed") is None:
             return {
@@ -739,12 +787,38 @@ def review_generated_picture(
                 "retried": attempt > 1,
                 "skipped": True,
                 "imagePath": current_rel,
+                "treatment": current_treatment,
+                "dropImage": False,
             }
+        suggested = str(verdict.get("suggestedTreatment") or "same")
+        if (
+            not switched
+            and suggested in TREATMENTS
+            and suggested != current_treatment
+            and suggested != "same"
+        ):
+            current_treatment = suggested
+            switched = True
         if attempt == MAX_IDEOGRAM_ATTEMPTS or regenerate is None:
             break
+        if switched and (current_treatment == "quiet-type" or not treatment_needs_image(current_treatment)):
+            return {
+                "passed": False,
+                "reason": verdict.get("reason") or "The treatment did not fit the brand.",
+                "attempts": attempt,
+                "retried": attempt > 1,
+                "skipped": False,
+                "imagePath": None,
+                "treatment": "quiet-type",
+                "dropImage": True,
+            }
         try:
             rel, _data, _meta = regenerate(
-                retry_prompt(prompt, verdict.get("reason") or "", verdict.get("critique") or "")
+                retry_prompt(
+                    f"{prompt} Treatment {current_treatment}.",
+                    verdict.get("reason") or "",
+                    verdict.get("critique") or "",
+                )
             )
         except (
             urllib.error.URLError,
@@ -761,6 +835,8 @@ def review_generated_picture(
                 "retried": attempt > 1,
                 "skipped": False,
                 "imagePath": current_rel,
+                "treatment": current_treatment,
+                "dropImage": False,
             }
         current_rel = str(rel)
         current_abs = _resolve_image(current_rel, repo_root)
@@ -771,4 +847,6 @@ def review_generated_picture(
         "retried": current_rel is not None,
         "skipped": False,
         "imagePath": current_rel,
+        "treatment": current_treatment,
+        "dropImage": False,
     }

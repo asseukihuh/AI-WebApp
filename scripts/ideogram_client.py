@@ -204,6 +204,7 @@ def build_structured_prompt(
     brand_terms: list[str] | None = None,
     mood: str | None = None,
     brand_profile: dict | None = None,
+    treatment: str | None = None,
 ) -> dict:
     """Ideogram 4 JSON caption: zero ``text`` elements, subject boxes away from the text zone.
 
@@ -251,12 +252,12 @@ def build_structured_prompt(
                 ],
             },
         }
-    sheet = poster_sheet_spec(template)
+    sheet = treatment_spec(treatment or treatment_for_name(template))
     # Subject stays on the sheet, clear of a corner, and leaves the quiet type area open.
     subject_box = [80, 40, 920, 680] if sheet["zone"] == "lower" else [120, 80, 880, 920]
     return {
         "high_level_description": (
-            f"Text-free full-sheet poster, aspect {sheet['aspect']}. {clean}. "
+            f"Text-free {sheet['treatment'].replace('-', ' ')}, aspect {sheet['aspect']}. {clean}. "
             f"{sheet['fill']} {sheet['quiet']} No lettering."
         ),
         "style_description": {
@@ -291,21 +292,66 @@ def _parse_resolution(resolution: str) -> tuple[int, int] | None:
     return int(match.group(1)), int(match.group(2))
 
 
-def poster_sheet_spec(template: str | None) -> dict[str, str]:
-    """Full 1200×627 poster. Closest Ideogram 4 aspect is about 16:9."""
-    from poster_design import quiet_zone_for, quiet_zone_phrase
+def treatment_for_name(template: str | None) -> str:
+    from poster_design import treatment_for_template
 
-    zone = quiet_zone_for(template)
+    return treatment_for_template(template)
+
+
+def treatment_spec(treatment: str | None) -> dict[str, str]:
+    """Prompt and Ideogram size for one treatment. Quiet type has no image."""
+    kind = treatment if treatment in (
+        "full-sheet",
+        "photo-band",
+        "pattern-field",
+        "illustration-cluster",
+        "quiet-type",
+    ) else "full-sheet"
+    if kind == "quiet-type":
+        return {"treatment": kind, "resolution": "", "aspect": "", "zone": "center", "fill": "", "quiet": "", "prompt": ""}
+    if kind == "photo-band":
+        return {
+            "treatment": kind,
+            "resolution": closest_ideogram_resolution("1200x440"),
+            "aspect": "wide",
+            "zone": "lower",
+            "quiet": "The type sits in a band below this picture, not inside a corner of it.",
+            "fill": (
+                "A text-free photograph in this brand's colours and imagery, filling its frame. "
+                "It is the picture above a type band, not a full-bleed poster and not a separate box."
+            ),
+            "prompt": "",
+        }
+    if kind == "pattern-field":
+        fill = (
+            "A pattern or graphic field that fills the sheet in this brand's colours. "
+            "One focal motif, with a calmer centre where type will sit. Not a picture box."
+        )
+    elif kind == "illustration-cluster":
+        fill = (
+            "An illustration cluster across the sheet in this brand's colours and imagery. "
+            "The subject gathers around a quieter centre where type will sit. Not a sticker in a corner."
+        )
+    else:
+        fill = (
+            "A full-bleed scene that fills the sheet in this brand's colours and imagery. "
+            "Leave a quieter area for type. Not a separate picture box."
+        )
+    zone = "center" if kind in ("pattern-field", "illustration-cluster") else "lower"
+    quiet = (
+        "Leave the centre quieter so type can sit in the middle."
+        if zone == "center"
+        else "Leave a quieter area for type on the sheet."
+    )
+    resolution = closest_ideogram_resolution("1200x627")
     return {
+        "treatment": kind,
+        "resolution": resolution,
         "aspect": "16:9",
-        "resolution": closest_ideogram_resolution("1200x627"),
         "zone": zone,
-        "quiet": quiet_zone_phrase(zone),
-        "fill": (
-            "A full-sheet poster composition in this brand's colours and imagery. "
-            "One focal subject that belongs to the whole sheet, not cramped into a corner "
-            "and not a separate picture box beside a text column."
-        ),
+        "quiet": quiet,
+        "fill": fill,
+        "prompt": f"{fill} {quiet} No lettering.",
     }
 
 
@@ -513,6 +559,7 @@ def generate_layer_image(
     brand_terms: list[str] | None = None,
     mood: str | None = None,
     brand_profile: dict | None = None,
+    treatment: str | None = None,
 ) -> tuple[str, bytes, dict]:
     """
     Generate a raster layer via Ideogram 4.0 and cache under ``assets_dir``.
@@ -538,6 +585,7 @@ def generate_layer_image(
         brand_terms=brand_terms,
         mood=mood,
         brand_profile=brand_profile,
+        treatment=treatment,
     )
     prompt = structured_prompt_text(structured)
     magic_prompt = resolve_magic_prompt()
