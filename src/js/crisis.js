@@ -310,6 +310,7 @@ async function generatePosterInPhotoCraft() {
                 designScore: data.designAudit?.score ?? null,
                 ideogramUsed: Boolean(data.ideogramUsed),
                 promptSnippet: data.promptSnippet || "",
+                ideogramJudge: data.ideogramJudge || null,
                 cliAvailable: data.cliAvailable,
                 generatedAt: new Date().toISOString(),
                 cliError: data.cliError || null,
@@ -340,9 +341,13 @@ async function generatePosterInPhotoCraft() {
                 : "";
         const frameNote = data.layoutTemplate ? ` Frame: ${data.layoutTemplate}.` : "";
         const snippetNote = data.promptSnippet ? ` Prompt: ${data.promptSnippet}` : "";
+        const judge = data.ideogramJudge
+        const judgeNote = judge
+            ? ` Judge: ${judge.passed === true ? "pass" : judge.passed === false ? "fail" : "skipped"}. ${judge.reason || ""}${judge.retried ? " Retry ran." : " No retry."}`
+            : ""
         const heroNote =
             data.ideogramUsed || data.heroSource === "ideogram-4"
-                ? ` Ideogram: yes.${frameNote}${snippetNote}`
+                ? ` Ideogram: yes.${frameNote}${snippetNote}${judgeNote}`
                 : data.ideogramFallback
                   ? ` Ideogram: no.${frameNote} ${data.ideogramFallback}`
                   : ` Ideogram: no.${frameNote}${strategyNote}`;
