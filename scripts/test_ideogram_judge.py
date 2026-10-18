@@ -297,7 +297,7 @@ class TestPictureFill(unittest.TestCase):
 
     def test_circle_stage_bitmap_covers_the_canvas_not_a_well(self) -> None:
         sheet = treatment_spec("illustration-cluster")
-        self.assertEqual(sheet["resolution"], "1280x720")
+        self.assertEqual(sheet["resolution"], "1440x720")
         self.assertEqual(sheet["aspect"], "16:9")
         self.assertEqual(sheet["zone"], "center")
         self.assertIn("centre", sheet["quiet"].casefold())

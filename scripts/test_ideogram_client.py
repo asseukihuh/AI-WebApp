@@ -38,17 +38,20 @@ class TestIdeogramConditioning(unittest.TestCase):
 
 
 class TestIdeogramResolution(unittest.TestCase):
-    def test_linkedin_maps_to_1280x720(self) -> None:
-        self.assertEqual(closest_ideogram_resolution("1200x627"), "1280x720")
+    def test_linkedin_maps_to_a_4_5_preset(self) -> None:
+        self.assertEqual(closest_ideogram_resolution("1200x627"), "1440x720")
+        self.assertNotEqual(closest_ideogram_resolution("1200x627"), "1280x720")
 
     def test_role_resolution_background(self) -> None:
-        self.assertEqual(resolve_layer_resolution("background", "1200x627"), "1280x720")
+        self.assertEqual(resolve_layer_resolution("background", "1200x627"), "1440x720")
 
     def test_role_resolution_accent_default(self) -> None:
         self.assertEqual(resolve_layer_resolution("accent", ""), "1024x1024")
 
     def test_preset_passthrough(self) -> None:
-        self.assertEqual(closest_ideogram_resolution("1280x720"), "1280x720")
+        self.assertEqual(closest_ideogram_resolution("1024x1024"), "1024x1024")
+        self.assertEqual(closest_ideogram_resolution("1440x2880"), "1440x2880")
+        self.assertNotIn("1280x720", [closest_ideogram_resolution("1280x720")])
 
 
 class TestIdeogramGenerateMocked(unittest.TestCase):
@@ -60,7 +63,7 @@ class TestIdeogramGenerateMocked(unittest.TestCase):
                 {
                     "url": "https://cdn.example/hero.png",
                     "is_image_safe": True,
-                    "resolution": "1280x720",
+                    "resolution": "1440x720",
                 }
             ]
         }
@@ -76,12 +79,12 @@ class TestIdeogramGenerateMocked(unittest.TestCase):
             self.assertTrue(rel.startswith("generated/assets/layer-ideogram-background-"))
             self.assertEqual(data[:4], b"\x89PNG")
             self.assertEqual(meta["heroSource"], "ideogram-4.5")
-            self.assertEqual(meta["ideogramResolution"], "1280x720")
+            self.assertEqual(meta["ideogramResolution"], "1440x720")
             basename = rel.split("/")[-1]
             self.assertTrue(os.path.isfile(os.path.join(tmp, basename)))
             mock_api.assert_called_once()
             call_resolution = mock_api.call_args[0][1]
-            self.assertEqual(call_resolution, "1280x720")
+            self.assertEqual(call_resolution, "1440x720")
 
     @patch("ideogram_client._download_image")
     @patch("ideogram_client._call_generate_api")

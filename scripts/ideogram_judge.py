@@ -434,13 +434,26 @@ def acquire_poster_picture(
     t0 = time.perf_counter()
     try:
         rel, data, meta = generate(prompt)
+    except urllib.error.HTTPError as exc:
+        from ideogram_client import ideogram_http_error_message
+
+        result.update(
+            {
+                "brief": prepared,
+                "prompt": prompt,
+                "ideogramMs": int((time.perf_counter() - t0) * 1000),
+                "ideogramError": f"Ideogram failed: {ideogram_http_error_message(exc)}",
+                "called": True,
+            }
+        )
+        return result
     except Exception as exc:  # noqa: BLE001 — report the failure; do not hide it as a stand-in
         result.update(
             {
                 "brief": prepared,
                 "prompt": prompt,
                 "ideogramMs": int((time.perf_counter() - t0) * 1000),
-                "ideogramError": f"Ideogram failed: {type(exc).__name__}: {exc}",
+                "ideogramError": f"Ideogram failed: {exc}",
                 "called": True,
             }
         )

@@ -6,6 +6,11 @@ Project update tracking and changelog for CommMaker.
 
 ## 📝 Recent Updates
 
+### 2026-10-18 - Ideogram 4.5 request body
+
+- The invalid field was `size`. The call sent `1280x720`, an Ideogram 4.0 preset. 4.5 returns 400 for that value. A 1200×627 poster now asks for `1440x720`.
+- Example files that are not JPEG, PNG, or WEBP are not uploaded. An SVG is rasterized to PNG when that works, and dropped when it does not. A 400 includes Ideogram’s JSON message, such as `Invalid input`, in `ideogramError`.
+
 ### 2026-10-18 - Scraped logos and the site's own type
 
 - The logo layer is the scraped SVG or PNG, unchanged. A poor contrast mark gets a brand-color plate behind it. The file is not recolored, traced, or replaced with typeset letters. Ideogram is told not to draw a logo or a wordmark.
