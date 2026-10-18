@@ -9,7 +9,7 @@ Project update tracking, changelog, and roadmap for `ai-webapp`.
 ### 2026-10-18 - Website and social images feed the Ideogram prompt
 
 - The brand pass stores a small packet: palette hexes with roles, one imagery line written from the site screenshots and public social images, and up to five graphic examples that are not page text.
-- Posters call Ideogram 4.5 (`POST /v2/image/generate/ideogram-4-5`) for every treatment, including a quiet type poster. Brand capture screenshots distinct components. Claude keeps up to five graphic crops and skips page text. All of those crops are uploaded on the `images` field as examples for the one poster. The prompt asks for a new text-free asset in that visual language and says not to copy the words. The judge compares the poster to those examples. A generic black triangle fails, and the retry uploads the examples again.
+- Posters call Ideogram 4.5 (`POST /v2/image/generate/ideogram-4-5`) for every treatment, including a quiet type poster. Brand capture screenshots distinct components. Claude keeps up to five graphic crops and skips page text. All of those crops are uploaded on the `images` field so Ideogram can see how the components are built. The poster is one coherent text-free asset in that language, not a collage of the examples, and it does not copy their words. The judge fails a generic black triangle and a jungle of every example. A retry uploads the same examples again.
 - When Playwright is missing, the status line says screenshots were skipped, so Ideogram only received colours.
 
 ### 2026-10-18 - Logo and headline colour follow the field

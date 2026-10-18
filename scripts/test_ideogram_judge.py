@@ -357,7 +357,7 @@ class TestPictureFill(unittest.TestCase):
         )
         self.assertTrue(result["called"])
         self.assertTrue(result["ideogramUsed"])
-        self.assertIn("text-free asset in this visual language", seen[0])
+        self.assertIn("one coherent text-free asset", seen[0])
         self.assertIn("Do not copy the words in the examples", seen[0])
         line = poster_status_line(
             template="centered-statement",
@@ -575,7 +575,7 @@ class TestPictureFrameMustPost(unittest.TestCase):
         self.assertTrue(result["ideogramUsed"])
         self.assertEqual(result["brief"]["heroStrategy"], "ideogram_generate")
         self.assertEqual(result["brief"]["layoutRecipe"], "photo-hero-type")
-        self.assertIn("text-free asset in this visual language", seen[0])
+        self.assertIn("one coherent text-free asset", seen[0])
         self.assertIn("Do not copy the words in the examples", seen[0])
 
     def test_empty_image_is_not_a_judge_pass(self) -> None:

@@ -77,6 +77,7 @@ Fail when any of these are true:
 - The logo or the headline contrast against the pixels behind it is under 4.5:1.
 - The colours or the imagery do not match the brand palette and the example images.
 - It is a generic black triangle or simple mark with no relation to the example images.
+- It is a jungle: every example pasted into one frame instead of one coherent poster.
 
 Quality bar: Linearity business posters (https://www.linearity.io/templates/business-templates/posters/): one composition across the whole sheet, in the brand's own colours and imagery. A full-bleed photograph with room for type, a pattern that fills the sheet, a graphic field with a type band, or an illustration with room for type in the middle. Not a text column beside a picture box.
 
@@ -139,8 +140,10 @@ def _user_text(palette: list[str] | None, imagery_note: str) -> str:
     note = (imagery_note or "").strip() or "not described"
     return (
         f"{_RUBRIC}\n"
-        "Compare image 1 to this palette and to every example image. "
-        "Fail a generic black triangle that has no relation to those examples.\n"
+        "The later images are examples of how the brand's components are built. "
+        "Use them to judge the language, not as pieces that must all appear. "
+        "Fail a generic black triangle with no relation to them, and fail a jungle that pastes every example into one frame. "
+        "The poster must be one coherent composition.\n"
         f"Brand palette: {colours}.\nImagery: {_truncate(note, 240)}"
     )
 
@@ -347,9 +350,10 @@ def _picture_prompt(
         if spec.get("fill"):
             prompt = (
                 f"{prompt}. Treatment {kind}. {spec['fill']} {spec.get('quiet') or ''} "
-                "Make a new text-free asset in this visual language "
-                "(same materials, shapes, palette), for the "
-                f"{kind} poster. Do not copy the words in the examples."
+                "The example images show how this brand's components are built. "
+                "Study them for materials, shapes, and palette. "
+                f"Make one coherent text-free asset for the {kind} poster in that language. "
+                "Do not paste the examples together. Do not copy the words in the examples."
             )
     except Exception:  # noqa: BLE001 — the scene prompt still POSTs
         prompt = f"{prompt}. Match the brand's colours and imagery. No lettering."
@@ -494,8 +498,9 @@ def retry_prompt(prompt: str, reason: str, critique: str, layout: str = "") -> s
     return (
         f"{prompt.strip()}\n\n"
         f"The previous image failed a picture check: {note} "
-        "Make a new text-free asset in this visual language "
-        "(same materials, shapes, palette). Do not copy the words in the examples. "
+        "Study the examples for materials, shapes, and palette. "
+        "Make one coherent text-free asset in that language. "
+        "Do not paste the examples together. Do not copy the words in the examples. "
         "Show that instead. Fill the frame, subject large, no empty margin inside the image. "
         "No letters, no words, no logo, no frame, no border."
     )

@@ -276,8 +276,9 @@ class TestComponentCrops(unittest.TestCase):
 
             def fake_api(prompt: str, _size: str, **kwargs):
                 calls.append(list(kwargs.get("reference_paths") or []))
-                self.assertIn("examples of the visual language", prompt)
-                self.assertIn("Use all of them", prompt)
+                self.assertIn("how this brand's components are built", prompt)
+                self.assertIn("one coherent text-free asset", prompt)
+                self.assertIn("Do not paste the examples together", prompt)
                 self.assertIn("Do not copy the words in the examples", prompt)
                 return {"data": [{"url": "https://cdn.example/x.png", "is_image_safe": True}]}
 

@@ -337,9 +337,9 @@ def treatment_spec(treatment: str | None) -> dict[str, str]:
             "zone": "center",
             "quiet": "The words sit on this field in editable type.",
             "fill": (
-                "Make a new text-free asset in this visual language "
-                "(same materials, shapes, palette), for the quiet-type poster. "
-                "Do not copy the words in the examples."
+                "Study the example images for materials, shapes, and palette. "
+                "Make one coherent text-free asset for the quiet-type poster in that language. "
+                "Do not paste the examples together. Do not copy the words in the examples."
             ),
             "prompt": "",
         }
@@ -707,9 +707,10 @@ def generate_layer_image(
     if reference_paths:
         kind = treatment or "poster"
         prompt = (
-            f"These {len(reference_paths)} attached images are examples of the visual language. "
-            "Use all of them to make one new text-free asset "
-            f"(same materials, shapes, palette), for the {kind} poster. "
+            f"These {len(reference_paths)} attached images show how this brand's components are built. "
+            "Study all of them for materials, shapes, and palette. "
+            f"Make one coherent text-free asset for the {kind} poster in that language. "
+            "Do not paste the examples together into a jungle. "
             "Do not copy the words in the examples. "
             + prompt
         )
