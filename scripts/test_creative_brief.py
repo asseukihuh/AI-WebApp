@@ -30,6 +30,7 @@ from creative_brief import (  # noqa: E402
     api_key_for_provider,
     build_creative_brief,
     build_fallback_brief,
+    named_subject_sentence,
     coerce_ideogram_for_unsuitable_kit_hero,
     default_model_for_provider,
     resolve_llm_model,
@@ -571,9 +572,31 @@ class TestLayoutEnergy(unittest.TestCase):
         self.assertEqual(brief["layoutTemplate"], "photo-block")
         self.assertEqual(brief["heroStrategy"], "ideogram_generate")
         self.assertNotIn("remix", (brief.get("heroImagePrompt") or "").lower())
-        self.assertIn("home interior", brief["heroImagePrompt"].lower())
+        self.assertIn("one photograph of a sunlit home interior", brief["heroImagePrompt"].lower())
+        self.assertIn("no logo", brief["heroImagePrompt"].lower())
+        self.assertNotIn("visual language", brief["heroImagePrompt"].lower())
         self.assertIn("abstract blur", brief["heroImagePrompt"].lower())
         self.assertNotIn("right half", brief["heroImagePrompt"].lower())
+
+    def test_user_prompt_stays_the_instruction_and_names_the_subject(self) -> None:
+        photo = {"siteName": "Airbnb", "colors": ["#ff5a5f"]}
+        profile = {"imageryStyle": {"primaryMedium": "photography", "ideogramPrompt": "A UI card with a search button"}}
+        prompt = "a sunlit kitchen, coral band, headline Stay somewhere new"
+        brief = build_fallback_brief(
+            photo,
+            {"posterPrompt": prompt, "crisisFacts": "Homes with a kitchen."},
+            brand_profile=profile,
+        )
+        text = brief["heroImagePrompt"]
+        self.assertIn("a sunlit kitchen, coral band", text)
+        self.assertIn("one photograph of a sunlit home interior, no text, no logo, no buttons.", text)
+        self.assertNotIn("ui card", text.casefold())
+        self.assertEqual(brief["headline"], "Stay somewhere new")
+        drawn = {"siteName": "Duolingo", "colors": ["#78c800"]}
+        drawn_profile = {"imageryStyle": {"primaryMedium": "illustration", "motifs": ["mascot"]}}
+        character = named_subject_sentence(drawn, drawn_profile)
+        self.assertIn("one flat character in these hex colours", character)
+        self.assertIn("#78c800", character)
 
     def test_photo_standin_is_not_a_flat_gradient(self) -> None:
         kit = {"siteName": "Airbnb", "colors": ["#e61e4d", "#ffffff"]}
@@ -607,7 +630,8 @@ class TestCircleStagePicture(unittest.TestCase):
         profile = {"imageryStyle": {"primaryMedium": "illustration", "motifs": ["mascot"]}}
         scene = raster_scene_prompt("circle-stage", kit, profile, existing="Hold this inside a circle")
         self.assertNotIn("circle", scene.casefold())
-        self.assertIn("green character", scene)
+        self.assertIn("one flat character in these hex colours", scene)
+        self.assertIn("#78c800", scene)
         self.assertIn("no letters", scene.casefold())
         brief = prepare_picture_brief(
             {

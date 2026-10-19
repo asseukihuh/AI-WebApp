@@ -338,22 +338,19 @@ def _picture_prompt(
     brand_profile: dict[str, Any] | None,
     template: str,
 ) -> str:
-    prompt = str(brief.get("heroImagePrompt") or "").strip()
+    from creative_brief import describes_ui_chrome, named_subject_sentence, poster_prompt_text
+
+    user = poster_prompt_text(brief) or str(brief.get("posterPrompt") or "").strip()
+    prompt = user or str(brief.get("heroImagePrompt") or "").strip()
+    if describes_ui_chrome(prompt):
+        prompt = ""
     if not prompt:
         prompt = raster_scene_prompt(template, kit, brand_profile, "")
-    try:
-        from brand_profile import augment_ideogram_prompt
-
-        prompt = augment_ideogram_prompt(prompt, kit, role="background") or prompt
-    except Exception:  # noqa: BLE001 — the scene prompt is enough to POST
-        pass
-    direction = ""
-    comm = (kit or {}).get("communicationKit") if isinstance(kit, dict) else None
-    if isinstance(comm, dict):
-        imagery = comm.get("imagery") if isinstance(comm.get("imagery"), dict) else {}
-        direction = str(imagery.get("direction") or "")
-    if direction and not any(word in direction.casefold() for word in ("circle", "circular", "disc", "disk")):
-        prompt = f"{prompt}. {direction}"
+    subject = named_subject_sentence(kit, brand_profile)
+    if subject.casefold() not in prompt.casefold():
+        prompt = f"{prompt.rstrip('.')}. {subject}" if prompt else subject
+    prompt = prompt.replace("in the brand's visual language", subject)
+    prompt = prompt.replace("in that language", "for this poster")
     try:
         from ideogram_client import treatment_spec
         from poster_design import choose_treatment
@@ -361,25 +358,14 @@ def _picture_prompt(
         kind = choose_treatment(brief)
         spec = treatment_spec(kind)
         if spec.get("fill"):
-            from creative_brief import brand_wants_home_interior
-
-            scene = spec["fill"]
-            if kind == "photo-band" and brand_wants_home_interior(kit, brand_profile):
-                scene = (
-                    "One text-free photograph of a home interior. "
-                    "A real room in sharp focus. "
-                    "No UI card, no headline, no button, no abstract blur."
-                )
             prompt = (
-                f"{scene} Treatment {kind}. {spec.get('quiet') or ''} "
-                "The example images show how this brand's components are built. "
-                "Study them for materials, shapes, and palette. "
-                f"Make one coherent text-free asset for the {kind} poster in that language. "
+                f"{prompt} Treatment {kind}. {spec.get('quiet') or ''} "
+                "Make one coherent text-free asset. "
                 "Do not paste the examples together. Do not copy the words in the examples. "
-                f"{prompt}"
+                "Do not draw a logo or a wordmark."
             )
     except Exception:  # noqa: BLE001 — the scene prompt still POSTs
-        prompt = f"{prompt}. Match the brand's colours and imagery. No lettering."
+        prompt = f"{prompt}. No text, no logo, no buttons."
     from ideogram_packet import packet_for_poster, prompt_with_packet
 
     packet = packet_for_poster(kit, brand_profile)
@@ -548,6 +534,21 @@ def retry_prompt(prompt: str, reason: str, critique: str, layout: str = "") -> s
         "Show that instead. Fill the frame, subject large, no empty margin inside the image. "
         "No letters, no words, no logo, no frame, no border."
     )
+
+
+def _ui_collage_reason(reason: str) -> bool:
+    text = (reason or "").casefold()
+    return re.search(r"\b(ui|screenshot|collage|button)\b", text) is not None
+
+
+def _image_retry_reason(reason: str) -> bool:
+    """Retry only for text, blur, a UI collage, or the wrong subject. A missing font does not."""
+    if _font_failure_only(reason):
+        return False
+    return re.search(
+        r"\b(text|letters?|words?|blur|ui|screenshot|collage|button|subject|triangle)\b",
+        (reason or "").casefold(),
+    ) is not None
 
 
 def _font_failure_only(reason: str) -> bool:
@@ -956,7 +957,7 @@ def review_generated_picture(
         ):
             current_treatment = suggested
             switched = True
-        if _font_failure_only(str(verdict.get("reason") or "")):
+        if not _image_retry_reason(str(verdict.get("reason") or "")):
             break
         if attempt == MAX_IDEOGRAM_ATTEMPTS or regenerate is None:
             break
@@ -988,13 +989,17 @@ def review_generated_picture(
             }
         current_rel = str(rel)
         current_abs = _resolve_image(current_rel, repo_root)
+    reason = last.get("reason") or "The picture did not pass."
+    # A screenshot edit is not the poster. A prompt-only retry replaces it; if that
+    # result is still a UI collage, do not place the collage.
+    drop = _ui_collage_reason(str(reason)) and current_rel is not None
     return {
         "passed": False,
-        "reason": last.get("reason") or "The picture did not pass.",
+        "reason": reason,
         "attempts": attempt,
         "retried": current_rel is not None,
         "skipped": False,
-        "imagePath": current_rel,
+        "imagePath": None if drop else current_rel,
         "treatment": current_treatment,
-        "dropImage": False,
+        "dropImage": drop,
     }

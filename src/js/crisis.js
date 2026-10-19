@@ -85,7 +85,17 @@ function deriveHeadline(facts) {
     return short;
 }
 
+function headlineFromPosterPrompt(prompt) {
+    const match = String(prompt || "").match(/\bheadline\s+([^.\n]+)/i);
+    if (!match) {
+        return "";
+    }
+    const line = match[1].trim();
+    return line.length > 90 ? `${line.slice(0, 87)}…` : line;
+}
+
 function readForm() {
+    const posterPrompt = document.getElementById("poster-prompt")?.value?.trim() || "";
     const facts = document.getElementById("facts")?.value?.trim() || "";
     const audienceNeed = document.getElementById("audience-need")?.value?.trim() || "";
     const tone =
@@ -93,7 +103,7 @@ function readForm() {
     const legalReviewNeeded = Boolean(
         document.getElementById("legal-review")?.checked
     );
-    return { facts, audienceNeed, tone, legalReviewNeeded };
+    return { posterPrompt, facts, audienceNeed, tone, legalReviewNeeded };
 }
 
 function setPosterStatus(message, { error = false, success = false } = {}) {
@@ -201,6 +211,7 @@ async function fetchCreativeBrief(kit, session) {
             kit,
             crisisMessage: formBrief.headline || session.suggestedHeadline || "",
             crisisFacts: formBrief.facts || "",
+            posterPrompt: formBrief.posterPrompt || "",
             tone: formBrief.tone,
             format: "linkedin-1200x627",
         }),
@@ -228,6 +239,11 @@ function triggerPosterDownload(docPath) {
 form?.addEventListener("submit", async (event) => {
     event.preventDefault();
     const input = readForm();
+    if (!input.posterPrompt) {
+        captionPreview.textContent = "A poster prompt is required.";
+        captionPreview.classList.add("is-error");
+        return;
+    }
     if (!input.facts) {
         captionPreview.textContent = "Confirmed facts are required.";
         captionPreview.classList.add("is-error");
@@ -235,7 +251,7 @@ form?.addEventListener("submit", async (event) => {
     }
 
     generateBtn.disabled = true;
-    const headline = deriveHeadline(input.facts);
+    const headline = headlineFromPosterPrompt(input.posterPrompt) || deriveHeadline(input.facts);
     const brief = {
         ...input,
         headline,

@@ -38,8 +38,10 @@ from ideogram_packet import (  # noqa: E402
     build_ideogram_packet,
     choose_component_crops,
     clean_references,
+    edit_source_kind,
     mostly_page_text,
     prompt_with_packet,
+    uploadable_edit_sources,
 )
 from image_luma import load_rgb_grid  # noqa: E402
 from render_poster_samples import write_png  # noqa: E402
@@ -181,10 +183,11 @@ class TestPacketPrompt(unittest.TestCase):
                     reference_paths=[svg],
                 )
         raw = opened.call_args[0][0].data
-        self.assertNotIn(b'name="size"', raw)
+        self.assertIn(b"2880x1440", raw)
         self.assertNotIn(b"1440x720", raw)
         self.assertNotIn(b"1280x720", raw)
         self.assertNotIn(b"1200x627", raw)
+        self.assertNotIn(b'name="images"', raw)
         self.assertNotIn(b"<svg", raw)
         self.assertNotIn(b"image/svg", raw)
         self.assertIn(b"1024x1024", closest_ideogram_resolution("1024x1024").encode())
@@ -289,6 +292,35 @@ class TestPacketPrompt(unittest.TestCase):
         self.assertIn(b"square.png", raw)
         self.assertNotIn(b"page.png", raw)
         self.assertNotIn(os.path.basename(broken).encode(), raw)
+
+    def test_a_webpage_screenshot_is_not_the_edit_source(self) -> None:
+        mock_resp = MagicMock()
+        mock_resp.read.return_value = b'{"data":[]}'
+        mock_resp.__enter__ = lambda _self: _self
+        mock_resp.__exit__ = MagicMock(return_value=False)
+        with tempfile.TemporaryDirectory() as tmp:
+            photo = os.path.join(tmp, "photo.png")
+            _png(photo, 32, 24, lambda x, y: (20 + x, 90, 140))
+            shot = os.path.join(tmp, "component-0.jpg")
+            _png(shot, 48, 32, lambda x, y: (200, 60, 40))
+            page = os.path.join(tmp, "ui.png")
+            _png(page, 48, 36, lambda x, y: (12, 16, 20) if y % 2 == 0 and x % 2 == 0 else (248, 248, 246))
+            self.assertEqual(edit_source_kind(shot), "screenshot")
+            self.assertEqual(edit_source_kind(page), "screenshot")
+            self.assertEqual(edit_source_kind(photo), "photograph")
+            self.assertEqual(uploadable_edit_sources([shot, page, photo]), [photo])
+            with patch("urllib.request.urlopen", return_value=mock_resp) as opened:
+                _call_generate_api(
+                    "One text-free photograph of a home interior",
+                    "1200x627",
+                    api_key="test-key",
+                    rendering_speed="default",
+                    reference_paths=[shot, page],
+                )
+        raw = opened.call_args[0][0].data
+        self.assertNotIn(b'name="images"', raw)
+        self.assertIn(b"2880x1440", raw)
+        self.assertIn(b"home interior", raw)
 
 
 def _png_claiming_size(width: int, height: int) -> bytes:

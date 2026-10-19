@@ -1162,8 +1162,8 @@ TREATMENTS = ("full-sheet", "photo-band", "pattern-field", "illustration-cluster
 IMAGE_TREATMENTS = frozenset(
     {"full-sheet", "photo-band", "pattern-field", "illustration-cluster", "quiet-type"}
 )
-# Photograph above a type band. Not a full-bleed sheet.
-PHOTO_BAND: Box = (0.0, 0.0, CANVAS_W, 340.0)
+# Photograph on the top two thirds. The type band is the bottom third.
+PHOTO_BAND: Box = (0.0, 0.0, CANVAS_W, round(CANVAS_H * 2 / 3))
 
 
 def treatment_needs_image(treatment: str | None) -> bool:

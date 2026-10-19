@@ -335,6 +335,87 @@ def _tone_to_emphasis(tone: str | None) -> Emphasis:
     return mapping.get((tone or "").strip().lower(), "calm")
 
 
+_UI_CROP_WORDS = ("ui card", "ui-card", "screenshot", "search button", "nav bar", "hero chrome", "webpage")
+
+
+def poster_prompt_text(crisis: dict[str, Any] | None) -> str:
+    """The user's own poster paragraph. It is not a generated title."""
+    if not isinstance(crisis, dict):
+        return ""
+    return str(crisis.get("posterPrompt") or crisis.get("userPrompt") or "").strip()
+
+
+def headline_from_poster_prompt(prompt: str) -> str | None:
+    """A headline written inside the prompt, such as ``headline Stay somewhere new``."""
+    match = re.search(r"\bheadline\s+(.+)$", prompt or "", flags=re.I)
+    if not match:
+        return None
+    line = match.group(1).strip(" .")
+    if not line:
+        return None
+    return _truncate(line, 90)
+
+
+def describes_ui_chrome(text: str) -> bool:
+    folded = (text or "").casefold()
+    return any(word in folded for word in _UI_CROP_WORDS)
+
+
+def named_subject_sentence(
+    kit: dict[str, Any] | None,
+    brand_profile: dict[str, Any] | None = None,
+) -> str:
+    """The picture subject, named. Never only ``in the brand's visual language``."""
+    if _character_brand(kit, brand_profile):
+        colours = _palette_phrase(kit, brand_profile)
+        suffix = f" ({colours})" if colours else ""
+        return f"one flat character in these hex colours{suffix}. No text, no logo, no buttons."
+    if brand_is_photographic(kit, brand_profile) or brand_wants_home_interior(kit, brand_profile):
+        return "one photograph of a sunlit home interior, no text, no logo, no buttons."
+    sold = _sold_subject(kit, brand_profile)
+    return f"one photograph of {sold}, no text, no logo, no buttons."
+
+
+def _sold_subject(kit: dict[str, Any] | None, brand_profile: dict[str, Any] | None) -> str:
+    profile = brand_profile if isinstance(brand_profile, dict) else {}
+    bits = [
+        str(profile.get("businessOverview") or ""),
+        str((kit or {}).get("tagline") or ""),
+        str(profile.get("tagline") or ""),
+        str((kit or {}).get("siteName") or ""),
+    ]
+    for bit in bits:
+        text = " ".join(bit.split())
+        if text and not describes_ui_chrome(text):
+            words = text.split()[:8]
+            return " ".join(words).rstrip(".,")
+    return "the place or object this brand sells"
+
+
+def apply_user_poster_prompt(
+    brief: dict[str, Any],
+    crisis: dict[str, Any] | None,
+    kit: dict[str, Any] | None = None,
+    brand_profile: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    """Keep the user's paragraph as the main instruction. Derive a title from it."""
+    text = poster_prompt_text(crisis) or str((brief or {}).get("posterPrompt") or "").strip()
+    if not text:
+        return brief
+    out = dict(brief)
+    out["posterPrompt"] = text
+    subject = named_subject_sentence(kit, brand_profile)
+    current = str(out.get("heroImagePrompt") or "").strip()
+    if text.casefold() not in current.casefold():
+        out["heroImagePrompt"] = f"{text}. {subject}"
+    elif subject.casefold() not in current.casefold() and "visual language" not in current.casefold():
+        out["heroImagePrompt"] = f"{current.rstrip('.')}. {subject}"
+    headline = headline_from_poster_prompt(text)
+    if headline:
+        out["headline"] = headline
+    return out
+
+
 def _first_fact_line(crisis: dict[str, Any]) -> str:
     """Headline: the crisis message when it fits the headline limit, else the first fact."""
     facts = str(crisis.get("crisisFacts") or crisis.get("facts") or "").strip()
@@ -903,7 +984,7 @@ def build_fallback_brief(
     if template_skips_ideogram(str(brief.get("layoutTemplate") or "")):
         if brief.get("heroStrategy") == "ideogram_generate":
             brief["heroStrategy"] = "solid"
-    return brief
+    return apply_user_poster_prompt(brief, crisis, kit, brand_profile)
 
 
 def _normalize_brief(raw: dict[str, Any]) -> dict[str, Any]:
@@ -1514,14 +1595,7 @@ def raster_scene_prompt(
     colors = _palette_phrase(kit, brand_profile)
     illustration = template in ("circle-stage", "character-scene", "product-ui")
     if illustration or framed or not text:
-        if _character_brand(kit, brand_profile):
-            scene = "A text-free flat illustration of a simple green character in a simple scene, bold flat shapes"
-        elif template in ("photo-block", "photo-card"):
-            scene = "A text-free photograph of a simple sunlit interior, warm materials"
-        elif template == "product-card":
-            scene = "A text-free product photograph of one unmarked pack"
-        else:
-            scene = "A text-free flat illustration in this brand's visual language, a simple scene, bold flat shapes"
+        scene = named_subject_sentence(kit, brand_profile)
         if colors:
             scene += f", using {colors}"
         return scene + ". No letters, no words, no logo, no frame, no border, no UI."
@@ -1566,16 +1640,10 @@ def _energy_image_prompt(
     if energy == "gradient-field" and captured:
         return captured
     if energy == "photo-block":
-        scene = captured or (
-            "One text-free photograph of a home interior, a real room in sharp focus, "
-            "furniture and daylight"
-        )
-        if brand_wants_home_interior(kit, brand_profile) and "interior" not in scene.casefold():
-            scene = "One text-free photograph of a home interior. " + scene
-        return (
-            scene
-            + " The photograph fills the frame. No UI card, no headline, no button, no abstract blur."
-        )
+        scene = named_subject_sentence(kit, brand_profile)
+        if captured and not describes_ui_chrome(captured) and captured.casefold() not in scene.casefold():
+            scene = f"{captured.rstrip('.')}. {scene}"
+        return scene + " The photograph fills the frame. No UI card, no headline, no abstract blur."
     if energy == "circle-stage":
         return raster_scene_prompt("circle-stage", kit, brand_profile, existing=captured)
     if energy == "product-card":
@@ -1643,6 +1711,7 @@ def build_creative_brief(
             llm_kwargs["reference_images"] = images
         brief = _call_llm(provider, kit, crisis, format, **llm_kwargs)
         brief = coerce_ideogram_for_unsuitable_kit_hero(brief, kit, crisis)
+        brief = apply_user_poster_prompt(brief, crisis, kit, brand_profile)
         return _with_conditioning(
             {
                 "brief": brief,
